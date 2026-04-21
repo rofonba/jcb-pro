@@ -28,9 +28,39 @@ export default function App() {
   const [splashVisible, setSplashVisible] = useState(true)
 
   useEffect(() => {
-    const t1 = setTimeout(() => setSplashVisible(false), 2500)
-    const t2 = setTimeout(() => setShowSplash(false), 3200)
-    return () => { clearTimeout(t1); clearTimeout(t2) }
+    console.log('FLASH: Timers del Splash iniciados')
+    let t1, t2, t3
+
+    try {
+      // A los 2.5s arranca el fade-out
+      t1 = setTimeout(() => {
+        console.log('FLASH: Forzando salida del Splash (fade-out)')
+        setSplashVisible(false)
+      }, 2500)
+
+      // A los 3.2s se elimina del DOM
+      t2 = setTimeout(() => {
+        console.log('FLASH: Splash eliminado del DOM')
+        setShowSplash(false)
+      }, 3200)
+
+      // Failsafe: si a los 5s sigue montado, forzar salida sin transición
+      t3 = setTimeout(() => {
+        console.log('FLASH: FAILSAFE activado — forzando display:none')
+        setSplashVisible(false)
+        setShowSplash(false)
+      }, 5000)
+    } catch (e) {
+      console.error('FLASH: Error en timers del Splash', e)
+      setSplashVisible(false)
+      setShowSplash(false)
+    }
+
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+      clearTimeout(t3)
+    }
   }, [])
 
   return (
