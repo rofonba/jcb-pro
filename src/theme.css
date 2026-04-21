@@ -1,0 +1,138 @@
+/* ─── JCB Theme — Mobile-First Enhancements ──────────────────────────────────
+   Complementa index.css con utilidades específicas de la App.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* ── Scroll horizontal sin barra ────────────────────────────────────────────── */
+.jcb-hscroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scroll-padding-left: 1.25rem;
+  padding-left: 0;
+  padding-bottom: 4px; /* evita que box-shadow se recorte */
+}
+.jcb-hscroll::-webkit-scrollbar { display: none; }
+.jcb-hscroll { scrollbar-width: none; }
+
+.jcb-hscroll > * {
+  scroll-snap-align: start;
+}
+
+/* ── Event mini-card hover/active ────────────────────────────────────────────── */
+.jcb-event-mini-card:active {
+  border-color: rgba(212, 175, 55, 0.4) !important;
+  transform: scale(0.97);
+}
+
+/* ── Bottom nav (base) ───────────────────────────────────────────────────────── */
+.jcb-bottom-nav {
+  background: rgba(10, 10, 10, 0.97);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-top: 1px solid rgba(212, 175, 55, 0.1);
+  display: flex;
+  position: sticky;
+  bottom: 0;
+  z-index: 50;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* ── Cards con depth ─────────────────────────────────────────────────────────── */
+.jcb-card-depth {
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.4),
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* ── Fade-in de sección ──────────────────────────────────────────────────────── */
+.jcb-section-enter {
+  animation: falla-cardEnter 0.35s ease-out both;
+}
+
+/* ── Texto con gradiente dorado ──────────────────────────────────────────────── */
+.jcb-text-gold {
+  background: linear-gradient(180deg, #F5D06A 0%, #D4AF37 60%, #A07C1C 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Divisor dorado ──────────────────────────────────────────────────────────── */
+.jcb-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.2), transparent);
+  margin: 1rem 0;
+  border: none;
+}
+
+/* ── Pill / badge ────────────────────────────────────────────────────────────── */
+.jcb-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.65rem;
+  background: rgba(212, 175, 55, 0.08);
+  border: 1px solid rgba(212, 175, 55, 0.2);
+  border-radius: 100px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #D4AF37;
+  letter-spacing: 0.06em;
+}
+
+/* ── Feedback táctil en tarjetas ─────────────────────────────────────────────── */
+.jcb-pressable {
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.jcb-pressable:active {
+  transform: scale(0.97);
+}
+
+/* ── Skeleton genérico ───────────────────────────────────────────────────────── */
+.jcb-skeleton {
+  background: #1a1a1a;
+  border-radius: 14px;
+  animation: falla-pulse 1.6s ease-in-out infinite;
+}
+
+/* ── Input focus gold ────────────────────────────────────────────────────────── */
+.jcb-input:focus {
+  border-color: #D4AF37 !important;
+  outline: none;
+}
+
+/* ── Page transition ─────────────────────────────────────────────────────────── */
+.jcb-page-enter {
+  animation: falla-fadeIn 0.25s ease-out both;
+}
+
+/* ── Overflow text clamp ─────────────────────────────────────────────────────── */
+.jcb-clamp-2 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.jcb-clamp-3 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* ── Full-bleed section (rompe el padding del main) ─────────────────────────── */
+.jcb-full-bleed {
+  margin-left: -1.25rem;
+  margin-right: -1.25rem;
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+
+/* ── Safe zone bottom spacer ─────────────────────────────────────────────────── */
+.jcb-safe-bottom {
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+}

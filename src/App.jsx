@@ -24,40 +24,13 @@ function LoadingScreen() {
 
 export default function App() {
   const { user, loading } = useAuth()
-  const [showSplash, setShowSplash]     = useState(true)
+  const [showSplash, setShowSplash]       = useState(true)
   const [splashVisible, setSplashVisible] = useState(true)
 
-  // Proof-of-life: si ves el borde rojo, el JS se ejecuta
   useEffect(() => {
-    document.body.style.border = '5px solid red'
-    console.log('FLASH: App montada — JS ejecutándose ✅')
-    console.log('FLASH: user =', typeof window !== 'undefined' ? 'browser OK' : 'no window')
-  }, [])
-
-  useEffect(() => {
-    console.log('FLASH: Timers del Splash iniciados')
-    let t1, t2, t3
-    try {
-      t1 = setTimeout(() => {
-        console.log('FLASH: Forzando salida del Splash (fade-out)')
-        setSplashVisible(false)
-      }, 2500)
-      t2 = setTimeout(() => {
-        console.log('FLASH: Splash eliminado del DOM')
-        setShowSplash(false)
-        document.body.style.border = ''
-      }, 3200)
-      t3 = setTimeout(() => {
-        console.log('FLASH: FAILSAFE activado')
-        setSplashVisible(false)
-        setShowSplash(false)
-        document.body.style.border = ''
-      }, 5000)
-    } catch (e) {
-      console.error('FLASH: Error en timers', e)
-      setSplashVisible(false)
-      setShowSplash(false)
-    }
+    const t1 = setTimeout(() => setSplashVisible(false), 2500)
+    const t2 = setTimeout(() => setShowSplash(false), 3200)
+    const t3 = setTimeout(() => { setSplashVisible(false); setShowSplash(false) }, 5000)
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
   }, [])
 
