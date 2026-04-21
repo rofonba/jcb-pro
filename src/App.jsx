@@ -1,6 +1,8 @@
+import { useState, useEffect } from 'react'
 import { useAuth } from './contexts/AuthContext'
 import Login from './components/Login'
 import Dashboard from './components/Dashboard'
+import SplashScreen from './components/SplashScreen'
 
 function LoadingScreen() {
   return (
@@ -22,6 +24,19 @@ function LoadingScreen() {
 
 export default function App() {
   const { user, loading } = useAuth()
-  if (loading) return <LoadingScreen />
-  return user ? <Dashboard /> : <Login />
+  const [showSplash, setShowSplash] = useState(true)
+  const [splashVisible, setSplashVisible] = useState(true)
+
+  useEffect(() => {
+    const t1 = setTimeout(() => setSplashVisible(false), 2500)
+    const t2 = setTimeout(() => setShowSplash(false), 3200)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [])
+
+  return (
+    <>
+      {showSplash && <SplashScreen visible={splashVisible} />}
+      {loading ? <LoadingScreen /> : (user ? <Dashboard /> : <Login />)}
+    </>
+  )
 }
