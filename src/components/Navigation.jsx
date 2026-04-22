@@ -13,10 +13,10 @@ const NAV = [
 export default function Navigation({ active, onChange, unreadAvisos = 0 }) {
   return (
     <nav style={{
-      background: 'rgba(10,10,10,0.97)',
+      background: 'rgba(255,255,255,0.97)',
       backdropFilter: 'blur(24px)',
       WebkitBackdropFilter: 'blur(24px)',
-      borderTop: '1px solid rgba(212,175,55,0.1)',
+      borderTop: '1px solid #F3F4F6',
       padding: '0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom))',
       display: 'flex',
       position: 'sticky',
@@ -33,7 +33,7 @@ export default function Navigation({ active, onChange, unreadAvisos = 0 }) {
               flex: 1, background: 'none', border: 'none',
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem',
               padding: '0.5rem 0.25rem',
-              color: isActive ? GOLD : 'rgba(255,255,255,0.28)',
+              color: isActive ? GOLD : '#9CA3AF',
               minHeight: 'auto', transition: 'color 0.2s ease',
               position: 'relative',
             }}

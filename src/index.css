@@ -52,9 +52,9 @@
   body {
     margin: 0;
     overscroll-behavior: none;
-    background-color: var(--jc-black);
-    color: #fff;
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI',
+    background-color: #F9FAFB;
+    color: #111827;
+    font-family: Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI',
       system-ui, sans-serif;
     font-size: 16px;
     line-height: 1.5;
