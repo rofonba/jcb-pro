@@ -6,7 +6,7 @@ import {
   onAuthStateChanged,
 } from 'firebase/auth'
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
-import { auth, db } from '../firebase'
+import { auth, db, authReady } from '../firebase'
 
 const AuthContext = createContext(null)
 
@@ -16,17 +16,33 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    return onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        setUser(firebaseUser)
-        const snap = await getDoc(doc(db, 'falleros', firebaseUser.uid))
-        setFallero(snap.exists() ? snap.data() : null)
-      } else {
-        setUser(null)
-        setFallero(null)
-      }
-      setLoading(false)
+    let unsubscribe = () => {}
+
+    // Subscribe to auth state ONLY after localStorage persistence is confirmed active.
+    // Without this, onAuthStateChanged can fire with null (before IndexedDB is checked)
+    // and push the user to Login — the iPhone PWA loop.
+    authReady.then(() => {
+      unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+        if (firebaseUser) {
+          setUser(firebaseUser)
+          try {
+            const snap = await getDoc(doc(db, 'falleros', firebaseUser.uid))
+            setFallero(snap.exists() ? snap.data() : null)
+          } catch {
+            // Network error — keep user logged in, fallero data stays null
+          }
+        } else {
+          setUser(null)
+          setFallero(null)
+        }
+        setLoading(false)
+      })
     })
+
+    // Safety valve: if Firebase hangs (cold start, no network) never block the app forever
+    const timeout = setTimeout(() => setLoading(false), 7000)
+
+    return () => { unsubscribe(); clearTimeout(timeout) }
   }, [])
 
   const login = async (email, password) => {
@@ -40,16 +56,18 @@ export function AuthProvider({ children }) {
     return cred
   }
 
-  const register = async (email, password, nombre, apellidos) => {
+  const register = async (email, password, nombre, apellidos, telefono, fechaNacimiento) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password)
     const data = {
-      nombre:     nombre.trim(),
-      apellidos:  apellidos.trim(),
+      nombre:          nombre.trim(),
+      apellidos:       apellidos?.trim() ?? '',
       email,
-      rol:        'fallero',
-      estaActivo: true,
-      hijos:      [],
-      createdAt:  serverTimestamp(),
+      rol:             'fallero',
+      estaActivo:      true,
+      hijos:           [],
+      telefono:        telefono?.trim() ?? '',
+      fechaNacimiento: fechaNacimiento ?? '',
+      createdAt:       serverTimestamp(),
     }
     await setDoc(doc(db, 'falleros', cred.user.uid), data)
     setFallero(data)

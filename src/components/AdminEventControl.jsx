@@ -185,11 +185,21 @@ export default function AdminEventControl({ event, onClose }) {
                     {/* Content */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       {/* Name + badges row */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginBottom: acomp > 0 || ins.alergias || ins.nota ? 4 : 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginBottom: (acomp > 0 || ins.alergias || ins.nota || ins.telefono) ? 4 : 0 }}>
                         <span style={{ fontSize: '0.9rem', fontWeight: '700', color: 'white' }}>{ins.nombre}</span>
                         <TypeBadge esHijo={ins.esHijo} />
                         {ins.esManual && <ManualBadge />}
                       </div>
+                      {ins.telefono && (
+                        <div style={{ marginBottom: 3 }}>
+                          <a
+                            href={`tel:${ins.telefono}`}
+                            style={{ fontSize: '0.72rem', fontWeight: '700', color: INDIGO, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                          >
+                            📞 {ins.telefono}
+                          </a>
+                        </div>
+                      )}
                       {/* Companion breakdown */}
                       {acomp > 0 && (
                         <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>

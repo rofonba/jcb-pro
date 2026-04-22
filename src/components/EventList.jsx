@@ -85,16 +85,24 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
         width: '100%', textAlign: 'left',
         background: isRegistered ? 'rgba(16,185,129,0.04)' : CARD,
         border: `1px solid ${isRegistered ? 'rgba(16,185,129,0.35)' : 'rgba(255,255,255,0.07)'}`,
-        borderRadius: '18px', padding: '1rem 1.1rem',
+        borderRadius: '18px', padding: 0,
         marginBottom: '0.75rem', cursor: 'pointer',
         transition: 'border-color 0.15s, transform 0.12s',
         animation: 'falla-cardEnter 0.35s ease-out both',
         animationDelay: `${index * 0.07}s`,
-        outline: 'none',
+        outline: 'none', overflow: 'hidden',
       }}
       onMouseEnter={e => { e.currentTarget.style.borderColor = isRegistered ? 'rgba(16,185,129,0.6)' : 'rgba(212,175,55,0.35)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = isRegistered ? 'rgba(16,185,129,0.35)' : 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'translateY(0)' }}
     >
+      {event.imagenUrl && (
+        <img
+          src={event.imagenUrl} alt={event.titulo}
+          style={{ width: '100%', height: '130px', objectFit: 'cover', display: 'block' }}
+          onError={e => { e.target.style.display = 'none' }}
+        />
+      )}
+      <div style={{ padding: '1rem 1.1rem' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', marginBottom: '0.75rem' }}>
         <div style={{ width: '44px', height: '44px', flexShrink: 0, background: `${t.color}1a`, border: `1px solid ${t.color}28`, borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
@@ -182,6 +190,19 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
         )}
       </div>
 
+      {/* Menu */}
+      {event.menu && (
+        <div style={{ marginBottom: '0.75rem', padding: '0.7rem 0.9rem', background: 'rgba(212,175,55,0.06)', border: '1px solid rgba(212,175,55,0.18)', borderRadius: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem' }}>
+            <span style={{ fontSize: '0.85rem' }}>📜</span>
+            <span style={{ fontSize: '0.68rem', fontWeight: '700', color: '#D4AF37', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Menú</span>
+          </div>
+          <p style={{ margin: 0, fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', lineHeight: 1.55, whiteSpace: 'pre-line' }}>
+            {event.menu}
+          </p>
+        </div>
+      )}
+
       {/* Aforo bar */}
       {pct !== null && (
         <div style={{ marginBottom: '0.75rem' }}>
@@ -217,6 +238,7 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
             Apuntarse →
           </button>
         )}
+      </div>
       </div>
     </div>
   )
@@ -300,7 +322,8 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
         acompañantes: acomp, totalPersonas,
         nota: nota.trim() || null,
         alergias: (['comida', 'cena'].includes(event.tipo)) ? (alergias.trim() || null) : null,
-        createdAt: serverTimestamp(),
+        telefono:   fallero?.telefono ?? null,
+        createdAt:  serverTimestamp(),
       })
       setStatus('saved')
       setTimeout(onSuccess, 900)
@@ -645,7 +668,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
   const isEditing = !!editEvent
 
   const [form, setForm] = useState(() => {
-    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', lugar: '', precio: '', plazasTotal: '', descripcion: '' }
+    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', lugar: '', precio: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '' }
     const d = editEvent.fecha?.toDate ? editEvent.fecha.toDate() : editEvent.fecha ? new Date(editEvent.fecha) : null
     const pad = n => String(n).padStart(2, '0')
     return {
@@ -657,6 +680,9 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
       precio:      editEvent.precio != null ? String(editEvent.precio) : '',
       plazasTotal: editEvent.plazasTotal != null ? String(editEvent.plazasTotal) : '',
       descripcion: editEvent.descripcion ?? '',
+      imagenUrl:   editEvent.imagenUrl ?? '',
+      videoUrl:    editEvent.videoUrl ?? '',
+      menu:        editEvent.menu ?? '',
     }
   })
   const [loading,       setLoading]       = useState(false)
@@ -695,6 +721,9 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
         precio:      form.precio !== '' ? parseFloat(form.precio) : null,
         plazasTotal: form.plazasTotal !== '' ? parseInt(form.plazasTotal) : null,
         descripcion: form.descripcion.trim() || null,
+        imagenUrl:   form.imagenUrl.trim() || null,
+        videoUrl:    form.videoUrl.trim() || null,
+        menu:        (['comida', 'cena'].includes(form.tipo)) ? (form.menu.trim() || null) : null,
       }
       if (isEditing) {
         await updateDoc(doc(db, 'eventos', editEvent.id), payload)
@@ -762,6 +791,20 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
           <label style={sharedLabel}>Descripción</label>
           <textarea rows={2} style={{ ...sharedInput, resize: 'vertical' }} value={form.descripcion} onChange={e => set('descripcion', e.target.value)} placeholder="Detalles…" onFocus={fg} onBlur={fb} />
         </div>
+        <div>
+          <label style={sharedLabel}>🖼 URL Imagen / Cartel</label>
+          <input style={sharedInput} value={form.imagenUrl} onChange={e => set('imagenUrl', e.target.value)} placeholder="https://…" onFocus={fg} onBlur={fb} />
+        </div>
+        <div>
+          <label style={sharedLabel}>🎬 URL Vídeo (YouTube / Vimeo)</label>
+          <input style={sharedInput} value={form.videoUrl} onChange={e => set('videoUrl', e.target.value)} placeholder="https://youtube.com/…" onFocus={fg} onBlur={fb} />
+        </div>
+        {(form.tipo === 'comida' || form.tipo === 'cena') && (
+          <div>
+            <label style={sharedLabel}>📜 Menú detallado</label>
+            <textarea rows={3} style={{ ...sharedInput, resize: 'vertical' }} value={form.menu} onChange={e => set('menu', e.target.value)} placeholder={'Primer plato: …\nSegundo plato: …\nPostre: …'} onFocus={fg} onBlur={fb} />
+          </div>
+        )}
         {error && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1rem', background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.28)', borderRadius: '10px' }}>
             <AlertCircle size={15} color={RED} />

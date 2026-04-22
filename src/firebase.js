@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getFirestore } from 'firebase/firestore'
-import { getAuth } from 'firebase/auth'
+import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth'
 import { getMessaging } from 'firebase/messaging'
 
 const firebaseConfig = {
@@ -24,6 +24,12 @@ if (missing.length) {
 export const app  = initializeApp(firebaseConfig)
 export const db   = getFirestore(app)
 export const auth = getAuth(app)
+
+// Force localStorage persistence so the auth session survives iPhone PWA restarts.
+// Firebase defaults to IndexedDB which iOS evicts aggressively for home-screen apps,
+// causing the login loop. localStorage is stable across PWA sessions on iOS Safari.
+export const authReady = setPersistence(auth, browserLocalPersistence)
+  .catch(e => console.warn('[auth] setPersistence failed (non-fatal):', e))
 
 let _messaging = null
 try {

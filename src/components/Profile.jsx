@@ -7,7 +7,7 @@ import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import {
   Download, Users, ChevronRight, X, Loader2,
-  Shield, Star, Flame, Plus, Trash2, Baby, Bell,
+  Shield, Star, Flame, Plus, Trash2, Baby, Bell, Phone, Check,
 } from 'lucide-react'
 
 const GOLD  = '#D4AF37'
@@ -42,6 +42,92 @@ function InfoRow({ label, value, last = false }) {
       <span style={{ fontSize: 13, color: TEXT2 }}>{label}</span>
       <span style={{ fontSize: 13, color: TEXT, fontWeight: 600 }}>{value}</span>
     </div>
+  )
+}
+
+function calcAge(fechaNacimiento) {
+  if (!fechaNacimiento) return null
+  const birth = new Date(fechaNacimiento)
+  const today = new Date()
+  let age = today.getFullYear() - birth.getFullYear()
+  const m = today.getMonth() - birth.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
+  return age
+}
+
+// ─── Contact info (phone + birthdate, editable) ───────────────────────────────
+function ContactSection({ fallero, userId, onUpdate }) {
+  const [editPhone, setEditPhone] = useState(false)
+  const [phone, setPhone]         = useState(fallero?.telefono ?? '')
+  const [saving, setSaving]       = useState(false)
+
+  const savePhone = async () => {
+    setSaving(true)
+    try {
+      await updateDoc(doc(db, 'falleros', userId), { telefono: phone.trim() })
+      onUpdate({ telefono: phone.trim() })
+      setEditPhone(false)
+    } finally { setSaving(false) }
+  }
+
+  const age = calcAge(fallero?.fechaNacimiento)
+  const fmtBirth = fallero?.fechaNacimiento
+    ? new Date(fallero.fechaNacimiento).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
+    : null
+
+  return (
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <Phone size={15} color={GOLD} />
+        <span style={{ fontSize: 14, fontWeight: 700, color: TEXT }}>Contacto</span>
+      </div>
+
+      {/* Phone row */}
+      <div style={{ paddingBottom: '0.65rem', marginBottom: '0.65rem', borderBottom: `1px solid ${BORDER}` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 13, color: TEXT2 }}>Teléfono</span>
+          {!editPhone ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {fallero?.telefono
+                ? <a href={`tel:${fallero.telefono}`} style={{ fontSize: 13, color: TEXT, fontWeight: 600, textDecoration: 'none' }}>{fallero.telefono}</a>
+                : <span style={{ fontSize: 13, color: MUTED }}>Sin teléfono</span>
+              }
+              <button
+                onClick={() => { setPhone(fallero?.telefono ?? ''); setEditPhone(true) }}
+                style={{ fontSize: 11, color: GOLD, background: `${GOLD}14`, border: `1px solid ${GOLD}30`, borderRadius: 8, padding: '3px 8px', cursor: 'pointer', minHeight: 'auto', fontWeight: 700 }}
+              >
+                ✏️
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                autoFocus type="tel"
+                value={phone} onChange={e => setPhone(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && savePhone()}
+                style={{ padding: '6px 10px', background: BG, border: `1.5px solid ${GOLD}50`, borderRadius: 10, fontSize: 13, color: TEXT, outline: 'none', fontFamily: 'inherit', width: 130 }}
+              />
+              <button onClick={savePhone} disabled={saving} style={{ background: GOLD, border: 'none', borderRadius: 8, padding: '6px 8px', cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', minHeight: 'auto' }}>
+                {saving ? <Loader2 size={13} color="white" style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : <Check size={13} color="white" strokeWidth={2.5} />}
+              </button>
+              <button onClick={() => setEditPhone(false)} style={{ background: BORDER, border: 'none', borderRadius: 8, padding: '6px 8px', cursor: 'pointer', display: 'flex', minHeight: 'auto' }}>
+                <X size={13} color={MUTED} />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Birthdate row */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 13, color: TEXT2 }}>Fecha de nacimiento</span>
+        <span style={{ fontSize: 13, color: TEXT, fontWeight: 600 }}>
+          {fmtBirth
+            ? `${fmtBirth}${age != null ? ` · ${age} años` : ''}`
+            : '—'}
+        </span>
+      </div>
+    </Card>
   )
 }
 
@@ -575,6 +661,15 @@ export default function Profile() {
         <InfoRow label="Rol" value={isAdmin ? '👑 Administrador' : '🔥 Fallero'} />
         <InfoRow label="Estado" value={fallero?.estaActivo ? '✅ Activo' : '⏸ Inactivo'} last />
       </Card>
+
+      {/* Contact info */}
+      {user && fallero && (
+        <ContactSection
+          fallero={fallero}
+          userId={user.uid}
+          onUpdate={updateFallero}
+        />
+      )}
 
       {/* Hijos */}
       {user && (

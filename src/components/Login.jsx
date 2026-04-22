@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { sendPasswordResetEmail } from 'firebase/auth'
 import { auth } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { Lock, Mail, Eye, EyeOff, AlertCircle, User, ArrowLeft, CheckCircle, KeyRound } from 'lucide-react'
+import { Lock, Mail, Eye, EyeOff, AlertCircle, User, ArrowLeft, CheckCircle, KeyRound, Phone, Calendar } from 'lucide-react'
 import logoFalla from '../assets/logo-falla.png'
 
 const GOLD = '#C9A84C'
@@ -199,32 +199,36 @@ function ResetPanel({ onBack }) {
 export default function Login() {
   const { login, register } = useAuth()
   const [mode, setMode]           = useState('login')
-  const [nombre, setNombre]       = useState('')
-  const [apellidos, setApellidos] = useState('')
-  const [email, setEmail]         = useState('')
-  const [password, setPassword]   = useState('')
-  const [showPass, setShowPass]   = useState(false)
-  const [error, setError]         = useState('')
-  const [loading, setLoading]     = useState(false)
+  const [nombre, setNombre]               = useState('')
+  const [apellidos, setApellidos]         = useState('')
+  const [telefono, setTelefono]           = useState('')
+  const [fechaNacimiento, setFechaNac]    = useState('')
+  const [email, setEmail]                 = useState('')
+  const [password, setPassword]           = useState('')
+  const [showPass, setShowPass]           = useState(false)
+  const [error, setError]                 = useState('')
+  const [loading, setLoading]             = useState(false)
 
   const switchMode = (m) => {
     setMode(m); setError('')
-    setNombre(''); setApellidos(''); setEmail(''); setPassword('')
+    setNombre(''); setApellidos(''); setTelefono(''); setFechaNac(''); setEmail(''); setPassword('')
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     if (mode === 'register') {
-      if (!nombre.trim()) return setError('Introduce tu nombre')
-      if (password.length < 6) return setError('La contraseña debe tener al menos 6 caracteres')
+      if (!nombre.trim())        return setError('Introduce tu nombre')
+      if (!telefono.trim())      return setError('Introduce tu teléfono de contacto')
+      if (!fechaNacimiento)      return setError('Introduce tu fecha de nacimiento')
+      if (password.length < 6)   return setError('La contraseña debe tener al menos 6 caracteres')
     }
     setLoading(true)
     try {
       if (mode === 'login') {
         await login(email, password)
       } else {
-        await register(email, password, nombre, apellidos)
+        await register(email, password, nombre, apellidos, telefono, fechaNacimiento)
       }
     } catch (err) {
       const code = err.code
@@ -357,6 +361,29 @@ export default function Login() {
                       value={apellidos} onChange={e => setApellidos(e.target.value)}
                       placeholder="Tus apellidos"
                     />
+                  </div>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={labelStyle}>Teléfono de contacto *</label>
+                    <Field
+                      icon={Phone} type="tel"
+                      value={telefono} onChange={e => setTelefono(e.target.value)}
+                      placeholder="6XX XXX XXX"
+                    />
+                  </div>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={labelStyle}>Fecha de nacimiento *</label>
+                    <div style={{ position: 'relative' }}>
+                      <Calendar size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.3)', pointerEvents: 'none' }} />
+                      <input
+                        type="date"
+                        value={fechaNacimiento}
+                        onChange={e => setFechaNac(e.target.value)}
+                        required
+                        style={{ ...inputBase, paddingLeft: '2.75rem', colorScheme: 'dark' }}
+                        onFocus={e => { e.target.style.borderColor = GOLD }}
+                        onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)' }}
+                      />
+                    </div>
                   </div>
                 </>
               )}
