@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { sendPasswordResetEmail } from 'firebase/auth'
+import { auth } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { Lock, Mail, Eye, EyeOff, AlertCircle, User } from 'lucide-react'
+import { Lock, Mail, Eye, EyeOff, AlertCircle, User, ArrowLeft, CheckCircle, KeyRound } from 'lucide-react'
 import logoFalla from '../assets/logo-falla.png'
 
 const GOLD = '#C9A84C'
@@ -25,7 +27,7 @@ const labelStyle = {
   letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.45rem',
 }
 
-function Field({ icon: Icon, type, value, onChange, placeholder, right }) {
+function Field({ icon: Icon, type, value, onChange, placeholder, right, autoFocus }) {
   return (
     <div style={{ position: 'relative' }}>
       <Icon size={16} style={{
@@ -35,13 +37,162 @@ function Field({ icon: Icon, type, value, onChange, placeholder, right }) {
       }} />
       <input
         type={type} value={value} onChange={onChange}
-        placeholder={placeholder} required
+        placeholder={placeholder} required autoFocus={autoFocus}
         style={{ ...inputBase, paddingRight: right ? '3rem' : '1rem' }}
         onFocus={e => { e.target.style.borderColor = GOLD }}
         onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)' }}
       />
       {right}
     </div>
+  )
+}
+
+function ResetPanel({ onBack }) {
+  const [resetEmail, setResetEmail] = useState('')
+  const [status, setStatus]         = useState('idle') // 'idle' | 'loading' | 'sent'
+  const [error, setError]           = useState('')
+
+  const handleSend = async (e) => {
+    e.preventDefault()
+    setError('')
+    setStatus('loading')
+    try {
+      await sendPasswordResetEmail(auth, resetEmail.trim())
+      setStatus('sent')
+    } catch (err) {
+      setStatus('idle')
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-email') {
+        setError('No encontramos ninguna cuenta con ese email')
+      } else {
+        setError('No se pudo enviar el correo. Inténtalo de nuevo.')
+      }
+    }
+  }
+
+  if (status === 'sent') {
+    return (
+      <div style={{ textAlign: 'center', padding: '0.5rem 0' }}>
+        <div style={{
+          width: '64px', height: '64px',
+          background: 'rgba(16,185,129,0.1)',
+          border: '1px solid rgba(16,185,129,0.3)',
+          borderRadius: '20px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          margin: '0 auto 1.25rem',
+        }}>
+          <CheckCircle size={30} color="#10b981" strokeWidth={1.8} />
+        </div>
+        <h3 style={{ color: 'white', fontSize: '1rem', fontWeight: '800', margin: '0 0 0.6rem' }}>
+          ¡Enlace enviado!
+        </h3>
+        <p style={{
+          color: 'rgba(255,255,255,0.5)', fontSize: '0.82rem', lineHeight: 1.6,
+          margin: '0 0 1.5rem',
+        }}>
+          Revisa tu bandeja de entrada (y la carpeta de <strong style={{ color: 'rgba(255,255,255,0.7)' }}>spam</strong>) para restablecer tu contraseña.
+        </p>
+        <button
+          type="button" onClick={onBack}
+          style={{
+            width: '100%', padding: '0.85rem',
+            background: 'rgba(201,168,76,0.12)',
+            border: '1px solid rgba(201,168,76,0.3)',
+            borderRadius: '14px', color: GOLD,
+            fontSize: '0.9rem', fontWeight: '700', cursor: 'pointer',
+          }}
+        >
+          Volver al inicio de sesión
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      {/* Back link */}
+      <button
+        type="button" onClick={onBack}
+        style={{
+          display: 'flex', alignItems: 'center', gap: '0.35rem',
+          background: 'none', border: 'none',
+          color: 'rgba(255,255,255,0.35)', fontSize: '0.78rem',
+          cursor: 'pointer', padding: 0, marginBottom: '1.25rem',
+          minHeight: 'auto', minWidth: 'auto',
+        }}
+      >
+        <ArrowLeft size={14} />
+        Volver al login
+      </button>
+
+      {/* Title */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.5rem' }}>
+        <div style={{
+          width: '34px', height: '34px', flexShrink: 0,
+          background: 'rgba(201,168,76,0.1)',
+          border: '1px solid rgba(201,168,76,0.25)',
+          borderRadius: '10px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <KeyRound size={16} color={GOLD} />
+        </div>
+        <div>
+          <h3 style={{ color: 'white', fontSize: '0.95rem', fontWeight: '800', margin: 0 }}>
+            Recuperar contraseña
+          </h3>
+          <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.72rem', margin: 0 }}>
+            Te enviaremos un enlace por email
+          </p>
+        </div>
+      </div>
+
+      <div style={{
+        width: '100%', height: '1px',
+        background: 'rgba(255,255,255,0.06)',
+        margin: '1rem 0',
+      }} />
+
+      <form onSubmit={handleSend}>
+        <div style={{ marginBottom: '1rem' }}>
+          <label style={labelStyle}>Tu email</label>
+          <Field
+            icon={Mail} type="email"
+            value={resetEmail} onChange={e => setResetEmail(e.target.value)}
+            placeholder="tu@email.com" autoFocus
+          />
+        </div>
+
+        {error && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem',
+            padding: '0.7rem 1rem',
+            background: 'rgba(206,17,38,0.12)',
+            border: '1px solid rgba(206,17,38,0.35)',
+            borderRadius: '10px', marginBottom: '1rem',
+          }}>
+            <AlertCircle size={15} color={RED} style={{ flexShrink: 0 }} />
+            <span style={{ color: '#ff8080', fontSize: '0.82rem' }}>{error}</span>
+          </div>
+        )}
+
+        <button
+          type="submit" disabled={status === 'loading'}
+          style={{
+            width: '100%', padding: '0.9rem',
+            background: status === 'loading'
+              ? 'rgba(201,168,76,0.3)'
+              : `linear-gradient(135deg, ${GOLD} 0%, #8a6f1a 100%)`,
+            border: 'none', borderRadius: '14px',
+            color: 'white', fontSize: '0.9rem', fontWeight: '700',
+            letterSpacing: '0.04em',
+            cursor: status === 'loading' ? 'not-allowed' : 'pointer',
+            boxShadow: status === 'loading' ? 'none' : '0 6px 24px rgba(201,168,76,0.35)',
+            transition: 'all 0.2s',
+          }}
+        >
+          {status === 'loading' ? 'Enviando…' : 'Enviar enlace de recuperación'}
+        </button>
+      </form>
+    </>
   )
 }
 
@@ -159,122 +310,153 @@ export default function Login() {
           }} />
         </div>
 
-        {/* Mode tabs */}
-        <div style={{
-          display: 'flex', background: 'rgba(255,255,255,0.05)',
-          borderRadius: '14px', padding: '4px', gap: '4px', marginBottom: '1.5rem',
-        }}>
-          {[['login', '🔑 Entrar'], ['register', '✨ Registrarse']].map(([m, label]) => (
-            <button
-              key={m} type="button" onClick={() => switchMode(m)}
-              style={{
-                flex: 1, padding: '0.55rem 0.5rem',
-                background: mode === m ? 'rgba(201,168,76,0.15)' : 'transparent',
-                border: mode === m ? '1px solid rgba(201,168,76,0.35)' : '1px solid transparent',
-                borderRadius: '10px',
-                color: mode === m ? GOLD : 'rgba(255,255,255,0.35)',
-                fontSize: '0.78rem', fontWeight: '700',
-                cursor: 'pointer', minHeight: 'auto',
-                transition: 'all 0.2s', letterSpacing: '0.02em',
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          {mode === 'register' && (
-            <>
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={labelStyle}>Nombre</label>
-                <Field
-                  icon={User} type="text"
-                  value={nombre} onChange={e => setNombre(e.target.value)}
-                  placeholder="Tu nombre"
-                />
-              </div>
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={labelStyle}>Apellidos</label>
-                <Field
-                  icon={User} type="text"
-                  value={apellidos} onChange={e => setApellidos(e.target.value)}
-                  placeholder="Tus apellidos"
-                />
-              </div>
-            </>
-          )}
-
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={labelStyle}>Email</label>
-            <Field
-              icon={Mail} type="email"
-              value={email} onChange={e => setEmail(e.target.value)}
-              placeholder="tu@email.com"
-            />
-          </div>
-
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={labelStyle}>Contraseña{mode === 'register' && ' (mín. 6 caracteres)'}</label>
-            <Field
-              icon={Lock}
-              type={showPass ? 'text' : 'password'}
-              value={password} onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              right={
+        {/* Reset panel */}
+        {mode === 'reset' ? (
+          <ResetPanel onBack={() => switchMode('login')} />
+        ) : (
+          <>
+            {/* Mode tabs */}
+            <div style={{
+              display: 'flex', background: 'rgba(255,255,255,0.05)',
+              borderRadius: '14px', padding: '4px', gap: '4px', marginBottom: '1.5rem',
+            }}>
+              {[['login', '🔑 Entrar'], ['register', '✨ Registrarse']].map(([m, label]) => (
                 <button
-                  type="button" onClick={() => setShowPass(v => !v)}
+                  key={m} type="button" onClick={() => switchMode(m)}
                   style={{
-                    position: 'absolute', right: '12px', top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none', border: 'none',
-                    color: 'rgba(255,255,255,0.3)', cursor: 'pointer',
-                    padding: 0, minHeight: 'auto', minWidth: 'auto', display: 'flex',
+                    flex: 1, padding: '0.55rem 0.5rem',
+                    background: mode === m ? 'rgba(201,168,76,0.15)' : 'transparent',
+                    border: mode === m ? '1px solid rgba(201,168,76,0.35)' : '1px solid transparent',
+                    borderRadius: '10px',
+                    color: mode === m ? GOLD : 'rgba(255,255,255,0.35)',
+                    fontSize: '0.78rem', fontWeight: '700',
+                    cursor: 'pointer', minHeight: 'auto',
+                    transition: 'all 0.2s', letterSpacing: '0.02em',
                   }}
                 >
-                  {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                  {label}
                 </button>
-              }
-            />
-          </div>
-
-          {error && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: '0.5rem',
-              padding: '0.7rem 1rem',
-              background: 'rgba(206,17,38,0.12)',
-              border: '1px solid rgba(206,17,38,0.35)',
-              borderRadius: '10px', marginBottom: '1rem',
-            }}>
-              <AlertCircle size={15} color={RED} style={{ flexShrink: 0 }} />
-              <span style={{ color: '#ff8080', fontSize: '0.82rem' }}>{error}</span>
+              ))}
             </div>
-          )}
 
-          <button
-            type="submit" disabled={loading}
-            style={{
-              width: '100%', padding: '0.9rem',
-              background: loading
-                ? 'rgba(201,168,76,0.3)'
-                : mode === 'login'
-                  ? 'linear-gradient(135deg, #CE1126 0%, #a00d1e 100%)'
-                  : 'linear-gradient(135deg, #C9A84C 0%, #8a6f1a 100%)',
-              border: 'none', borderRadius: '14px',
-              color: 'white', fontSize: '0.95rem', fontWeight: '700',
-              letterSpacing: '0.04em',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              boxShadow: loading ? 'none' : mode === 'login'
-                ? '0 6px 24px rgba(206,17,38,0.45)'
-                : '0 6px 24px rgba(212,175,55,0.4)',
-              transition: 'all 0.2s',
-            }}
-          >
-            {loading
-              ? (mode === 'login' ? 'Entrando…' : 'Creando cuenta…')
-              : (mode === 'login' ? '🔥 Entrar a la Falla' : '✨ Crear mi cuenta')}
-          </button>
-        </form>
+            <form onSubmit={handleSubmit}>
+              {mode === 'register' && (
+                <>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={labelStyle}>Nombre</label>
+                    <Field
+                      icon={User} type="text"
+                      value={nombre} onChange={e => setNombre(e.target.value)}
+                      placeholder="Tu nombre"
+                    />
+                  </div>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={labelStyle}>Apellidos</label>
+                    <Field
+                      icon={User} type="text"
+                      value={apellidos} onChange={e => setApellidos(e.target.value)}
+                      placeholder="Tus apellidos"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={labelStyle}>Email</label>
+                <Field
+                  icon={Mail} type="email"
+                  value={email} onChange={e => setEmail(e.target.value)}
+                  placeholder="tu@email.com"
+                />
+              </div>
+
+              <div style={{ marginBottom: '1.5rem' }}>
+                <label style={labelStyle}>Contraseña{mode === 'register' && ' (mín. 6 caracteres)'}</label>
+                <Field
+                  icon={Lock}
+                  type={showPass ? 'text' : 'password'}
+                  value={password} onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  right={
+                    <button
+                      type="button" onClick={() => setShowPass(v => !v)}
+                      style={{
+                        position: 'absolute', right: '12px', top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none', border: 'none',
+                        color: 'rgba(255,255,255,0.3)', cursor: 'pointer',
+                        padding: 0, minHeight: 'auto', minWidth: 'auto', display: 'flex',
+                      }}
+                    >
+                      {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  }
+                />
+              </div>
+
+              {error && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '0.5rem',
+                  padding: '0.7rem 1rem',
+                  background: 'rgba(206,17,38,0.12)',
+                  border: '1px solid rgba(206,17,38,0.35)',
+                  borderRadius: '10px', marginBottom: '1rem',
+                }}>
+                  <AlertCircle size={15} color={RED} style={{ flexShrink: 0 }} />
+                  <span style={{ color: '#ff8080', fontSize: '0.82rem' }}>{error}</span>
+                </div>
+              )}
+
+              <button
+                type="submit" disabled={loading}
+                style={{
+                  width: '100%', padding: '0.9rem',
+                  background: loading
+                    ? 'rgba(201,168,76,0.3)'
+                    : mode === 'login'
+                      ? 'linear-gradient(135deg, #CE1126 0%, #a00d1e 100%)'
+                      : 'linear-gradient(135deg, #C9A84C 0%, #8a6f1a 100%)',
+                  border: 'none', borderRadius: '14px',
+                  color: 'white', fontSize: '0.95rem', fontWeight: '700',
+                  letterSpacing: '0.04em',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  boxShadow: loading ? 'none' : mode === 'login'
+                    ? '0 6px 24px rgba(206,17,38,0.45)'
+                    : '0 6px 24px rgba(212,175,55,0.4)',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {loading
+                  ? (mode === 'login' ? 'Entrando…' : 'Creando cuenta…')
+                  : (mode === 'login' ? '🔥 Entrar a la Falla' : '✨ Crear mi cuenta')}
+              </button>
+
+              {/* Forgot password — only shown on login tab */}
+              {mode === 'login' && (
+                <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => switchMode('reset')}
+                    style={{
+                      background: 'none', border: 'none',
+                      color: 'rgba(201,168,76,0.55)',
+                      fontSize: '0.78rem', cursor: 'pointer',
+                      padding: 0, minHeight: 'auto', minWidth: 'auto',
+                      textDecoration: 'underline',
+                      textDecorationColor: 'rgba(201,168,76,0.25)',
+                      textUnderlineOffset: '3px',
+                      transition: 'color 0.2s',
+                    }}
+                    onMouseEnter={e => { e.target.style.color = GOLD }}
+                    onMouseLeave={e => { e.target.style.color = 'rgba(201,168,76,0.55)' }}
+                  >
+                    ¿Has olvidado tu contraseña?
+                  </button>
+                </div>
+              )}
+            </form>
+          </>
+        )}
 
         <p style={{
           color: 'rgba(255,255,255,0.2)', fontSize: '0.7rem',
