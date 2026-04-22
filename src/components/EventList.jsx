@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   collection, query, orderBy, onSnapshot,
-  addDoc, deleteDoc, serverTimestamp, getDocs, where, doc, updateDoc,
+  setDoc, deleteDoc, serverTimestamp, getDocs, where, doc, updateDoc,
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -268,6 +268,8 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
   const [newAcomp, setNewAcomp] = useState(0)
   const [updating, setUpdating] = useState(false)
 
+  const [cancelErr, setCancelErr] = useState('')
+
   // Admin external inscription
   const [showExt,   setShowExt]   = useState(false)
   const [extNombre, setExtNombre] = useState('')
@@ -314,7 +316,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
       if (live + totalPersonas > plazasTotal) { setInscritosCount(live); setSaving(false); return }
     }
     try {
-      await addDoc(collection(db, 'inscripciones'), {
+      await setDoc(doc(db, 'inscripciones', `${user.uid}_${event.id}`), {
         eventId: event.id, eventoTitulo: event.titulo,
         uid: user.uid, nombre: myName,
         numFallero: fallero?.numero ?? '—',
@@ -333,11 +335,14 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
   const handleCancel = async () => {
     if (!myIns || cancelling) return
     setCancelling(true)
+    setCancelErr('')
     try {
       await deleteDoc(doc(db, 'inscripciones', myIns.id))
       setStatus('cancelled')
       setTimeout(() => onCancelled(event.id), 800)
-    } catch {} finally { setCancelling(false) }
+    } catch (err) {
+      setCancelErr(err?.message || 'Error al anular. Inténtalo de nuevo.')
+    } finally { setCancelling(false) }
   }
 
   const handleModify = async () => {
@@ -460,6 +465,11 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
               )}
             </div>
           ) : null}
+          {cancelErr && (
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.72rem', color: RED, textAlign: 'center' }}>
+              ⚠️ {cancelErr}
+            </p>
+          )}
           <p style={{ margin: '0.5rem 0 0', fontSize: '0.7rem', color: 'rgba(255,255,255,0.22)', textAlign: 'center' }}>
             Al anular, la plaza queda libre automáticamente.
           </p>
@@ -958,7 +968,10 @@ export default function EventList() {
       setRegisteredIds(prev => { const next = new Set(prev); next.delete(cancelTarget.id); return next })
       setCancelTarget(null)
       setToast('Inscripción anulada correctamente')
-    } catch {} finally { setDeleting(false) }
+    } catch (err) {
+      setCancelTarget(null)
+      setToast(err?.message || 'Error al anular. Inténtalo de nuevo.')
+    } finally { setDeleting(false) }
   }, [cancelTarget, deleting, user?.uid])
 
   const handleCreated = useCallback(() => { setShowForm(false); setToast('Evento creado correctamente 🔥') }, [])

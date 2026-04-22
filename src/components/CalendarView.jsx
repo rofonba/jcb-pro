@@ -154,7 +154,10 @@ export default function CalendarView() {
       setRegisteredIds(prev => { const next = new Set(prev); next.delete(cancelTarget.id); return next })
       setCancelTarget(null)
       setToast('Inscripción anulada correctamente')
-    } catch {} finally { setDeleting(false) }
+    } catch (err) {
+      setCancelTarget(null)
+      setToast(err?.message || 'Error al anular. Inténtalo de nuevo.')
+    } finally { setDeleting(false) }
   }, [cancelTarget, deleting, user?.uid])
 
   const monthLabel = viewDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
