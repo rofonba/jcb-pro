@@ -136,3 +136,4 @@
 .jcb-safe-bottom {
   padding-bottom: calc(1rem + env(safe-area-inset-bottom));
 }
+// fuerza v2
