@@ -70,7 +70,7 @@ function Overlay({ children, onClose, scrollable = false }) {
 }
 
 // ─── Event card ───────────────────────────────────────────────────────────────
-function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEditPress, index = 0 }) {
+function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEditPress, onCancelPress, index = 0 }) {
   const t      = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
   const ocupadas = event.plazasOcupadas ?? 0
   const pct    = event.plazasTotal ? Math.min(100, (ocupadas / event.plazasTotal) * 100) : null
@@ -197,17 +197,25 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
           {event.precio != null ? `${event.precio} €` : 'Gratuito'}
         </span>
         {isRegistered ? (
-          <span style={{ padding: '0.38rem 1rem', background: 'rgba(16,185,129,0.12)', border: `1.5px solid rgba(16,185,129,0.4)`, borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: GREEN, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-            <Check size={12} strokeWidth={3} /> Ver mi inscripción →
-          </span>
+          <button
+            onClick={e => { e.stopPropagation(); onCancelPress(event) }}
+            style={{ padding: '0.38rem 1rem', background: 'transparent', border: `1.5px solid rgba(206,17,38,0.38)`, borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: 'rgba(220,38,38,0.8)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', minHeight: 'auto', transition: 'background 0.15s' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(206,17,38,0.08)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            <X size={12} /> Anular inscripción
+          </button>
         ) : isFull ? (
           <span style={{ padding: '0.38rem 0.9rem', background: 'rgba(206,17,38,0.1)', border: '1px solid rgba(206,17,38,0.25)', borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: 'rgba(206,17,38,0.7)' }}>
             Aforo completo
           </span>
         ) : (
-          <span style={{ padding: '0.38rem 0.9rem', background: 'rgba(206,17,38,0.15)', border: '1px solid rgba(206,17,38,0.3)', borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: RED }}>
+          <button
+            onClick={e => { e.stopPropagation(); onPress(event) }}
+            style={{ padding: '0.38rem 1rem', background: `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: 'white', cursor: 'pointer', minHeight: 'auto', boxShadow: `0 2px 10px rgba(212,175,55,0.28)` }}
+          >
             Apuntarse →
-          </span>
+          </button>
         )}
       </div>
     </div>
@@ -799,6 +807,47 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
   )
 }
 
+// ─── Cancel confirmation modal ────────────────────────────────────────────────
+function CancelConfirmModal({ event, onConfirm, onCancel, deleting }) {
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 150, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 1.5rem' }}
+      onClick={!deleting ? onCancel : undefined}
+    >
+      <div
+        style={{ width: '100%', maxWidth: '340px', background: CARD, border: '1px solid rgba(206,17,38,0.22)', borderRadius: '20px', padding: '1.5rem', animation: 'falla-slideUp 0.22s ease-out' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+          <div style={{ fontSize: '2.2rem', marginBottom: '0.6rem' }}>⚠️</div>
+          <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', fontWeight: '800', color: 'white' }}>
+            ¿Anular inscripción?
+          </h3>
+          <p style={{ margin: 0, fontSize: '0.8rem', color: 'rgba(255,255,255,0.48)', lineHeight: 1.55 }}>
+            Se eliminarán tu inscripción y la de tus acompañantes en:
+            <br />
+            <strong style={{ color: 'rgba(255,255,255,0.82)', fontWeight: '700' }}>{event.titulo}</strong>
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '0.65rem' }}>
+          <button
+            type="button" onClick={onCancel} disabled={deleting}
+            style={{ flex: 1, minHeight: '46px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: 'rgba(255,255,255,0.55)', fontSize: '0.9rem', fontWeight: '700', cursor: deleting ? 'not-allowed' : 'pointer' }}
+          >
+            Mantener
+          </button>
+          <button
+            type="button" onClick={onConfirm} disabled={deleting}
+            style={{ flex: 1, minHeight: '46px', background: deleting ? 'rgba(206,17,38,0.35)' : `linear-gradient(135deg, ${RED}, #a00d1e)`, border: 'none', borderRadius: '12px', color: 'white', fontSize: '0.9rem', fontWeight: '700', cursor: deleting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', boxShadow: deleting ? 'none' : '0 4px 16px rgba(206,17,38,0.28)' }}
+          >
+            {deleting ? <Loader2 size={16} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : 'Sí, anular'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Success toast ────────────────────────────────────────────────────────────
 function SuccessToast({ message, onDismiss }) {
   useEffect(() => {
@@ -826,6 +875,8 @@ export default function EventList() {
   const [showForm, setShowForm]           = useState(false)
   const [editEvent, setEditEvent]         = useState(null)
   const [toast, setToast]                 = useState(null)
+  const [cancelTarget, setCancelTarget]   = useState(null)
+  const [deleting, setDeleting]           = useState(false)
 
   useEffect(() => {
     const q = query(collection(db, 'eventos'), orderBy('fecha', 'asc'))
@@ -850,6 +901,22 @@ export default function EventList() {
     setRegisteredIds(prev => { const next = new Set(prev); next.delete(eventId); return next })
     setToast('Inscripción anulada correctamente')
   }, [])
+
+  const handleConfirmCancel = useCallback(async () => {
+    if (!cancelTarget || deleting) return
+    setDeleting(true)
+    try {
+      const snap = await getDocs(query(
+        collection(db, 'inscripciones'),
+        where('eventId', '==', cancelTarget.id),
+        where('uid', '==', user.uid),
+      ))
+      await Promise.all(snap.docs.map(d => deleteDoc(d.ref)))
+      setRegisteredIds(prev => { const next = new Set(prev); next.delete(cancelTarget.id); return next })
+      setCancelTarget(null)
+      setToast('Inscripción anulada correctamente')
+    } catch {} finally { setDeleting(false) }
+  }, [cancelTarget, deleting, user?.uid])
 
   const handleCreated = useCallback(() => { setShowForm(false); setToast('Evento creado correctamente 🔥') }, [])
 
@@ -881,6 +948,7 @@ export default function EventList() {
             onPress={setSelectedEvent}
             onAdminPress={setAdminEvent}
             onEditPress={setEditEvent}
+            onCancelPress={setCancelTarget}
           />
         ))
       )}
@@ -907,8 +975,16 @@ export default function EventList() {
       {showForm  && <EventFormModal onClose={() => setShowForm(false)} onCreated={handleCreated} />}
       {editEvent && <EventFormModal event={editEvent} onClose={() => setEditEvent(null)} onCreated={() => { setEditEvent(null); setToast('Evento actualizado ✓') }} />}
       {toast && <SuccessToast message={toast} onDismiss={() => setToast(null)} />}
+      {cancelTarget && (
+        <CancelConfirmModal
+          event={cancelTarget}
+          onConfirm={handleConfirmCancel}
+          onCancel={() => !deleting && setCancelTarget(null)}
+          deleting={deleting}
+        />
+      )}
     </>
   )
 }
 
-export { RegistrationModal, EventFormModal, SuccessToast }
+export { RegistrationModal, EventFormModal, SuccessToast, CancelConfirmModal }

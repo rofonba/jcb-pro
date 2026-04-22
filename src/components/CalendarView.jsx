@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { collection, query, orderBy, onSnapshot, getDocs, where } from 'firebase/firestore'
+import { collection, query, orderBy, onSnapshot, getDocs, where, deleteDoc } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { ChevronLeft, ChevronRight, Plus, BarChart2, Check, Pencil } from 'lucide-react'
-import { RegistrationModal, EventFormModal, SuccessToast } from './EventList'
+import { RegistrationModal, EventFormModal, SuccessToast, CancelConfirmModal } from './EventList'
 import AdminEventControl from './AdminEventControl'
 
 const GOLD  = '#D4AF37'
@@ -73,6 +73,8 @@ export default function CalendarView() {
   const [editEvent, setEditEvent]         = useState(null)
   const [showForm, setShowForm]           = useState(false)
   const [toast, setToast]                 = useState(null)
+  const [cancelTarget, setCancelTarget]   = useState(null)
+  const [deleting, setDeleting]           = useState(false)
 
   useEffect(() => {
     const q = query(collection(db, 'eventos'), orderBy('fecha', 'asc'))
@@ -138,6 +140,22 @@ export default function CalendarView() {
     setRegisteredIds(prev => { const next = new Set(prev); next.delete(eventId); return next })
     setToast('Inscripción anulada correctamente')
   }, [])
+
+  const handleConfirmCancel = useCallback(async () => {
+    if (!cancelTarget || deleting) return
+    setDeleting(true)
+    try {
+      const snap = await getDocs(query(
+        collection(db, 'inscripciones'),
+        where('eventId', '==', cancelTarget.id),
+        where('uid', '==', user.uid),
+      ))
+      await Promise.all(snap.docs.map(d => deleteDoc(d.ref)))
+      setRegisteredIds(prev => { const next = new Set(prev); next.delete(cancelTarget.id); return next })
+      setCancelTarget(null)
+      setToast('Inscripción anulada correctamente')
+    } catch {} finally { setDeleting(false) }
+  }, [cancelTarget, deleting, user?.uid])
 
   const monthLabel = viewDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
   const capitalMonth = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
@@ -400,16 +418,16 @@ export default function CalendarView() {
                     )}
                     {isReg ? (
                       <button
-                        onClick={() => setSelectedEvent(ev)}
+                        onClick={() => setCancelTarget(ev)}
                         style={{
                           padding: '7px 12px',
-                          background: 'rgba(16,185,129,0.12)', border: '1.5px solid rgba(16,185,129,0.4)',
-                          borderRadius: 8, fontSize: 10, fontWeight: 700, color: '#10b981',
+                          background: 'transparent', border: '1.5px solid rgba(206,17,38,0.38)',
+                          borderRadius: 8, fontSize: 10, fontWeight: 700, color: 'rgba(220,38,38,0.8)',
                           display: 'flex', alignItems: 'center', gap: 3,
                           cursor: 'pointer', minHeight: 'auto', minWidth: 'auto',
                         }}
                       >
-                        ✅ Ver inscripción
+                        Anular inscripción
                       </button>
                     ) : isFull ? (
                       <span style={{
@@ -488,6 +506,14 @@ export default function CalendarView() {
         />
       )}
       {toast && <SuccessToast message={toast} onDismiss={() => setToast(null)} />}
+      {cancelTarget && (
+        <CancelConfirmModal
+          event={cancelTarget}
+          onConfirm={handleConfirmCancel}
+          onCancel={() => !deleting && setCancelTarget(null)}
+          deleting={deleting}
+        />
+      )}
     </div>
   )
 }
