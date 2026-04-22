@@ -48,8 +48,8 @@ function fmtTime(f) {
 function toKey(d) { return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` }
 
 function buildCalendarDays(year, month) {
-  const firstDay   = new Date(year, month, 1)
-  const startDow   = (firstDay.getDay() + 6) % 7
+  const firstDay    = new Date(year, month, 1)
+  const startDow    = (firstDay.getDay() + 6) % 7
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const days = []
   for (let i = startDow - 1; i >= 0; i--) days.push(new Date(year, month, -i))
@@ -63,169 +63,19 @@ function buildCalendarDays(year, month) {
 
 function Card({ children, style = {} }) {
   return (
-    <div style={{
-      background: WHITE, borderRadius: 20, padding: '18px 20px',
-      border: `1.5px solid ${BORDER}`,
-      boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
-      ...style,
-    }}>
+    <div style={{ background: WHITE, borderRadius: 20, padding: '18px 20px', border: `1.5px solid ${BORDER}`, boxShadow: '0 1px 4px rgba(0,0,0,0.05)', ...style }}>
       {children}
     </div>
-  )
-}
-
-function SectionLabel({ children }) {
-  return (
-    <p style={{ fontSize: 10, fontWeight: 700, color: GOLD, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 8px', paddingLeft: 2 }}>
-      {children}
-    </p>
   )
 }
 
 function SkeletonCard({ height = 90 }) {
-  return (
-    <div style={{ background: '#E5E7EB', borderRadius: 20, height, animation: 'falla-pulse 1.6s ease-in-out infinite' }} />
-  )
+  return <div style={{ background: '#E5E7EB', borderRadius: 20, height, animation: 'falla-pulse 1.6s ease-in-out infinite' }} />
 }
 
-// ─── Countdown to next registered event ──────────────────────────────────────
+// ─── Hero calendar (full-bleed, half the page) ───────────────────────────────
 
-function getCountdown(target) {
-  const diff = Math.max(0, target - Date.now())
-  return {
-    diff,
-    days:  Math.floor(diff / 86400000),
-    hours: Math.floor((diff % 86400000) / 3600000),
-    mins:  Math.floor((diff % 3600000)  / 60000),
-    secs:  Math.floor((diff % 60000)    / 1000),
-  }
-}
-
-function NextEventCountdown({ event }) {
-  const target = useMemo(() => {
-    const d = event.fecha?.toDate ? event.fecha.toDate() : new Date(event.fecha)
-    return d.getTime()
-  }, [event.fecha])
-
-  const [cd, setCd] = useState(() => getCountdown(target))
-  useEffect(() => {
-    const id = setInterval(() => setCd(getCountdown(target)), 1000)
-    return () => clearInterval(id)
-  }, [target])
-
-  if (cd.diff === 0) return null
-  const t = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
-
-  return (
-    <div style={{
-      background: 'linear-gradient(135deg, #0d0d0d 0%, #1c1608 100%)',
-      border: `1.5px solid rgba(212,175,55,0.32)`,
-      borderRadius: 20,
-      padding: '20px',
-      boxShadow: '0 8px 32px rgba(212,175,55,0.12)',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-        <Clock size={11} color={GOLD} />
-        <span style={{ fontSize: 10, fontWeight: 700, color: GOLD, letterSpacing: '0.15em', textTransform: 'uppercase' }}>
-          Tu próximo evento
-        </span>
-      </div>
-      <p style={{ margin: '0 0 18px', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.88)', lineHeight: 1.3 }}>
-        {t.emoji} {event.titulo}
-      </p>
-      <div style={{ display: 'flex', gap: 8 }}>
-        {[
-          { val: cd.days,  label: 'días' },
-          { val: cd.hours, label: 'horas' },
-          { val: cd.mins,  label: 'min' },
-          { val: cd.secs,  label: 'seg' },
-        ].map(({ val, label }) => (
-          <div key={label} style={{ flex: 1, textAlign: 'center', background: 'rgba(212,175,55,0.07)', border: '1px solid rgba(212,175,55,0.2)', borderRadius: 14, padding: '12px 4px' }}>
-            <div style={{ fontSize: 26, fontWeight: 900, color: GOLD, lineHeight: 1, letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums' }}>
-              {String(val).padStart(2, '0')}
-            </div>
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', marginTop: 5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              {label}
-            </div>
-          </div>
-        ))}
-      </div>
-      <p style={{ margin: '14px 0 0', textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.28)' }}>
-        {fmtDate(event.fecha)}{fmtTime(event.fecha) && ` · ${fmtTime(event.fecha)}`}
-        {event.lugar && ` · ${event.lugar}`}
-      </p>
-    </div>
-  )
-}
-
-// ─── Mis próximas citas widget ────────────────────────────────────────────────
-
-function MisCitas({ events, registeredIds, onCancelPress }) {
-  const mine = useMemo(() => {
-    const now = Date.now()
-    return events
-      .filter(ev => {
-        if (!registeredIds.has(ev.id) || !ev.fecha) return false
-        const d = ev.fecha?.toDate ? ev.fecha.toDate() : new Date(ev.fecha)
-        return d.getTime() > now
-      })
-      .sort((a, b) => {
-        const da = a.fecha?.toDate ? a.fecha.toDate() : new Date(a.fecha)
-        const db = b.fecha?.toDate ? b.fecha.toDate() : new Date(b.fecha)
-        return da - db
-      })
-  }, [events, registeredIds])
-
-  if (mine.length === 0) return null
-
-  return (
-    <Card>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <div>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: TEXT }}>Mis próximas citas</h3>
-          <p style={{ margin: '3px 0 0', fontSize: 12, fontWeight: 600, color: GREEN }}>
-            ✅ Apuntado a {mine.length} {mine.length === 1 ? 'evento' : 'eventos'}
-          </p>
-        </div>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {mine.slice(0, 5).map(ev => {
-          const t = EVENT_TYPES[ev.tipo] ?? EVENT_TYPES.acto
-          return (
-            <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.18)', borderRadius: 14 }}>
-              <div style={{ width: 36, height: 36, flexShrink: 0, background: `${t.color}14`, border: `1px solid ${t.color}25`, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
-                {t.emoji}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: TEXT, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-                  {ev.titulo}
-                </p>
-                <p style={{ margin: '2px 0 0', fontSize: 11, color: TEXT2 }}>
-                  {fmtDate(ev.fecha)}{fmtTime(ev.fecha) && ` · ${fmtTime(ev.fecha)}`}
-                </p>
-              </div>
-              <button
-                onClick={() => onCancelPress(ev)}
-                style={{ padding: '4px 9px', background: 'transparent', border: '1px solid rgba(206,17,38,0.28)', borderRadius: 8, fontSize: 10, fontWeight: 700, color: 'rgba(206,17,38,0.75)', cursor: 'pointer', minHeight: 'auto', flexShrink: 0 }}
-              >
-                Anular
-              </button>
-            </div>
-          )
-        })}
-        {mine.length > 5 && (
-          <p style={{ margin: 0, textAlign: 'center', fontSize: 12, color: MUTED }}>
-            +{mine.length - 5} más
-          </p>
-        )}
-      </div>
-    </Card>
-  )
-}
-
-// ─── Mini Calendar ────────────────────────────────────────────────────────────
-
-function MiniCalendar({ events, registeredIds, onNavigate }) {
+function HeroCalendar({ events, registeredIds, onNavigate }) {
   const [viewDate, setViewDate] = useState(() => {
     const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1)
   })
@@ -260,90 +110,247 @@ function MiniCalendar({ events, registeredIds, onNavigate }) {
   const capitalMonth = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
 
   return (
-    <Card>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: TEXT }}>Calendario</h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <button
-            onClick={() => setViewDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
-            style={{ background: BG, border: `1.5px solid ${BORDER}`, borderRadius: 8, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto' }}
-          >
-            <ChevronLeft size={14} color={TEXT2} />
-          </button>
-          <span style={{ fontSize: 12, fontWeight: 600, color: TEXT, minWidth: 120, textAlign: 'center' }}>
-            {capitalMonth}
-          </span>
-          <button
-            onClick={() => setViewDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
-            style={{ background: BG, border: `1.5px solid ${BORDER}`, borderRadius: 8, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto' }}
-          >
-            <ChevronRight size={14} color={TEXT2} />
-          </button>
+    <div style={{ background: WHITE, borderBottom: `1px solid ${BORDER}`, padding: '18px 20px 20px' }}>
+      {/* Month navigation */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        <button
+          onClick={() => setViewDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
+          style={{ background: BG, border: `1.5px solid ${BORDER}`, borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto' }}
+        >
+          <ChevronLeft size={16} color={TEXT2} />
+        </button>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: TEXT, letterSpacing: '-0.01em' }}>{capitalMonth}</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: GOLD }} />
+              <span style={{ fontSize: 10, color: MUTED, fontWeight: 500 }}>Evento</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: GREEN }} />
+              <span style={{ fontSize: 10, color: MUTED, fontWeight: 500 }}>Apuntado</span>
+            </div>
+          </div>
         </div>
+        <button
+          onClick={() => setViewDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
+          style={{ background: BG, border: `1.5px solid ${BORDER}`, borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto' }}
+        >
+          <ChevronRight size={16} color={TEXT2} />
+        </button>
       </div>
 
       {/* Weekday headers */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: 4 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: 6 }}>
         {WEEKDAYS.map(d => (
-          <div key={d} style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: MUTED, letterSpacing: '0.06em', paddingBottom: 4 }}>
+          <div key={d} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: MUTED, letterSpacing: '0.07em', paddingBottom: 6 }}>
             {d}
           </div>
         ))}
       </div>
 
-      {/* Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+      {/* Grid — rows are tall so calendar ~fills half the screen */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
         {calDays.map((date, i) => {
           const key            = toKey(date)
           const isCurrentMonth = date.getMonth() === month
           const isToday        = key === todayKey
           const hasEvents      = (eventsByDay[key]?.length ?? 0) > 0
           const isReg          = regDays.has(key)
+          const isSelected     = isToday
+
           return (
             <button
               key={i}
               onClick={() => hasEvents && isCurrentMonth && onNavigate('calendario')}
               style={{
-                background: isToday ? `${GOLD}14` : 'transparent',
-                border: 'none', borderRadius: 8,
-                padding: '6px 2px',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                background: isToday ? `${GOLD}18` : 'transparent',
+                border: isToday ? `1.5px solid ${GOLD}45` : '1.5px solid transparent',
+                borderRadius: 12,
+                padding: '10px 2px 8px',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
                 cursor: isCurrentMonth && hasEvents ? 'pointer' : 'default',
                 minHeight: 'auto', minWidth: 'auto',
-                opacity: isCurrentMonth ? 1 : 0.22,
+                opacity: isCurrentMonth ? 1 : 0.2,
                 transition: 'background 0.12s',
               }}
             >
-              <span style={{ fontSize: 12, lineHeight: 1, fontWeight: isToday ? 700 : 400, color: isToday ? GOLD : TEXT }}>
+              <span style={{
+                fontSize: 14, lineHeight: 1, fontVariantNumeric: 'tabular-nums',
+                fontWeight: isToday ? 800 : isCurrentMonth ? 500 : 400,
+                color: isToday ? GOLD : TEXT,
+              }}>
                 {date.getDate()}
               </span>
-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: isReg ? GREEN : hasEvents ? GOLD : 'transparent' }} />
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: isReg ? GREEN : hasEvents ? GOLD : 'transparent', flexShrink: 0 }} />
             </button>
           )
         })}
       </div>
+    </div>
+  )
+}
 
-      {/* Legend + CTA */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTop: `1px solid ${BORDER}` }}>
-        <div style={{ display: 'flex', gap: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: GOLD }} />
-            <span style={{ fontSize: 10, color: MUTED }}>Evento</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: GREEN }} />
-            <span style={{ fontSize: 10, color: MUTED }}>Apuntado</span>
-          </div>
-        </div>
-        <button
-          onClick={() => onNavigate('calendario')}
-          style={{ fontSize: 11, fontWeight: 700, color: GOLD, background: `${GOLD}0e`, border: `1.5px solid ${GOLD}30`, borderRadius: 8, padding: '5px 10px', cursor: 'pointer', minHeight: 'auto' }}
-        >
-          Ver todo →
-        </button>
+// ─── 4 Action buttons ─────────────────────────────────────────────────────────
+
+function ActionButton({ icon, label, onClick, active = false, badge = 0 }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        background: active ? `${GOLD}0f` : WHITE,
+        border: `1.5px solid ${active ? `${GOLD}55` : BORDER}`,
+        borderRadius: 22,
+        padding: '22px 14px 20px',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+        cursor: 'pointer', minHeight: 'auto',
+        boxShadow: active ? `0 0 0 3px ${GOLD}20` : '0 1px 3px rgba(0,0,0,0.05)',
+        transition: 'all 0.15s',
+        position: 'relative',
+      }}
+      onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.95)'; e.currentTarget.style.boxShadow = `0 0 0 3px ${GOLD}40` }}
+      onTouchEnd={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = active ? `0 0 0 3px ${GOLD}20` : '0 1px 3px rgba(0,0,0,0.05)' }}
+    >
+      {badge > 0 && (
+        <span style={{ position: 'absolute', top: 10, right: 10, background: GOLD, color: WHITE, fontSize: 9, fontWeight: 800, minWidth: 16, height: 16, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>
+          {badge > 9 ? '9+' : badge}
+        </span>
+      )}
+      <span style={{ fontSize: 30 }}>{icon}</span>
+      <span style={{ fontSize: 12, fontWeight: 600, color: active ? GOLD : TEXT, textAlign: 'center', lineHeight: 1.35 }}>
+        {label}
+      </span>
+    </button>
+  )
+}
+
+// ─── Mis citas (collapsible reveal) ──────────────────────────────────────────
+
+function MisCitas({ events, registeredIds, onCancelPress }) {
+  const mine = useMemo(() => {
+    const now = Date.now()
+    return events
+      .filter(ev => {
+        if (!registeredIds.has(ev.id) || !ev.fecha) return false
+        const d = ev.fecha?.toDate ? ev.fecha.toDate() : new Date(ev.fecha)
+        return d.getTime() > now
+      })
+      .sort((a, b) => {
+        const da = a.fecha?.toDate ? a.fecha.toDate() : new Date(a.fecha)
+        const db = b.fecha?.toDate ? b.fecha.toDate() : new Date(b.fecha)
+        return da - db
+      })
+  }, [events, registeredIds])
+
+  if (mine.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '28px 16px', background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 20 }}>
+        <div style={{ fontSize: 32, marginBottom: 10 }}>📭</div>
+        <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Aún no te has apuntado a ningún evento</p>
+        <p style={{ margin: '4px 0 0', fontSize: 12, color: MUTED, opacity: 0.7 }}>Pulsa «Apuntarme» para empezar</p>
       </div>
-    </Card>
+    )
+  }
+
+  return (
+    <div style={{ background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 20, padding: '16px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+      <div style={{ marginBottom: 12 }}>
+        <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: TEXT }}>Mis inscripciones</p>
+        <p style={{ margin: '2px 0 0', fontSize: 12, fontWeight: 600, color: GREEN }}>
+          ✅ {mine.length} {mine.length === 1 ? 'evento confirmado' : 'eventos confirmados'}
+        </p>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {mine.map(ev => {
+          const t = EVENT_TYPES[ev.tipo] ?? EVENT_TYPES.acto
+          return (
+            <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.18)', borderRadius: 14 }}>
+              <div style={{ width: 36, height: 36, flexShrink: 0, background: `${t.color}14`, border: `1px solid ${t.color}25`, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>
+                {t.emoji}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: TEXT, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                  {ev.titulo}
+                </p>
+                <p style={{ margin: '2px 0 0', fontSize: 11, color: TEXT2 }}>
+                  {fmtDate(ev.fecha)}{fmtTime(ev.fecha) && ` · ${fmtTime(ev.fecha)}`}
+                </p>
+              </div>
+              <button
+                onClick={() => onCancelPress(ev)}
+                style={{ padding: '5px 9px', background: 'transparent', border: '1px solid rgba(206,17,38,0.28)', borderRadius: 8, fontSize: 10, fontWeight: 700, color: 'rgba(206,17,38,0.75)', cursor: 'pointer', minHeight: 'auto', flexShrink: 0 }}
+              >
+                Anular
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── Countdown to next registered event ──────────────────────────────────────
+
+function getCountdown(target) {
+  const diff = Math.max(0, target - Date.now())
+  return {
+    diff,
+    days:  Math.floor(diff / 86400000),
+    hours: Math.floor((diff % 86400000) / 3600000),
+    mins:  Math.floor((diff % 3600000)  / 60000),
+    secs:  Math.floor((diff % 60000)    / 1000),
+  }
+}
+
+function NextEventCountdown({ event }) {
+  const target = useMemo(() => {
+    const d = event.fecha?.toDate ? event.fecha.toDate() : new Date(event.fecha)
+    return d.getTime()
+  }, [event.fecha])
+
+  const [cd, setCd] = useState(() => getCountdown(target))
+  useEffect(() => {
+    const id = setInterval(() => setCd(getCountdown(target)), 1000)
+    return () => clearInterval(id)
+  }, [target])
+
+  if (cd.diff === 0) return null
+  const t = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
+
+  return (
+    <div style={{ background: 'linear-gradient(135deg, #0d0d0d 0%, #1c1608 100%)', border: '1.5px solid rgba(212,175,55,0.32)', borderRadius: 20, padding: '20px', boxShadow: '0 8px 32px rgba(212,175,55,0.12)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <Clock size={11} color={GOLD} />
+        <span style={{ fontSize: 10, fontWeight: 700, color: GOLD, letterSpacing: '0.15em', textTransform: 'uppercase' }}>
+          Tu próximo evento
+        </span>
+      </div>
+      <p style={{ margin: '0 0 18px', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.88)', lineHeight: 1.3 }}>
+        {t.emoji} {event.titulo}
+      </p>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {[
+          { val: cd.days,  label: 'días'  },
+          { val: cd.hours, label: 'horas' },
+          { val: cd.mins,  label: 'min'   },
+          { val: cd.secs,  label: 'seg'   },
+        ].map(({ val, label }) => (
+          <div key={label} style={{ flex: 1, textAlign: 'center', background: 'rgba(212,175,55,0.07)', border: '1px solid rgba(212,175,55,0.2)', borderRadius: 14, padding: '12px 4px' }}>
+            <div style={{ fontSize: 26, fontWeight: 900, color: GOLD, lineHeight: 1, letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums' }}>
+              {String(val).padStart(2, '0')}
+            </div>
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', marginTop: 5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              {label}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p style={{ margin: '14px 0 0', textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.28)' }}>
+        {fmtDate(event.fecha)}{fmtTime(event.fecha) && ` · ${fmtTime(event.fecha)}`}
+        {event.lugar && ` · ${event.lugar}`}
+      </p>
+    </div>
   )
 }
 
@@ -365,21 +372,17 @@ function ProximosEventos({ events, registeredIds, onPress, onCancelPress }) {
 
   return (
     <div>
-      <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700, color: TEXT }}>Próximos eventos</h3>
+      <p style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 700, color: TEXT2, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+        Próximos actos
+      </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {upcoming.map(ev => {
-          const t     = EVENT_TYPES[ev.tipo] ?? EVENT_TYPES.acto
-          const isReg = registeredIds.has(ev.id)
-          const ocu   = ev.plazasOcupadas ?? 0
+          const t      = EVENT_TYPES[ev.tipo] ?? EVENT_TYPES.acto
+          const isReg  = registeredIds.has(ev.id)
+          const ocu    = ev.plazasOcupadas ?? 0
           const isFull = ev.plazasTotal && ocu >= ev.plazasTotal && !isReg
           return (
-            <div key={ev.id} style={{
-              background: isReg ? 'rgba(16,185,129,0.03)' : WHITE,
-              border: `1.5px solid ${isReg ? 'rgba(16,185,129,0.3)' : BORDER}`,
-              borderRadius: 16, padding: '14px 16px',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-              display: 'flex', alignItems: 'center', gap: 12,
-            }}>
+            <div key={ev.id} style={{ background: isReg ? 'rgba(16,185,129,0.03)' : WHITE, border: `1.5px solid ${isReg ? 'rgba(16,185,129,0.3)' : BORDER}`, borderRadius: 16, padding: '14px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 42, height: 42, flexShrink: 0, background: `${t.color}14`, border: `1px solid ${t.color}22`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
                 {t.emoji}
               </div>
@@ -391,18 +394,11 @@ function ProximosEventos({ events, registeredIds, onPress, onCancelPress }) {
                   {fmtDate(ev.fecha)}{fmtTime(ev.fecha) && ` · ${fmtTime(ev.fecha)}`}
                   {ev.precio != null ? ` · ${ev.precio} €` : ' · Gratis'}
                 </p>
-                {isReg && (
-                  <span style={{ display: 'inline-block', marginTop: 3, fontSize: 10, fontWeight: 700, color: GREEN }}>
-                    ✅ APUNTADO
-                  </span>
-                )}
+                {isReg && <span style={{ display: 'inline-block', marginTop: 3, fontSize: 10, fontWeight: 700, color: GREEN }}>✅ APUNTADO</span>}
               </div>
               <div style={{ flexShrink: 0 }}>
                 {isReg ? (
-                  <button
-                    onClick={() => onCancelPress(ev)}
-                    style={{ padding: '6px 10px', background: 'transparent', border: '1.5px solid rgba(206,17,38,0.35)', borderRadius: 8, fontSize: 11, fontWeight: 700, color: 'rgba(206,17,38,0.75)', cursor: 'pointer', minHeight: 'auto' }}
-                  >
+                  <button onClick={() => onCancelPress(ev)} style={{ padding: '6px 10px', background: 'transparent', border: '1.5px solid rgba(206,17,38,0.35)', borderRadius: 8, fontSize: 11, fontWeight: 700, color: 'rgba(206,17,38,0.75)', cursor: 'pointer', minHeight: 'auto' }}>
                     Anular
                   </button>
                 ) : isFull ? (
@@ -410,10 +406,7 @@ function ProximosEventos({ events, registeredIds, onPress, onCancelPress }) {
                     Completo
                   </span>
                 ) : (
-                  <button
-                    onClick={() => onPress(ev)}
-                    style={{ padding: '7px 13px', background: RED, border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 700, color: WHITE, cursor: 'pointer', minHeight: 'auto', boxShadow: '0 2px 8px rgba(206,17,38,0.25)' }}
-                  >
+                  <button onClick={() => onPress(ev)} style={{ padding: '7px 13px', background: RED, border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 700, color: WHITE, cursor: 'pointer', minHeight: 'auto', boxShadow: '0 2px 8px rgba(206,17,38,0.25)' }}>
                     Apuntarse
                   </button>
                 )}
@@ -434,24 +427,14 @@ function AnnCard({ ann }) {
     ? ann.createdAt.toDate().toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
     : null
   return (
-    <Card style={{ border: `1.5px solid ${isUrgent ? GOLD : BORDER}` }}>
+    <div style={{ background: WHITE, borderRadius: 20, padding: '16px 18px', border: `1.5px solid ${isUrgent ? GOLD : BORDER}`, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
-        <h3 style={{ fontSize: 15, fontWeight: 600, color: TEXT, margin: 0, flex: 1, lineHeight: 1.35 }}>
-          {ann.titulo}
-        </h3>
-        {isUrgent && (
-          <span style={{ background: GOLD, color: '#fff', fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 20, flexShrink: 0, letterSpacing: '0.05em' }}>
-            URGENTE
-          </span>
-        )}
+        <h3 style={{ fontSize: 15, fontWeight: 600, color: TEXT, margin: 0, flex: 1, lineHeight: 1.35 }}>{ann.titulo}</h3>
+        {isUrgent && <span style={{ background: GOLD, color: WHITE, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 20, flexShrink: 0, letterSpacing: '0.05em' }}>URGENTE</span>}
       </div>
-      {ann.cuerpo && (
-        <p style={{ fontSize: 13, color: TEXT2, margin: '0 0 8px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-          {ann.cuerpo}
-        </p>
-      )}
+      {ann.cuerpo && <p style={{ fontSize: 13, color: TEXT2, margin: '0 0 8px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{ann.cuerpo}</p>}
       {date && <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>{date}</p>}
-    </Card>
+    </div>
   )
 }
 
@@ -464,7 +447,7 @@ function AdminShortcuts({ onNavigate, onMetrics }) {
     { icon: '📊', label: 'Métricas',     action: onMetrics                      },
   ]
   return (
-    <div style={{ background: `${GOLD}0c`, border: `1.5px solid ${GOLD}30`, borderRadius: 20, padding: '16px 20px' }}>
+    <div style={{ background: `${GOLD}0c`, border: `1.5px solid ${GOLD}30`, borderRadius: 20, padding: '16px 18px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <Shield size={14} color={GOLD} />
         <span style={{ fontSize: 12, fontWeight: 700, color: GOLD, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
@@ -473,9 +456,7 @@ function AdminShortcuts({ onNavigate, onMetrics }) {
       </div>
       <div style={{ display: 'flex', gap: 10 }}>
         {shortcuts.map(({ icon, label, action }) => (
-          <button
-            key={label} onClick={action}
-            style={{ flex: 1, background: WHITE, border: `1.5px solid ${GOLD}30`, borderRadius: 14, padding: '12px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, cursor: 'pointer', minHeight: 'auto', transition: 'border-color 0.15s' }}
+          <button key={label} onClick={action} style={{ flex: 1, background: WHITE, border: `1.5px solid ${GOLD}30`, borderRadius: 14, padding: '12px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, cursor: 'pointer', minHeight: 'auto', transition: 'border-color 0.15s' }}
             onTouchStart={e => e.currentTarget.style.borderColor = GOLD}
             onTouchEnd={e => e.currentTarget.style.borderColor = `${GOLD}30`}
           >
@@ -500,33 +481,34 @@ function FallasCountdown() {
     return () => clearInterval(id)
   }, [])
   return (
-    <Card>
-      <div style={{ textAlign: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 10 }}>
-          <Flame size={12} color={GOLD} fill={GOLD} />
-          <span style={{ fontSize: 10, fontWeight: 700, color: GOLD, letterSpacing: '0.15em', textTransform: 'uppercase' }}>
-            Fallas 2027 · Burriana
-          </span>
-          <Flame size={12} color={GOLD} fill={GOLD} />
-        </div>
-        <div style={{ fontSize: 64, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: GOLD }}>
-          {days}
-        </div>
-        <div style={{ fontSize: 14, color: TEXT2, marginTop: 8, fontWeight: 500 }}>
-          {days === 1 ? 'día restante' : 'días restantes para Fallas'}
-        </div>
-        <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>
-          La Plantà · 14 de marzo · 20:00 h
-        </div>
+    <div style={{ background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 20, padding: '18px 20px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)', textAlign: 'center' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 10 }}>
+        <Flame size={12} color={GOLD} fill={GOLD} />
+        <span style={{ fontSize: 10, fontWeight: 700, color: GOLD, letterSpacing: '0.15em', textTransform: 'uppercase' }}>Fallas 2027 · Burriana</span>
+        <Flame size={12} color={GOLD} fill={GOLD} />
       </div>
-    </Card>
+      <div style={{ fontSize: 64, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: GOLD }}>{days}</div>
+      <div style={{ fontSize: 14, color: TEXT2, marginTop: 8, fontWeight: 500 }}>
+        {days === 1 ? 'día restante' : 'días restantes para Fallas'}
+      </div>
+      <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>La Plantà · 14 de marzo · 20:00 h</div>
+    </div>
   )
 }
 
 // ─── Home Tab ─────────────────────────────────────────────────────────────────
 
-function HomeTab({ nombre, numFallero, isAdmin, announcements, loadingAnns, events, registeredIds, onNavigate, onMetrics, onEventPress, onCancelPress }) {
-  const firstName = nombre.split(' ')[0]
+function HomeTab({
+  nombre, numFallero, isAdmin,
+  announcements, loadingAnns,
+  events, registeredIds,
+  onNavigate, onMetrics,
+  onEventPress, onCancelPress,
+  unreadCount,
+}) {
+  const firstName       = nombre.split(' ')[0]
+  const [showMyCitas, setShowMyCitas] = useState(false)
+  const [showEvents,  setShowEvents]  = useState(false)
 
   const featuredAnn = useMemo(
     () => announcements.find(a => a.esUrgente || a.importante) || announcements[0] || null,
@@ -548,59 +530,100 @@ function HomeTab({ nombre, numFallero, isAdmin, announcements, loadingAnns, even
       })[0] ?? null
   }, [events, registeredIds])
 
-  return (
-    <div style={{ padding: '24px 20px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+  const myCount = useMemo(() => {
+    const now = Date.now()
+    return events.filter(ev => {
+      if (!registeredIds.has(ev.id) || !ev.fecha) return false
+      const d = ev.fecha?.toDate ? ev.fecha.toDate() : new Date(ev.fecha)
+      return d.getTime() > now
+    }).length
+  }, [events, registeredIds])
 
-      {/* Greeting */}
-      <div>
-        <p style={{ fontSize: 13, color: TEXT2, margin: '0 0 4px', textTransform: 'capitalize' }}>
+  return (
+    <div>
+      {/* ── Greeting ─────────────────────────────────────────────── */}
+      <div style={{ padding: '22px 20px 16px' }}>
+        <p style={{ fontSize: 13, color: TEXT2, margin: '0 0 3px', textTransform: 'capitalize' }}>
           {new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
         </p>
-        <h1 style={{ fontSize: 28, fontWeight: 700, color: TEXT, margin: 0, lineHeight: 1.15 }}>
+        <h1 style={{ fontSize: 26, fontWeight: 700, color: TEXT, margin: 0, lineHeight: 1.15 }}>
           ¡Hola, {firstName}! 👋
         </h1>
         {isAdmin && (
-          <span style={{ display: 'inline-block', marginTop: 8, background: `${GOLD}14`, border: `1.5px solid ${GOLD}40`, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: '0.08em' }}>
+          <span style={{ display: 'inline-block', marginTop: 7, background: `${GOLD}14`, border: `1.5px solid ${GOLD}40`, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: '0.08em' }}>
             👑 ADMIN · Nº {String(numFallero).padStart(3, '0')}
           </span>
         )}
       </div>
 
-      {/* Featured announcement */}
-      {loadingAnns
-        ? <SkeletonCard height={96} />
-        : featuredAnn && (
-          <div>
-            <SectionLabel>
-              {(featuredAnn.esUrgente || featuredAnn.importante) ? '⚡ Aviso urgente' : '📌 Aviso del día'}
-            </SectionLabel>
-            <AnnCard ann={featuredAnn} />
-          </div>
-        )
-      }
+      {/* ── Hero Calendar (full-bleed, ~half page) ───────────────── */}
+      <HeroCalendar events={events} registeredIds={registeredIds} onNavigate={onNavigate} />
 
-      {/* Dynamic countdown to next registered event */}
-      {nextRegistered && (
-        <div>
-          <SectionLabel>⏱ Cuenta atrás</SectionLabel>
-          <NextEventCountdown event={nextRegistered} />
+      {/* ── 4 Action Buttons ─────────────────────────────────────── */}
+      <div style={{ padding: '20px 20px 0' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <ActionButton
+            icon="✍️" label="Apuntarme"
+            onClick={() => { setShowEvents(v => !v); setShowMyCitas(false) }}
+            active={showEvents}
+          />
+          <ActionButton
+            icon="✅" label={'¿A qué me\nhe apuntado?'}
+            onClick={() => { setShowMyCitas(v => !v); setShowEvents(false) }}
+            active={showMyCitas}
+            badge={myCount}
+          />
+          <ActionButton
+            icon="📅" label="Próximos eventos"
+            onClick={() => onNavigate('calendario')}
+          />
+          <ActionButton
+            icon="📢" label="Noticias"
+            onClick={() => onNavigate('avisos')}
+            badge={unreadCount}
+          />
+        </div>
+      </div>
+
+      {/* ── Collapsible: Mis inscripciones ───────────────────────── */}
+      {showMyCitas && (
+        <div style={{ padding: '16px 20px 0' }}>
+          <MisCitas events={events} registeredIds={registeredIds} onCancelPress={onCancelPress} />
         </div>
       )}
 
-      {/* Mis próximas citas */}
-      <MisCitas events={events} registeredIds={registeredIds} onCancelPress={onCancelPress} />
+      {/* ── Collapsible: Apuntarme (event list) ──────────────────── */}
+      {showEvents && (
+        <div style={{ padding: '16px 20px 0' }}>
+          <ProximosEventos events={events} registeredIds={registeredIds} onPress={onEventPress} onCancelPress={onCancelPress} />
+        </div>
+      )}
 
-      {/* Mini Calendar */}
-      <MiniCalendar events={events} registeredIds={registeredIds} onNavigate={onNavigate} />
+      {/* ── Rest of sections ─────────────────────────────────────── */}
+      <div style={{ padding: '20px 20px 36px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-      {/* Próximos eventos general */}
-      <ProximosEventos events={events} registeredIds={registeredIds} onPress={onEventPress} onCancelPress={onCancelPress} />
+        {/* Countdown */}
+        {nextRegistered && <NextEventCountdown event={nextRegistered} />}
 
-      {/* Admin shortcuts */}
-      {isAdmin && <AdminShortcuts onNavigate={onNavigate} onMetrics={onMetrics} />}
+        {/* Featured announcement */}
+        {loadingAnns
+          ? <SkeletonCard height={88} />
+          : featuredAnn && (
+            <div>
+              <p style={{ fontSize: 10, fontWeight: 700, color: GOLD, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 8px', paddingLeft: 2 }}>
+                {(featuredAnn.esUrgente || featuredAnn.importante) ? '⚡ Aviso urgente' : '📌 Aviso del día'}
+              </p>
+              <AnnCard ann={featuredAnn} />
+            </div>
+          )
+        }
 
-      {/* Fallas countdown */}
-      <FallasCountdown />
+        {/* Admin shortcuts */}
+        {isAdmin && <AdminShortcuts onNavigate={onNavigate} onMetrics={onMetrics} />}
+
+        {/* Fallas countdown */}
+        <FallasCountdown />
+      </div>
     </div>
   )
 }
@@ -632,7 +655,6 @@ export default function Dashboard() {
   const [lastReadTs, setLastReadTs]       = useState(getLastRead)
   const [showMetrics, setShowMetrics]     = useState(false)
 
-  // Events + registrations (for home tab)
   const [events, setEvents]               = useState([])
   const [registeredIds, setRegisteredIds] = useState(new Set())
   const [selectedEvent, setSelectedEvent] = useState(null)
@@ -706,12 +728,8 @@ export default function Dashboard() {
             <Flame size={18} color="white" strokeWidth={2.2} />
           </div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 800, color: TEXT, lineHeight: 1, letterSpacing: '-0.01em' }}>
-              Falla Joaquín Costa
-            </div>
-            <div style={{ fontSize: 10, color: MUTED, letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 2 }}>
-              Burriana
-            </div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: TEXT, lineHeight: 1, letterSpacing: '-0.01em' }}>Falla Joaquín Costa</div>
+            <div style={{ fontSize: 10, color: MUTED, letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 2 }}>Burriana</div>
           </div>
         </div>
         <button
@@ -738,6 +756,7 @@ export default function Dashboard() {
             onMetrics={() => setShowMetrics(true)}
             onEventPress={setSelectedEvent}
             onCancelPress={setCancelTarget}
+            unreadCount={unreadCount}
           />
         )}
         {activeTab === 'calendario' && <CalendarView />}
@@ -747,7 +766,6 @@ export default function Dashboard() {
 
       <Navigation active={activeTab} onChange={handleTabChange} unreadAvisos={unreadCount} />
 
-      {/* Modals */}
       {selectedEvent && (
         <RegistrationModal
           event={selectedEvent}
@@ -770,10 +788,7 @@ export default function Dashboard() {
         />
       )}
       {toast && <SuccessToast message={toast} onDismiss={() => setToast(null)} />}
-
-      {showMetrics && isAdmin && (
-        <AdminMetrics onClose={() => setShowMetrics(false)} />
-      )}
+      {showMetrics && isAdmin && <AdminMetrics onClose={() => setShowMetrics(false)} />}
     </div>
   )
 }
