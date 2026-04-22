@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import CalendarView from './CalendarView'
 import Profile from './Profile'
 import Navigation from './Navigation'
+import AdminMetrics from './AdminMetrics'
 import { Bell, Flame, Shield } from 'lucide-react'
 
 const LAST_READ_KEY = 'jcb_last_read_avisos'
@@ -144,7 +145,12 @@ function AnnCard({ ann }) {
 
 // ─── Admin shortcuts ──────────────────────────────────────────────────────────
 
-function AdminShortcuts({ onNavigate }) {
+function AdminShortcuts({ onNavigate, onMetrics }) {
+  const shortcuts = [
+    { icon: '➕', label: 'Crear Evento', action: () => onNavigate('calendario') },
+    { icon: '📋', label: 'Inscritos',    action: () => onNavigate('perfil')     },
+    { icon: '📊', label: 'Métricas',     action: onMetrics                      },
+  ]
   return (
     <div style={{
       background: `${GOLD}0c`,
@@ -158,13 +164,10 @@ function AdminShortcuts({ onNavigate }) {
         </span>
       </div>
       <div style={{ display: 'flex', gap: 10 }}>
-        {[
-          { icon: '➕', label: 'Crear Evento', tab: 'calendario' },
-          { icon: '📋', label: 'Inscritos',    tab: 'perfil'     },
-        ].map(({ icon, label, tab }) => (
+        {shortcuts.map(({ icon, label, action }) => (
           <button
-            key={tab}
-            onClick={() => onNavigate(tab)}
+            key={label}
+            onClick={action}
             style={{
               flex: 1, background: WHITE, border: `1.5px solid ${GOLD}30`,
               borderRadius: 14, padding: '12px 8px',
@@ -179,14 +182,6 @@ function AdminShortcuts({ onNavigate }) {
             <span style={{ fontSize: 11, fontWeight: 600, color: TEXT }}>{label}</span>
           </button>
         ))}
-        <div style={{
-          flex: 1, background: BORDER, borderRadius: 14, padding: '12px 8px',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, opacity: 0.5,
-        }}>
-          <span style={{ fontSize: 22 }}>📢</span>
-          <span style={{ fontSize: 11, fontWeight: 600, color: MUTED }}>Nuevo Aviso</span>
-          <span style={{ fontSize: 9, color: MUTED }}>pronto</span>
-        </div>
       </div>
     </div>
   )
@@ -194,7 +189,7 @@ function AdminShortcuts({ onNavigate }) {
 
 // ─── Home Tab ─────────────────────────────────────────────────────────────────
 
-function HomeTab({ nombre, numFallero, isAdmin, announcements, loadingAnns, onNavigate }) {
+function HomeTab({ nombre, numFallero, isAdmin, announcements, loadingAnns, onNavigate, onMetrics }) {
   const featuredAnn = useMemo(() =>
     announcements.find(a => a.esUrgente || a.importante) || announcements[0] || null,
   [announcements])
@@ -251,7 +246,7 @@ function HomeTab({ nombre, numFallero, isAdmin, announcements, loadingAnns, onNa
       </div>
 
       {/* Admin shortcuts */}
-      {isAdmin && <AdminShortcuts onNavigate={onNavigate} />}
+      {isAdmin && <AdminShortcuts onNavigate={onNavigate} onMetrics={onMetrics} />}
 
       {/* Countdown */}
       <MiniCountdown />
@@ -286,6 +281,7 @@ export default function Dashboard() {
   const [loadingAnns, setLoadingAnns]     = useState(true)
   const [activeTab, setActiveTab]         = useState('home')
   const [lastReadTs, setLastReadTs]       = useState(getLastRead)
+  const [showMetrics, setShowMetrics]     = useState(false)
 
   useEffect(() => {
     const q = query(collection(db, 'anuncios'), orderBy('createdAt', 'desc'), limit(10))
@@ -382,6 +378,7 @@ export default function Dashboard() {
             announcements={announcements}
             loadingAnns={loadingAnns}
             onNavigate={handleTabChange}
+            onMetrics={() => setShowMetrics(true)}
           />
         )}
         {activeTab === 'calendario' && <CalendarView />}
@@ -390,6 +387,10 @@ export default function Dashboard() {
       </main>
 
       <Navigation active={activeTab} onChange={handleTabChange} unreadAvisos={unreadCount} />
+
+      {showMetrics && isAdmin && (
+        <AdminMetrics onClose={() => setShowMetrics(false)} />
+      )}
     </div>
   )
 }
