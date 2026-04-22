@@ -1,6 +1,11 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+} from 'firebase/auth'
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '../firebase'
 
 const AuthContext = createContext(null)
@@ -11,7 +16,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    return onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser)
         const snap = await getDoc(doc(db, 'falleros', firebaseUser.uid))
@@ -22,7 +27,6 @@ export function AuthProvider({ children }) {
       }
       setLoading(false)
     })
-    return unsubscribe
   }, [])
 
   const login = async (email, password) => {
@@ -30,16 +34,34 @@ export function AuthProvider({ children }) {
     const snap = await getDoc(doc(db, 'falleros', cred.user.uid))
     if (!snap.exists()) {
       await signOut(auth)
-      throw new Error('Número de fallero no registrado. Contacta con la comisión.')
+      throw new Error('Cuenta no encontrada. Regístrate o contacta con la comisión.')
     }
     setFallero(snap.data())
     return cred
   }
 
+  const register = async (email, password, nombre, apellidos) => {
+    const cred = await createUserWithEmailAndPassword(auth, email, password)
+    const data = {
+      nombre:     nombre.trim(),
+      apellidos:  apellidos.trim(),
+      email,
+      rol:        'fallero',
+      estaActivo: true,
+      hijos:      [],
+      createdAt:  serverTimestamp(),
+    }
+    await setDoc(doc(db, 'falleros', cred.user.uid), data)
+    setFallero(data)
+    return cred
+  }
+
+  const updateFallero = (patch) => setFallero(prev => ({ ...prev, ...patch }))
+
   const logout = () => signOut(auth)
 
   return (
-    <AuthContext.Provider value={{ user, fallero, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, fallero, loading, login, register, logout, updateFallero }}>
       {children}
     </AuthContext.Provider>
   )

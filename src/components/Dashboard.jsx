@@ -7,7 +7,11 @@ import { useAuth } from '../contexts/AuthContext'
 import EventList from './EventList'
 import Profile from './Profile'
 import Navigation from './Navigation'
-import { Bell, Flame } from 'lucide-react'
+import { Bell, Flame, Shield } from 'lucide-react'
+
+const LAST_READ_KEY = 'jcb_last_read_avisos'
+const getLastRead = () => parseInt(localStorage.getItem(LAST_READ_KEY) || '0', 10)
+const markAvisosRead = () => localStorage.setItem(LAST_READ_KEY, Date.now().toString())
 
 const GOLD  = '#D4AF37'
 const BG    = '#F9FAFB'
@@ -156,6 +160,56 @@ function AnnCard({ ann }) {
 
 // ─── Home Tab ─────────────────────────────────────────────────────────────────
 
+// ─── Admin shortcuts (solo visibles para admin) ───────────────────────────────
+
+function AdminShortcuts({ onNavigate }) {
+  return (
+    <div style={{
+      background: `${GOLD}0c`,
+      border: `1.5px solid ${GOLD}30`,
+      borderRadius: 20, padding: '16px 20px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <Shield size={14} color={GOLD} />
+        <span style={{ fontSize: 12, fontWeight: 700, color: GOLD, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+          Herramientas Admin
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        {[
+          { icon: '➕', label: 'Crear Evento',   tab: 'eventos' },
+          { icon: '📋', label: 'Inscritos',      tab: 'perfil'  },
+        ].map(({ icon, label, tab }) => (
+          <button
+            key={tab}
+            onClick={() => onNavigate(tab)}
+            style={{
+              flex: 1, background: WHITE, border: `1.5px solid ${GOLD}30`,
+              borderRadius: 14, padding: '12px 8px',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+              cursor: 'pointer', minHeight: 'auto',
+              fontSize: 22, transition: 'border-color 0.15s',
+            }}
+            onTouchStart={e => e.currentTarget.style.borderColor = GOLD}
+            onTouchEnd={e => e.currentTarget.style.borderColor = `${GOLD}30`}
+          >
+            <span>{icon}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: TEXT }}>{label}</span>
+          </button>
+        ))}
+        <div style={{
+          flex: 1, background: `${BORDER}`, borderRadius: 14, padding: '12px 8px',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, opacity: 0.5,
+        }}>
+          <span style={{ fontSize: 22 }}>📢</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: MUTED }}>Nuevo Aviso</span>
+          <span style={{ fontSize: 9, color: MUTED }}>pronto</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function HomeTab({ nombre, numFallero, isAdmin, announcements, loadingAnns, onNavigate }) {
   const featuredAnn = useMemo(() =>
     announcements.find(a => a.esUrgente || a.importante) || announcements[0] || null,
@@ -211,6 +265,9 @@ function HomeTab({ nombre, numFallero, isAdmin, announcements, loadingAnns, onNa
           <GridButton icon="👤" label="Mi Perfil" onClick={() => onNavigate('perfil')} />
         </div>
       </div>
+
+      {/* Admin shortcuts */}
+      {isAdmin && <AdminShortcuts onNavigate={onNavigate} />}
 
       {/* Countdown */}
       <MiniCountdown />
@@ -312,6 +369,7 @@ export default function Dashboard() {
   const [upcomingEvents, setUpcomingEvents] = useState([])
   const [loadingEvents, setLoadingEvents]   = useState(true)
   const [activeTab, setActiveTab]           = useState('home')
+  const [lastReadTs, setLastReadTs]         = useState(getLastRead)
 
   useEffect(() => {
     const q = query(collection(db, 'anuncios'), orderBy('createdAt', 'desc'), limit(10))
@@ -330,10 +388,22 @@ export default function Dashboard() {
     )
   }, [])
 
-  const nombre      = fallero ? `${fallero.nombre}${fallero.apellidos ? ' ' + fallero.apellidos : ''}` : user?.displayName || user?.email?.split('@')[0] || 'Fallero'
-  const numFallero  = fallero?.numero ?? '—'
-  const isAdmin     = fallero?.rol === 'admin'
-  const urgentCount = announcements.filter(a => a.esUrgente || a.importante).length
+  const handleTabChange = (tab) => {
+    if (tab === 'avisos') {
+      const now = Date.now()
+      markAvisosRead()
+      setLastReadTs(now)
+    }
+    setActiveTab(tab)
+  }
+
+  const nombre     = fallero ? `${fallero.nombre}${fallero.apellidos ? ' ' + fallero.apellidos : ''}` : user?.displayName || user?.email?.split('@')[0] || 'Fallero'
+  const numFallero = fallero?.numero ?? '—'
+  const isAdmin    = fallero?.rol === 'admin'
+
+  const unreadCount = useMemo(() =>
+    announcements.filter(a => (a.createdAt?.toMillis?.() ?? 0) > lastReadTs).length,
+  [announcements, lastReadTs])
 
   return (
     <div style={{
@@ -369,7 +439,7 @@ export default function Dashboard() {
           </div>
         </div>
         <button
-          onClick={() => setActiveTab('avisos')}
+          onClick={() => handleTabChange('avisos')}
           style={{
             background: activeTab === 'avisos' ? `${GOLD}14` : 'transparent',
             border: `1.5px solid ${activeTab === 'avisos' ? `${GOLD}55` : BORDER}`,
@@ -381,12 +451,17 @@ export default function Dashboard() {
           }}
         >
           <Bell size={17} />
-          {urgentCount > 0 && (
+          {unreadCount > 0 && activeTab !== 'avisos' && (
             <span style={{
               position: 'absolute', top: -4, right: -4,
-              background: GOLD, width: 9, height: 9, borderRadius: '100%',
+              background: GOLD, borderRadius: '100%',
+              minWidth: 16, height: 16, padding: '0 3px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
               border: `2px solid ${BG}`,
-            }} />
+              fontSize: 9, fontWeight: 800, color: 'white',
+            }}>
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
           )}
         </button>
       </header>
@@ -400,16 +475,16 @@ export default function Dashboard() {
             isAdmin={isAdmin}
             announcements={announcements}
             loadingAnns={loadingAnns}
-            onNavigate={setActiveTab}
+            onNavigate={handleTabChange}
           />
         )}
         {activeTab === 'eventos'       && <EventList />}
         {activeTab === 'avisos'        && <AvisosTab announcements={announcements} loading={loadingAnns} />}
-        {activeTab === 'inscripciones' && <InscripcionesTab onNavigate={setActiveTab} upcomingEvents={upcomingEvents} loadingEvents={loadingEvents} />}
+        {activeTab === 'inscripciones' && <InscripcionesTab onNavigate={handleTabChange} upcomingEvents={upcomingEvents} loadingEvents={loadingEvents} />}
         {activeTab === 'perfil'        && <Profile />}
       </main>
 
-      <Navigation active={activeTab} onChange={setActiveTab} unreadAvisos={urgentCount} />
+      <Navigation active={activeTab} onChange={handleTabChange} unreadAvisos={unreadCount} />
     </div>
   )
 }

@@ -189,29 +189,51 @@ function EventCard({ event, onPress, isRegistered, index = 0 }) {
 // ─── Registration modal ──────────────────────────────────────────────────────
 function RegistrationModal({ event, isRegistered, onClose, onSuccess }) {
   const { user, fallero } = useAuth()
-  const [nPersonas, setNPersonas] = useState(1)
-  const [nota, setNota]           = useState('')
-  const [status, setStatus]       = useState(isRegistered ? 'duplicate' : 'clean')
-  const [saving, setSaving]       = useState(false)
+  const hijos = fallero?.hijos ?? []
+  // 'yo' is always the first member; hijos are keyed as 'hijo:Nombre'
+  const allMembers = [
+    { key: 'yo', label: fallero ? `${fallero.nombre} ${fallero.apellidos ?? ''}`.trim() : 'Yo mismo', emoji: '👤' },
+    ...hijos.map(h => ({ key: `hijo:${h}`, label: h, emoji: '👦' })),
+  ]
+  const [selected, setSelected] = useState(new Set(['yo']))
+  const [nota, setNota]         = useState('')
+  const [status, setStatus]     = useState(isRegistered ? 'duplicate' : 'clean')
+  const [saving, setSaving]     = useState(false)
 
   const t     = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
-  const total = event.precio != null ? event.precio * nPersonas : null
+  const count = selected.size
+  const total = event.precio != null ? event.precio * count : null
+
+  const toggleMember = (key) => {
+    if (key === 'yo') return // 'yo' is always required
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (status !== 'clean') return
+    if (status !== 'clean' || saving) return
     setSaving(true)
     try {
-      await addDoc(collection(db, 'inscripciones'), {
-        eventId:      event.id,
-        eventoTitulo: event.titulo,
-        uid:          user.uid,
-        nombre:       fallero ? `${fallero.nombre} ${fallero.apellidos}` : user.email,
-        numFallero:   fallero?.numero ?? '—',
-        nPersonas,
-        nota:         nota.trim() || null,
-        createdAt:    serverTimestamp(),
-      })
+      for (const key of selected) {
+        const isHijo = key.startsWith('hijo:')
+        const nombre = isHijo
+          ? key.replace('hijo:', '')
+          : (fallero ? `${fallero.nombre} ${fallero.apellidos ?? ''}`.trim() : user.email)
+        await addDoc(collection(db, 'inscripciones'), {
+          eventId:      event.id,
+          eventoTitulo: event.titulo,
+          uid:          user.uid,
+          nombre,
+          numFallero:   fallero?.numero ?? '—',
+          esHijo:       isHijo,
+          nota:         nota.trim() || null,
+          createdAt:    serverTimestamp(),
+        })
+      }
       setStatus('saved')
       setTimeout(onSuccess, 900)
     } catch {
@@ -258,40 +280,65 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess }) {
           <div style={{ width: '58px', height: '58px', background: `${GREEN}18`, border: `1px solid ${GREEN}35`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Check size={28} color={GREEN} strokeWidth={2.5} />
           </div>
-          <p style={{ margin: 0, fontWeight: '800', fontSize: '1rem', color: GREEN }}>¡Inscripción confirmada!</p>
+          <p style={{ margin: 0, fontWeight: '800', fontSize: '1rem', color: GREEN }}>
+            ¡{count > 1 ? `${count} inscripciones confirmadas` : 'Inscripción confirmada'}! 🎉
+          </p>
         </div>
       )}
 
       {/* ── Form ──────────────────────────────────────────────────────────── */}
       {status === 'clean' && (
         <form onSubmit={handleSubmit}>
-          <label style={sharedLabel}>Número de personas</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.25rem' }}>
-            <button type="button" onClick={() => setNPersonas(v => Math.max(1, v - 1))}
-              style={{ width: '52px', height: '52px', flexShrink: 0, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px', color: 'white', fontSize: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', minHeight: 'auto' }}>
-              −
-            </button>
-            <div style={{ flex: 1, textAlign: 'center' }}>
-              <span style={{ fontSize: '2.5rem', fontWeight: '900', color: GOLD, letterSpacing: '-0.02em' }}>{nPersonas}</span>
-              <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.28)', marginLeft: '0.4rem' }}>
-                {nPersonas === 1 ? 'persona' : 'personas'}
-              </span>
-            </div>
-            <button type="button" onClick={() => setNPersonas(v => v + 1)}
-              style={{ width: '52px', height: '52px', flexShrink: 0, background: 'rgba(206,17,38,0.12)', border: `1px solid rgba(206,17,38,0.28)`, borderRadius: '14px', color: RED, fontSize: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', minHeight: 'auto' }}>
-              +
-            </button>
+          {/* ¿A quién inscribes? */}
+          <label style={{ ...sharedLabel, marginBottom: '0.6rem' }}>¿A quién inscribes?</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
+            {allMembers.map(({ key, label, emoji }) => {
+              const isChecked = selected.has(key)
+              const isFixed   = key === 'yo'
+              return (
+                <button
+                  key={key} type="button"
+                  onClick={() => toggleMember(key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.75rem',
+                    padding: '0.75rem 1rem',
+                    background: isChecked ? 'rgba(212,175,55,0.1)' : 'rgba(255,255,255,0.04)',
+                    border: `1.5px solid ${isChecked ? 'rgba(212,175,55,0.45)' : 'rgba(255,255,255,0.1)'}`,
+                    borderRadius: '14px', cursor: isFixed ? 'default' : 'pointer',
+                    transition: 'all 0.15s', textAlign: 'left', minHeight: 'auto',
+                    width: '100%',
+                  }}
+                >
+                  <span style={{ fontSize: '1.2rem' }}>{emoji}</span>
+                  <span style={{ flex: 1, fontSize: '0.9rem', fontWeight: '600', color: isChecked ? GOLD : 'rgba(255,255,255,0.65)' }}>
+                    {label}
+                    {isFixed && <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', marginLeft: 6, fontWeight: 400 }}>· tú</span>}
+                  </span>
+                  <div style={{
+                    width: 20, height: 20, borderRadius: 6,
+                    background: isChecked ? GOLD : 'rgba(255,255,255,0.08)',
+                    border: `1.5px solid ${isChecked ? GOLD : 'rgba(255,255,255,0.2)'}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                  }}>
+                    {isChecked && <Check size={12} color="white" strokeWidth={3} />}
+                  </div>
+                </button>
+              )
+            })}
           </div>
 
           <label style={sharedLabel}>Nota (opcional)</label>
-          <textarea value={nota} onChange={e => setNota(e.target.value)} placeholder="Alergias, menú infantil, silla de ruedas…" rows={2}
+          <textarea value={nota} onChange={e => setNota(e.target.value)}
+            placeholder="Alergias, menú infantil, silla de ruedas…" rows={2}
             style={{ ...sharedInput, resize: 'vertical', marginBottom: '1.25rem' }}
             onFocus={e => e.target.style.borderColor = GOLD}
-            onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'} />
+            onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+          />
 
           {total !== null && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(212,175,55,0.07)', border: '1px solid rgba(212,175,55,0.18)', borderRadius: '12px', marginBottom: '1.25rem' }}>
-              <span style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.4)' }}>{nPersonas} × {event.precio} €</span>
+              <span style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.4)' }}>{count} × {event.precio} €</span>
               <span style={{ fontSize: '1.1rem', fontWeight: '800', color: GOLD }}>Total: {total} €</span>
             </div>
           )}
@@ -308,7 +355,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess }) {
             }}>
             {saving
               ? <Loader2 size={18} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
-              : '✅ Confirmar inscripción'}
+              : `✅ Confirmar${count > 1 ? ` (${count} personas)` : ''}`}
           </button>
         </form>
       )}

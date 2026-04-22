@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { Flame, Lock, Mail, Eye, EyeOff, AlertCircle } from 'lucide-react'
+import { Flame, Lock, Mail, Eye, EyeOff, AlertCircle, User } from 'lucide-react'
+
+const GOLD = '#C9A84C'
+const RED  = '#CE1126'
 
 const inputBase = {
   width: '100%',
@@ -15,6 +18,12 @@ const inputBase = {
   transition: 'border-color 0.2s',
 }
 
+const labelStyle = {
+  display: 'block', color: 'rgba(255,255,255,0.4)',
+  fontSize: '0.7rem', fontWeight: '700',
+  letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.45rem',
+}
+
 function Field({ icon: Icon, type, value, onChange, placeholder, right }) {
   return (
     <div style={{ position: 'relative' }}>
@@ -27,7 +36,7 @@ function Field({ icon: Icon, type, value, onChange, placeholder, right }) {
         type={type} value={value} onChange={onChange}
         placeholder={placeholder} required
         style={{ ...inputBase, paddingRight: right ? '3rem' : '1rem' }}
-        onFocus={e => { e.target.style.borderColor = '#C9A84C' }}
+        onFocus={e => { e.target.style.borderColor = GOLD }}
         onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)' }}
       />
       {right}
@@ -36,25 +45,46 @@ function Field({ icon: Icon, type, value, onChange, placeholder, right }) {
 }
 
 export default function Login() {
-  const { login } = useAuth()
-  const [email, setEmail]       = useState('')
-  const [password, setPassword] = useState('')
-  const [showPass, setShowPass] = useState(false)
-  const [error, setError]       = useState('')
-  const [loading, setLoading]   = useState(false)
+  const { login, register } = useAuth()
+  const [mode, setMode]           = useState('login')
+  const [nombre, setNombre]       = useState('')
+  const [apellidos, setApellidos] = useState('')
+  const [email, setEmail]         = useState('')
+  const [password, setPassword]   = useState('')
+  const [showPass, setShowPass]   = useState(false)
+  const [error, setError]         = useState('')
+  const [loading, setLoading]     = useState(false)
+
+  const switchMode = (m) => {
+    setMode(m); setError('')
+    setNombre(''); setApellidos(''); setEmail(''); setPassword('')
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    if (mode === 'register') {
+      if (!nombre.trim()) return setError('Introduce tu nombre')
+      if (password.length < 6) return setError('La contraseña debe tener al menos 6 caracteres')
+    }
     setLoading(true)
     try {
-      await login(email, password)
+      if (mode === 'login') {
+        await login(email, password)
+      } else {
+        await register(email, password, nombre, apellidos)
+      }
     } catch (err) {
-      setError(
-        err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found'
-          ? 'Email o contraseña incorrectos'
-          : err.message || 'Error al iniciar sesión'
-      )
+      const code = err.code
+      if (code === 'auth/invalid-credential' || code === 'auth/user-not-found' || code === 'auth/wrong-password') {
+        setError('Email o contraseña incorrectos')
+      } else if (code === 'auth/email-already-in-use') {
+        setError('Ya existe una cuenta con ese email')
+      } else if (code === 'auth/invalid-email') {
+        setError('El email no es válido')
+      } else {
+        setError(err.message || 'Error al procesar la solicitud')
+      }
     } finally {
       setLoading(false)
     }
@@ -126,22 +156,54 @@ export default function Login() {
           }} />
         </div>
 
-        <p style={{
-          color: 'rgba(255,255,255,0.4)', fontSize: '0.82rem',
-          textAlign: 'center', marginBottom: '1.5rem',
+        {/* Mode tabs */}
+        <div style={{
+          display: 'flex', background: 'rgba(255,255,255,0.05)',
+          borderRadius: '14px', padding: '4px', gap: '4px', marginBottom: '1.5rem',
         }}>
-          Acceso exclusivo para falleros
-        </p>
+          {[['login', '🔑 Entrar'], ['register', '✨ Registrarse']].map(([m, label]) => (
+            <button
+              key={m} type="button" onClick={() => switchMode(m)}
+              style={{
+                flex: 1, padding: '0.55rem 0.5rem',
+                background: mode === m ? 'rgba(201,168,76,0.15)' : 'transparent',
+                border: mode === m ? '1px solid rgba(201,168,76,0.35)' : '1px solid transparent',
+                borderRadius: '10px',
+                color: mode === m ? GOLD : 'rgba(255,255,255,0.35)',
+                fontSize: '0.78rem', fontWeight: '700',
+                cursor: 'pointer', minHeight: 'auto',
+                transition: 'all 0.2s', letterSpacing: '0.02em',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
         <form onSubmit={handleSubmit}>
+          {mode === 'register' && (
+            <>
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={labelStyle}>Nombre</label>
+                <Field
+                  icon={User} type="text"
+                  value={nombre} onChange={e => setNombre(e.target.value)}
+                  placeholder="Tu nombre"
+                />
+              </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={labelStyle}>Apellidos</label>
+                <Field
+                  icon={User} type="text"
+                  value={apellidos} onChange={e => setApellidos(e.target.value)}
+                  placeholder="Tus apellidos"
+                />
+              </div>
+            </>
+          )}
+
           <div style={{ marginBottom: '1rem' }}>
-            <label style={{
-              display: 'block', color: 'rgba(255,255,255,0.4)',
-              fontSize: '0.7rem', fontWeight: '700',
-              letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.45rem',
-            }}>
-              Email
-            </label>
+            <label style={labelStyle}>Email</label>
             <Field
               icon={Mail} type="email"
               value={email} onChange={e => setEmail(e.target.value)}
@@ -150,13 +212,7 @@ export default function Login() {
           </div>
 
           <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block', color: 'rgba(255,255,255,0.4)',
-              fontSize: '0.7rem', fontWeight: '700',
-              letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.45rem',
-            }}>
-              Contraseña
-            </label>
+            <label style={labelStyle}>Contraseña{mode === 'register' && ' (mín. 6 caracteres)'}</label>
             <Field
               icon={Lock}
               type={showPass ? 'text' : 'password'}
@@ -187,7 +243,7 @@ export default function Login() {
               border: '1px solid rgba(206,17,38,0.35)',
               borderRadius: '10px', marginBottom: '1rem',
             }}>
-              <AlertCircle size={15} color="#CE1126" style={{ flexShrink: 0 }} />
+              <AlertCircle size={15} color={RED} style={{ flexShrink: 0 }} />
               <span style={{ color: '#ff8080', fontSize: '0.82rem' }}>{error}</span>
             </div>
           )}
@@ -197,17 +253,23 @@ export default function Login() {
             style={{
               width: '100%', padding: '0.9rem',
               background: loading
-                ? 'rgba(206,17,38,0.4)'
-                : 'linear-gradient(135deg, #CE1126 0%, #a00d1e 100%)',
+                ? 'rgba(201,168,76,0.3)'
+                : mode === 'login'
+                  ? 'linear-gradient(135deg, #CE1126 0%, #a00d1e 100%)'
+                  : 'linear-gradient(135deg, #C9A84C 0%, #8a6f1a 100%)',
               border: 'none', borderRadius: '14px',
               color: 'white', fontSize: '0.95rem', fontWeight: '700',
               letterSpacing: '0.04em',
               cursor: loading ? 'not-allowed' : 'pointer',
-              boxShadow: loading ? 'none' : '0 6px 24px rgba(206,17,38,0.45)',
+              boxShadow: loading ? 'none' : mode === 'login'
+                ? '0 6px 24px rgba(206,17,38,0.45)'
+                : '0 6px 24px rgba(212,175,55,0.4)',
               transition: 'all 0.2s',
             }}
           >
-            {loading ? 'Entrando…' : '🔥 Entrar a la Falla'}
+            {loading
+              ? (mode === 'login' ? 'Entrando…' : 'Creando cuenta…')
+              : (mode === 'login' ? '🔥 Entrar a la Falla' : '✨ Crear mi cuenta')}
           </button>
         </form>
 
