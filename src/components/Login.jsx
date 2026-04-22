@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { Flame, Lock, Mail, Eye, EyeOff, AlertCircle, User } from 'lucide-react'
+import { Lock, Mail, Eye, EyeOff, AlertCircle, User } from 'lucide-react'
+import logoFalla from '../assets/logo-falla.png'
 
 const GOLD = '#C9A84C'
 const RED  = '#CE1126'
@@ -126,17 +127,19 @@ export default function Login() {
 
         {/* Emblem */}
         <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-          <div style={{
-            width: '76px', height: '76px',
-            background: 'linear-gradient(145deg, #C9A84C 0%, #CE1126 60%, #8a0a1a 100%)',
-            borderRadius: '22px',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            margin: '0 auto 1rem',
-            boxShadow: '0 8px 32px rgba(206,17,38,0.45), 0 0 0 1px rgba(201,168,76,0.3)',
-            transform: 'rotate(-2deg)',
-          }}>
-            <Flame size={38} color="white" strokeWidth={1.5} />
-          </div>
+          <img
+            src={logoFalla}
+            alt="Falla Joaquín Costa"
+            style={{
+              width: '84px', height: '84px',
+              objectFit: 'contain',
+              display: 'block',
+              margin: '0 auto 1rem',
+              filter: 'drop-shadow(0 6px 24px rgba(206,17,38,0.45)) drop-shadow(0 0 8px rgba(201,168,76,0.25))',
+              userSelect: 'none',
+              WebkitUserDrag: 'none',
+            }}
+          />
           <h1 style={{
             color: '#C9A84C', fontSize: '1.1rem', fontWeight: '800',
             letterSpacing: '0.12em', textTransform: 'uppercase', margin: 0,
