@@ -676,9 +676,11 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
 // ─── Admin event form (create & edit) ────────────────────────────────────────
 function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
   const isEditing = !!editEvent
+  const { fallero } = useAuth()
+  const isPrivileged = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
   const [form, setForm] = useState(() => {
-    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', lugar: '', precio: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '' }
+    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', lugar: '', precio: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false }
     const d = editEvent.fecha?.toDate ? editEvent.fecha.toDate() : editEvent.fecha ? new Date(editEvent.fecha) : null
     const pad = n => String(n).padStart(2, '0')
     return {
@@ -693,6 +695,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
       imagenUrl:   editEvent.imagenUrl ?? '',
       videoUrl:    editEvent.videoUrl ?? '',
       menu:        editEvent.menu ?? '',
+      notificar:   editEvent.notificar ?? false,
     }
   })
   const [loading,       setLoading]       = useState(false)
@@ -734,6 +737,8 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
         imagenUrl:   form.imagenUrl.trim() || null,
         videoUrl:    form.videoUrl.trim() || null,
         menu:        (['comida', 'cena'].includes(form.tipo)) ? (form.menu.trim() || null) : null,
+        notificar:   isPrivileged ? Boolean(form.notificar) : false,
+        timestampNotificacion: isPrivileged && form.notificar ? serverTimestamp() : null,
       }
       if (isEditing) {
         await updateDoc(doc(db, 'eventos', editEvent.id), payload)
@@ -815,6 +820,41 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
             <textarea rows={3} style={{ ...sharedInput, resize: 'vertical' }} value={form.menu} onChange={e => set('menu', e.target.value)} placeholder={'Primer plato: …\nSegundo plato: …\nPostre: …'} onFocus={fg} onBlur={fb} />
           </div>
         )}
+        {/* Notify toggle — privileged only */}
+        {isPrivileged && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.9rem 1rem', background: form.notificar ? 'rgba(212,175,55,0.07)' : 'rgba(255,255,255,0.03)', border: `1.5px solid ${form.notificar ? 'rgba(212,175,55,0.38)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '14px', transition: 'all 0.2s' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <span style={{ fontSize: '1.15rem' }}>📢</span>
+              <div>
+                <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: '700', color: 'white', lineHeight: 1.2 }}>Notificar a la comisión</p>
+                <p style={{ margin: '2px 0 0', fontSize: '0.67rem', color: 'rgba(255,255,255,0.35)' }}>Muestra un aviso urgente a todos</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => set('notificar', !form.notificar)}
+              style={{
+                width: '46px', height: '26px', flexShrink: 0,
+                background: form.notificar ? GOLD : 'rgba(255,255,255,0.18)',
+                border: 'none', borderRadius: '13px',
+                position: 'relative', cursor: 'pointer',
+                transition: 'background 0.22s', minHeight: 'auto', minWidth: 'auto',
+              }}
+              aria-checked={form.notificar}
+              role="switch"
+            >
+              <div style={{
+                position: 'absolute', top: '3px',
+                left: form.notificar ? '23px' : '3px',
+                width: '20px', height: '20px',
+                background: 'white', borderRadius: '50%',
+                transition: 'left 0.22s',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.35)',
+              }} />
+            </button>
+          </div>
+        )}
+
         {error && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1rem', background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.28)', borderRadius: '10px' }}>
             <AlertCircle size={15} color={RED} />

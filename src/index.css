@@ -144,6 +144,17 @@
   0%   { transform: translateX(-120%) skewX(-15deg); }
   100% { transform: translateX(350%) skewX(-15deg); }
 }
+@keyframes falla-bannerIn {
+  from { opacity: 0; transform: translateY(-100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes falla-bell {
+  0%, 50%, 100% { transform: rotate(0deg) scale(1); }
+  10%  { transform: rotate(16deg) scale(1.1); }
+  20%  { transform: rotate(-14deg) scale(1.05); }
+  30%  { transform: rotate(10deg) scale(1.05); }
+  40%  { transform: rotate(-7deg) scale(1); }
+}
 
 /* ─── SplashScreen keyframes ─────────────────────────────────────────────────*/
 @keyframes jcb-beat {

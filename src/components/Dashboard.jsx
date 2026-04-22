@@ -10,7 +10,7 @@ import Profile from './Profile'
 import Navigation from './Navigation'
 import AdminMetrics from './AdminMetrics'
 import { RegistrationModal, SuccessToast, CancelConfirmModal } from './EventList'
-import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X } from 'lucide-react'
 
 const LAST_READ_KEY  = 'jcb_last_read_avisos'
 const getLastRead    = () => parseInt(localStorage.getItem(LAST_READ_KEY) || '0', 10)
@@ -496,6 +496,80 @@ function FallasCountdown() {
   )
 }
 
+// ─── Urgent notification banner ──────────────────────────────────────────────
+
+const NOTIF_DISMISSED_KEY = 'jcb_notif_dismissed'
+
+function getDismissedSet() {
+  try { return new Set(JSON.parse(localStorage.getItem(NOTIF_DISMISSED_KEY) || '[]')) }
+  catch { return new Set() }
+}
+
+function UrgentNotification({ events, onView }) {
+  const [dismissed, setDismissed] = useState(() => getDismissedSet())
+
+  const urgentEvent = useMemo(() => {
+    const now = Date.now()
+    return events
+      .filter(ev => {
+        if (!ev.notificar || !ev.fecha) return false
+        const d = ev.fecha?.toDate ? ev.fecha.toDate() : new Date(ev.fecha)
+        return d.getTime() > now && !dismissed.has(ev.id)
+      })
+      .sort((a, b) => {
+        const ta = a.timestampNotificacion?.toMillis?.() ?? 0
+        const tb = b.timestampNotificacion?.toMillis?.() ?? 0
+        return tb - ta
+      })[0] ?? null
+  }, [events, dismissed])
+
+  if (!urgentEvent) return null
+
+  const handleDismiss = () => {
+    const next = getDismissedSet()
+    next.add(urgentEvent.id)
+    localStorage.setItem(NOTIF_DISMISSED_KEY, JSON.stringify([...next]))
+    setDismissed(new Set(next))
+  }
+
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg, #6B0010 0%, #CE1126 55%, #9a7209 100%)',
+      padding: '13px 18px',
+      display: 'flex', alignItems: 'center', gap: 12,
+      borderBottom: '1.5px solid rgba(212,175,55,0.3)',
+      animation: 'falla-bannerIn 0.4s ease-out',
+      flexShrink: 0,
+    }}>
+      <span style={{ fontSize: 22, display: 'inline-block', animation: 'falla-bell 1.8s ease-in-out infinite', flexShrink: 0, transformOrigin: 'top center' }}>
+        🔔
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ margin: 0, fontSize: 10, fontWeight: 800, color: 'rgba(255,255,255,0.72)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+          ¡Nuevo evento importante!
+        </p>
+        <p style={{ margin: '2px 0 0', fontSize: 14, fontWeight: 700, color: 'white', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+          {urgentEvent.titulo}
+        </p>
+      </div>
+      <button
+        onClick={() => onView(urgentEvent)}
+        style={{ flexShrink: 0, padding: '6px 13px', background: 'rgba(255,255,255,0.18)', border: '1.5px solid rgba(255,255,255,0.32)', borderRadius: 8, color: 'white', fontSize: 11, fontWeight: 700, cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', transition: 'background 0.15s' }}
+        onTouchStart={e => e.currentTarget.style.background = 'rgba(255,255,255,0.28)'}
+        onTouchEnd={e => e.currentTarget.style.background = 'rgba(255,255,255,0.18)'}
+      >
+        Ver detalles
+      </button>
+      <button
+        onClick={handleDismiss}
+        style={{ flexShrink: 0, background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, padding: '5px', color: 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'auto', minWidth: 'auto' }}
+      >
+        <X size={14} />
+      </button>
+    </div>
+  )
+}
+
 // ─── Home Tab ─────────────────────────────────────────────────────────────────
 
 function HomeTab({
@@ -747,6 +821,9 @@ export default function Dashboard() {
           )}
         </button>
       </header>
+
+      {/* Urgent event banner */}
+      <UrgentNotification events={events} onView={(ev) => setSelectedEvent(ev)} />
 
       {/* Content */}
       <main style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain' }}>
