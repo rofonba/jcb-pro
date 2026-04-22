@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   collection, query, orderBy, onSnapshot,
-  addDoc, deleteDoc, serverTimestamp, getDocs, where, doc,
+  addDoc, deleteDoc, serverTimestamp, getDocs, where, doc, updateDoc,
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import {
   Plus, MapPin, Calendar, Users, ChevronRight,
-  X, Check, AlertCircle, Loader2, BarChart2,
+  X, Check, AlertCircle, Loader2, BarChart2, Pencil,
 } from 'lucide-react'
 import AdminEventControl from './AdminEventControl'
 
@@ -35,6 +35,11 @@ const sharedLabel = {
   fontSize: '0.7rem', fontWeight: '700',
   letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.4rem',
 }
+
+const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
+  const h = Math.floor(i / 2)
+  return `${String(h).padStart(2, '0')}:${i % 2 === 0 ? '00' : '30'}`
+})
 
 function fmtDate(f) {
   if (!f) return '—'
@@ -65,7 +70,7 @@ function Overlay({ children, onClose, scrollable = false }) {
 }
 
 // ─── Event card ───────────────────────────────────────────────────────────────
-function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, index = 0 }) {
+function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEditPress, index = 0 }) {
   const t      = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
   const ocupadas = event.plazasOcupadas ?? 0
   const pct    = event.plazasTotal ? Math.min(100, (ocupadas / event.plazasTotal) * 100) : null
@@ -115,17 +120,26 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, index 
             )}
           </div>
         </div>
-        {/* Admin 📊 button or chevron */}
+        {/* Admin buttons or chevron */}
         {isAdmin ? (
-          <button
-            onClick={e => { e.stopPropagation(); onAdminPress(event) }}
-            style={{ background: 'rgba(212,175,55,0.1)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: '10px', padding: '0.4rem 0.6rem', color: GOLD, display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', flexShrink: 0, fontSize: '0.65rem', fontWeight: '700', transition: 'background 0.15s' }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(212,175,55,0.2)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'rgba(212,175,55,0.1)'}
-          >
-            <BarChart2 size={13} />
-            <span>Inscritos</span>
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', flexShrink: 0 }}>
+            <button
+              onClick={e => { e.stopPropagation(); onAdminPress(event) }}
+              style={{ background: 'rgba(212,175,55,0.1)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: '8px', padding: '0.35rem 0.55rem', color: GOLD, display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', fontSize: '0.6rem', fontWeight: '700', transition: 'background 0.15s' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(212,175,55,0.2)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(212,175,55,0.1)'}
+            >
+              <BarChart2 size={12} /><span>Inscritos</span>
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); onEditPress(event) }}
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '0.35rem 0.55rem', color: 'rgba(255,255,255,0.5)', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', fontSize: '0.6rem', fontWeight: '700', transition: 'background 0.15s' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+            >
+              <Pencil size={12} /><span>Editar</span>
+            </button>
+          </div>
         ) : (
           <ChevronRight size={17} color="rgba(255,255,255,0.2)" style={{ flexShrink: 0, marginTop: '3px' }} />
         )}
@@ -134,17 +148,30 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, index 
       {/* Meta */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.28rem', marginBottom: '0.75rem' }}>
         {event.fecha && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
             <Calendar size={12} color="rgba(255,255,255,0.28)" />
             <span style={{ fontSize: '0.77rem', color: 'rgba(255,255,255,0.45)', textTransform: 'capitalize' }}>
-              {fmtDate(event.fecha)}{fmtTime(event.fecha) && ` · ${fmtTime(event.fecha)}`}
+              {fmtDate(event.fecha)}
             </span>
+            {fmtTime(event.fecha) && (
+              <span style={{ display: 'inline-block', padding: '0.1rem 0.45rem', background: 'rgba(212,175,55,0.14)', border: '1px solid rgba(212,175,55,0.28)', borderRadius: '6px', fontSize: '0.68rem', fontWeight: '700', color: GOLD, letterSpacing: '0.04em' }}>
+                {fmtTime(event.fecha)}
+              </span>
+            )}
           </div>
         )}
         {event.lugar && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
             <MapPin size={12} color="rgba(255,255,255,0.28)" />
-            <span style={{ fontSize: '0.77rem', color: 'rgba(255,255,255,0.45)' }}>{event.lugar}</span>
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.lugar)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              style={{ fontSize: '0.77rem', color: 'rgba(212,175,55,0.7)', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' }}
+            >
+              {event.lugar}
+            </a>
           </div>
         )}
         {event.plazasTotal && (
@@ -198,6 +225,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
 
   const [selected, setSelected]         = useState(new Set(['yo']))
   const [nota, setNota]                 = useState('')
+  const [alergias, setAlergias]         = useState('')
   const [status, setStatus]             = useState(isRegistered ? 'duplicate' : 'clean')
   const [saving, setSaving]             = useState(false)
 
@@ -284,6 +312,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
           uid: user.uid, nombre,
           numFallero: fallero?.numero ?? '—',
           esHijo: isHijo, nota: nota.trim() || null,
+          alergias: (['comida', 'cena'].includes(event.tipo)) ? (alergias.trim() || null) : null,
           createdAt: serverTimestamp(),
         })
       }
@@ -449,8 +478,22 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
                 </div>
               )}
 
+              {(event.tipo === 'comida' || event.tipo === 'cena') && (
+                <>
+                  <label style={sharedLabel}>🌾 Alergias / Restricciones</label>
+                  <textarea
+                    value={alergias} onChange={e => setAlergias(e.target.value)}
+                    placeholder="Sin gluten, vegetariano, alergia a frutos secos…"
+                    rows={2}
+                    style={{ ...sharedInput, resize: 'vertical', marginBottom: '1rem' }}
+                    onFocus={e => e.target.style.borderColor = GOLD}
+                    onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                  />
+                </>
+              )}
+
               <label style={sharedLabel}>Nota (opcional)</label>
-              <textarea value={nota} onChange={e => setNota(e.target.value)} placeholder="Alergias, menú infantil, silla de ruedas…" rows={2} style={{ ...sharedInput, resize: 'vertical', marginBottom: '1.25rem' }} onFocus={e => e.target.style.borderColor = GOLD} onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'} />
+              <textarea value={nota} onChange={e => setNota(e.target.value)} placeholder="Menú infantil, silla de ruedas…" rows={2} style={{ ...sharedInput, resize: 'vertical', marginBottom: '1.25rem' }} onFocus={e => e.target.style.borderColor = GOLD} onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'} />
 
               {total !== null && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(212,175,55,0.07)', border: '1px solid rgba(212,175,55,0.18)', borderRadius: '12px', marginBottom: '1.25rem' }}>
@@ -481,9 +524,25 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
   )
 }
 
-// ─── Admin event form ─────────────────────────────────────────────────────────
-function EventFormModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ titulo: '', tipo: 'comida', fecha: '', hora: '', lugar: '', precio: '', plazasTotal: '', descripcion: '' })
+// ─── Admin event form (create & edit) ────────────────────────────────────────
+function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
+  const isEditing = !!editEvent
+
+  const [form, setForm] = useState(() => {
+    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', lugar: '', precio: '', plazasTotal: '', descripcion: '' }
+    const d = editEvent.fecha?.toDate ? editEvent.fecha.toDate() : editEvent.fecha ? new Date(editEvent.fecha) : null
+    const pad = n => String(n).padStart(2, '0')
+    return {
+      titulo:      editEvent.titulo ?? '',
+      tipo:        editEvent.tipo ?? 'comida',
+      fecha:       d ? `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}` : '',
+      hora:        d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '',
+      lugar:       editEvent.lugar ?? '',
+      precio:      editEvent.precio != null ? String(editEvent.precio) : '',
+      plazasTotal: editEvent.plazasTotal != null ? String(editEvent.plazasTotal) : '',
+      descripcion: editEvent.descripcion ?? '',
+    }
+  })
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
 
@@ -497,17 +556,23 @@ function EventFormModal({ onClose, onCreated }) {
       const fechaDate = (form.fecha && form.hora)
         ? new Date(`${form.fecha}T${form.hora}`)
         : form.fecha ? new Date(`${form.fecha}T00:00`) : null
-      await addDoc(collection(db, 'eventos'), {
-        titulo: form.titulo.trim(), tipo: form.tipo, fecha: fechaDate,
-        lugar: form.lugar.trim() || null,
-        precio: form.precio !== '' ? parseFloat(form.precio) : null,
+      const payload = {
+        titulo:      form.titulo.trim(),
+        tipo:        form.tipo,
+        fecha:       fechaDate,
+        lugar:       form.lugar.trim() || null,
+        precio:      form.precio !== '' ? parseFloat(form.precio) : null,
         plazasTotal: form.plazasTotal !== '' ? parseInt(form.plazasTotal) : null,
-        plazasOcupadas: 0, descripcion: form.descripcion.trim() || null,
-        createdAt: serverTimestamp(),
-      })
+        descripcion: form.descripcion.trim() || null,
+      }
+      if (isEditing) {
+        await updateDoc(doc(db, 'eventos', editEvent.id), payload)
+      } else {
+        await addDoc(collection(db, 'eventos'), { ...payload, plazasOcupadas: 0, createdAt: serverTimestamp() })
+      }
       onCreated()
     } catch {
-      setError('Error al crear el evento. Inténtalo de nuevo.')
+      setError(isEditing ? 'Error al guardar los cambios.' : 'Error al crear el evento.')
     } finally { setLoading(false) }
   }
 
@@ -515,7 +580,9 @@ function EventFormModal({ onClose, onCreated }) {
     <Overlay onClose={onClose} scrollable>
       <div style={{ width: '40px', height: '4px', background: 'rgba(255,255,255,0.12)', borderRadius: '2px', margin: '0 auto 1.25rem' }} />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800', color: GOLD }}>➕ Nuevo evento</h3>
+        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800', color: GOLD }}>
+          {isEditing ? '✏️ Editar evento' : '➕ Nuevo evento'}
+        </h3>
         <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', padding: '0.5rem', color: 'rgba(255,255,255,0.35)', display: 'flex', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto' }}>
           <X size={18} />
         </button>
@@ -540,7 +607,10 @@ function EventFormModal({ onClose, onCreated }) {
           </div>
           <div>
             <label style={sharedLabel}>Hora</label>
-            <input type="time" style={sharedInput} value={form.hora} onChange={e => set('hora', e.target.value)} onFocus={fg} onBlur={fb} />
+            <select value={form.hora} onChange={e => set('hora', e.target.value)} style={{ ...sharedInput, cursor: 'pointer' }}>
+              <option value="" style={{ background: CARD }}>— Sin hora —</option>
+              {TIME_OPTIONS.map(t => <option key={t} value={t} style={{ background: CARD }}>{t}</option>)}
+            </select>
           </div>
         </div>
         <div>
@@ -568,7 +638,9 @@ function EventFormModal({ onClose, onCreated }) {
           </div>
         )}
         <button type="submit" disabled={loading} style={{ minHeight: '52px', background: loading ? `rgba(212,175,55,0.35)` : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: '14px', color: 'white', fontSize: '1rem', fontWeight: '800', cursor: loading ? 'not-allowed' : 'pointer', boxShadow: loading ? 'none' : `0 6px 20px rgba(212,175,55,0.3)`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-          {loading ? <Loader2 size={18} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : '🔥 Crear evento'}
+          {loading
+            ? <Loader2 size={18} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
+            : isEditing ? '💾 Guardar cambios' : '🔥 Crear evento'}
         </button>
       </form>
     </Overlay>
@@ -600,6 +672,7 @@ export default function EventList() {
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [adminEvent, setAdminEvent]       = useState(null)
   const [showForm, setShowForm]           = useState(false)
+  const [editEvent, setEditEvent]         = useState(null)
   const [toast, setToast]                 = useState(null)
 
   useEffect(() => {
@@ -655,6 +728,7 @@ export default function EventList() {
             isAdmin={isAdmin}
             onPress={setSelectedEvent}
             onAdminPress={setAdminEvent}
+            onEditPress={setEditEvent}
           />
         ))
       )}
@@ -678,8 +752,11 @@ export default function EventList() {
       {adminEvent && (
         <AdminEventControl event={adminEvent} onClose={() => setAdminEvent(null)} />
       )}
-      {showForm && <EventFormModal onClose={() => setShowForm(false)} onCreated={handleCreated} />}
+      {showForm  && <EventFormModal onClose={() => setShowForm(false)} onCreated={handleCreated} />}
+      {editEvent && <EventFormModal event={editEvent} onClose={() => setEditEvent(null)} onCreated={() => { setEditEvent(null); setToast('Evento actualizado ✓') }} />}
       {toast && <SuccessToast message={toast} onDismiss={() => setToast(null)} />}
     </>
   )
 }
+
+export { RegistrationModal, EventFormModal, SuccessToast }

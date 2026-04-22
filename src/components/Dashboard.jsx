@@ -1,16 +1,14 @@
 import { useState, useEffect, useMemo } from 'react'
-import {
-  collection, query, orderBy, limit, onSnapshot, where, Timestamp,
-} from 'firebase/firestore'
+import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
-import EventList from './EventList'
+import CalendarView from './CalendarView'
 import Profile from './Profile'
 import Navigation from './Navigation'
 import { Bell, Flame, Shield } from 'lucide-react'
 
 const LAST_READ_KEY = 'jcb_last_read_avisos'
-const getLastRead = () => parseInt(localStorage.getItem(LAST_READ_KEY) || '0', 10)
+const getLastRead   = () => parseInt(localStorage.getItem(LAST_READ_KEY) || '0', 10)
 const markAvisosRead = () => localStorage.setItem(LAST_READ_KEY, Date.now().toString())
 
 const GOLD  = '#D4AF37'
@@ -20,20 +18,6 @@ const TEXT  = '#111827'
 const TEXT2 = '#6B7280'
 const MUTED = '#9CA3AF'
 const BORDER = '#F3F4F6'
-
-const EVENT_TYPES = {
-  comida:  { emoji: '🍽️' },
-  cena:    { emoji: '🌙' },
-  acto:    { emoji: '🎭' },
-  reunion: { emoji: '📋' },
-  otro:    { emoji: '📌' },
-}
-
-function fmtShort(f) {
-  if (!f) return '—'
-  const d = f?.toDate ? f.toDate() : new Date(f)
-  return d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })
-}
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
@@ -88,7 +72,7 @@ function GridButton({ icon, label, onClick }) {
   )
 }
 
-// ─── Mini Countdown (light, days only) ───────────────────────────────────────
+// ─── Mini Countdown ───────────────────────────────────────────────────────────
 
 const PLANTA = new Date('2027-03-14T20:00:00')
 function getDaysLeft() { return Math.max(0, Math.floor((PLANTA - new Date()) / 86400000)) }
@@ -123,7 +107,7 @@ function MiniCountdown() {
   )
 }
 
-// ─── Announcement card (light) ────────────────────────────────────────────────
+// ─── Announcement card ────────────────────────────────────────────────────────
 
 function AnnCard({ ann }) {
   const isUrgent = ann.esUrgente || ann.importante
@@ -158,9 +142,7 @@ function AnnCard({ ann }) {
   )
 }
 
-// ─── Home Tab ─────────────────────────────────────────────────────────────────
-
-// ─── Admin shortcuts (solo visibles para admin) ───────────────────────────────
+// ─── Admin shortcuts ──────────────────────────────────────────────────────────
 
 function AdminShortcuts({ onNavigate }) {
   return (
@@ -177,8 +159,8 @@ function AdminShortcuts({ onNavigate }) {
       </div>
       <div style={{ display: 'flex', gap: 10 }}>
         {[
-          { icon: '➕', label: 'Crear Evento',   tab: 'eventos' },
-          { icon: '📋', label: 'Inscritos',      tab: 'perfil'  },
+          { icon: '➕', label: 'Crear Evento', tab: 'calendario' },
+          { icon: '📋', label: 'Inscritos',    tab: 'perfil'     },
         ].map(({ icon, label, tab }) => (
           <button
             key={tab}
@@ -198,7 +180,7 @@ function AdminShortcuts({ onNavigate }) {
           </button>
         ))}
         <div style={{
-          flex: 1, background: `${BORDER}`, borderRadius: 14, padding: '12px 8px',
+          flex: 1, background: BORDER, borderRadius: 14, padding: '12px 8px',
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, opacity: 0.5,
         }}>
           <span style={{ fontSize: 22 }}>📢</span>
@@ -209,6 +191,8 @@ function AdminShortcuts({ onNavigate }) {
     </div>
   )
 }
+
+// ─── Home Tab ─────────────────────────────────────────────────────────────────
 
 function HomeTab({ nombre, numFallero, isAdmin, announcements, loadingAnns, onNavigate }) {
   const featuredAnn = useMemo(() =>
@@ -259,10 +243,10 @@ function HomeTab({ nombre, numFallero, isAdmin, announcements, loadingAnns, onNa
           Acceso Rápido
         </h2>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <GridButton icon="📅" label="Agenda"    onClick={() => onNavigate('eventos')} />
-          <GridButton icon="📢" label="Avisos"    onClick={() => onNavigate('avisos')} />
-          <GridButton icon="📝" label="Apuntarse" onClick={() => onNavigate('inscripciones')} />
-          <GridButton icon="👤" label="Mi Perfil" onClick={() => onNavigate('perfil')} />
+          <GridButton icon="📅" label="Calendario"  onClick={() => onNavigate('calendario')} />
+          <GridButton icon="📢" label="Avisos"      onClick={() => onNavigate('avisos')} />
+          <GridButton icon="📝" label="Apuntarse"   onClick={() => onNavigate('calendario')} />
+          <GridButton icon="👤" label="Mi Perfil"   onClick={() => onNavigate('perfil')} />
         </div>
       </div>
 
@@ -294,82 +278,14 @@ function AvisosTab({ announcements, loading }) {
   )
 }
 
-// ─── Inscripciones Tab ────────────────────────────────────────────────────────
-
-function InscripcionesTab({ onNavigate, upcomingEvents, loadingEvents }) {
-  return (
-    <div style={{ padding: '24px 20px' }}>
-      <h2 style={{ fontSize: 26, fontWeight: 700, color: TEXT, margin: '0 0 4px', letterSpacing: '-0.02em' }}>Inscripciones</h2>
-      <p style={{ fontSize: 13, color: TEXT2, margin: '0 0 20px' }}>Apúntate a los próximos actos</p>
-
-      <button
-        onClick={() => onNavigate('eventos')}
-        style={{
-          width: '100%', background: GOLD, color: '#fff',
-          border: 'none', borderRadius: 20,
-          padding: '18px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-          fontSize: 15, fontWeight: 700, cursor: 'pointer',
-          boxShadow: `0 6px 20px ${GOLD}55`, marginBottom: 20, minHeight: 'auto',
-        }}
-      >
-        <span style={{ fontSize: 18 }}>📅</span>
-        Apuntarse a un Evento
-      </button>
-
-      {loadingEvents
-        ? <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{[1,2].map(i => <SkeletonCard key={i} height={76} />)}</div>
-        : upcomingEvents.length === 0
-          ? <EmptyState icon="📅" message="No hay actos próximos disponibles" />
-          : <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {upcomingEvents.map(e => {
-                const t = EVENT_TYPES[e.tipo] ?? EVENT_TYPES.otro
-                return (
-                  <Card key={e.id}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                      <div style={{
-                        width: 44, height: 44, background: `${GOLD}14`, borderRadius: 14,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 20, flexShrink: 0,
-                      }}>
-                        {t.emoji}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: 14, fontWeight: 600, color: TEXT, margin: '0 0 3px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-                          {e.titulo}
-                        </p>
-                        <p style={{ fontSize: 12, color: MUTED, margin: 0 }}>{fmtShort(e.fecha)}</p>
-                      </div>
-                      <button
-                        onClick={() => onNavigate('eventos')}
-                        style={{
-                          background: `${GOLD}14`, color: GOLD,
-                          border: `1.5px solid ${GOLD}40`, borderRadius: 12,
-                          padding: '8px 14px', fontSize: 12, fontWeight: 700,
-                          cursor: 'pointer', flexShrink: 0, minHeight: 'auto',
-                        }}
-                      >
-                        Ver
-                      </button>
-                    </div>
-                  </Card>
-                )
-              })}
-            </div>
-      }
-    </div>
-  )
-}
-
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const { user, fallero } = useAuth()
-  const [announcements, setAnnouncements]   = useState([])
-  const [loadingAnns, setLoadingAnns]       = useState(true)
-  const [upcomingEvents, setUpcomingEvents] = useState([])
-  const [loadingEvents, setLoadingEvents]   = useState(true)
-  const [activeTab, setActiveTab]           = useState('home')
-  const [lastReadTs, setLastReadTs]         = useState(getLastRead)
+  const [announcements, setAnnouncements] = useState([])
+  const [loadingAnns, setLoadingAnns]     = useState(true)
+  const [activeTab, setActiveTab]         = useState('home')
+  const [lastReadTs, setLastReadTs]       = useState(getLastRead)
 
   useEffect(() => {
     const q = query(collection(db, 'anuncios'), orderBy('createdAt', 'desc'), limit(10))
@@ -379,20 +295,10 @@ export default function Dashboard() {
     )
   }, [])
 
-  useEffect(() => {
-    const now = Timestamp.now()
-    const q = query(collection(db, 'eventos'), where('fecha', '>=', now), orderBy('fecha'), limit(4))
-    return onSnapshot(q,
-      snap => { setUpcomingEvents(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoadingEvents(false) },
-      () => setLoadingEvents(false),
-    )
-  }, [])
-
   const handleTabChange = (tab) => {
     if (tab === 'avisos') {
-      const now = Date.now()
       markAvisosRead()
-      setLastReadTs(now)
+      setLastReadTs(Date.now())
     }
     setActiveTab(tab)
   }
@@ -468,7 +374,7 @@ export default function Dashboard() {
 
       {/* Content */}
       <main style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain' }}>
-        {activeTab === 'home' && (
+        {activeTab === 'home'       && (
           <HomeTab
             nombre={nombre}
             numFallero={numFallero}
@@ -478,10 +384,9 @@ export default function Dashboard() {
             onNavigate={handleTabChange}
           />
         )}
-        {activeTab === 'eventos'       && <EventList />}
-        {activeTab === 'avisos'        && <AvisosTab announcements={announcements} loading={loadingAnns} />}
-        {activeTab === 'inscripciones' && <InscripcionesTab onNavigate={handleTabChange} upcomingEvents={upcomingEvents} loadingEvents={loadingEvents} />}
-        {activeTab === 'perfil'        && <Profile />}
+        {activeTab === 'calendario' && <CalendarView />}
+        {activeTab === 'avisos'     && <AvisosTab announcements={announcements} loading={loadingAnns} />}
+        {activeTab === 'perfil'     && <Profile />}
       </main>
 
       <Navigation active={activeTab} onChange={handleTabChange} unreadAvisos={unreadCount} />

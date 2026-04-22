@@ -1,13 +1,12 @@
-import { Home, CalendarDays, Bell, ClipboardList, User } from 'lucide-react'
+import { Home, CalendarDays, Bell, User } from 'lucide-react'
 
 const GOLD = '#D4AF37'
 
 const NAV = [
-  { key: 'home',          Icon: Home,          label: 'Inicio'        },
-  { key: 'eventos',       Icon: CalendarDays,  label: 'Agenda'        },
-  { key: 'avisos',        Icon: Bell,          label: 'Avisos'        },
-  { key: 'inscripciones', Icon: ClipboardList, label: 'Inscripciones' },
-  { key: 'perfil',        Icon: User,          label: 'Perfil'        },
+  { key: 'home',       Icon: Home,        label: 'Inicio'    },
+  { key: 'calendario', Icon: CalendarDays, label: 'Calendario' },
+  { key: 'avisos',     Icon: Bell,        label: 'Avisos'    },
+  { key: 'perfil',     Icon: User,        label: 'Perfil'    },
 ]
 
 export default function Navigation({ active, onChange, unreadAvisos = 0 }) {
@@ -42,7 +41,7 @@ export default function Navigation({ active, onChange, unreadAvisos = 0 }) {
               key={isActive ? `${key}-on` : `${key}-off`}
               style={{ animation: isActive ? 'falla-navPop 0.32s ease-out' : 'none', position: 'relative' }}
             >
-              <Icon size={20} strokeWidth={isActive ? 2.2 : 1.6} />
+              <Icon size={22} strokeWidth={isActive ? 2.2 : 1.6} />
               {key === 'avisos' && unreadAvisos > 0 && (
                 <span style={{
                   position: 'absolute', top: '-4px', right: '-6px',

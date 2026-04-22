@@ -7,7 +7,7 @@ import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import {
   Download, Users, ChevronRight, X, Loader2,
-  Shield, Star, Flame, Plus, Trash2, Baby,
+  Shield, Star, Flame, Plus, Trash2, Baby, Bell,
 } from 'lucide-react'
 
 const GOLD  = '#D4AF37'
@@ -289,6 +289,94 @@ function HijosSection({ fallero, userId, onUpdate }) {
   )
 }
 
+// ─── Notification Preferences ────────────────────────────────────────────────
+
+const NOTIF_PREFS = [
+  { key: 'recordatorioEventos',       emoji: '⏰', label: 'Recordatorio de eventos',        desc: '24h antes del acto' },
+  { key: 'nuevosAvisos',              emoji: '📢', label: 'Nuevos avisos de la directiva',   desc: 'Cuando se publique un aviso' },
+  { key: 'confirmacionInscripciones', emoji: '✅', label: 'Confirmación de inscripciones',   desc: 'Al apuntarte a un evento' },
+]
+
+function NotificationPreferences({ fallero, userId, onUpdate }) {
+  const prefs = fallero?.notificaciones ?? {}
+  const [saving, setSaving] = useState(null)
+
+  const toggle = async (key) => {
+    const newVal = !(prefs[key] ?? true)
+    setSaving(key)
+    try {
+      await updateDoc(doc(db, 'falleros', userId), { [`notificaciones.${key}`]: newVal })
+      onUpdate({ notificaciones: { ...prefs, [key]: newVal } })
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  return (
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <Bell size={15} color={GOLD} />
+        <span style={{ fontSize: 14, fontWeight: 700, color: TEXT }}>Configuración de Avisos</span>
+      </div>
+
+      {NOTIF_PREFS.map((p, i) => {
+        const isOn   = prefs[p.key] ?? true
+        const isLast = i === NOTIF_PREFS.length - 1
+        return (
+          <div
+            key={p.key}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              paddingTop: 12, paddingBottom: isLast ? 0 : 12,
+              borderTop: `1px solid ${BORDER}`,
+            }}
+          >
+            <div style={{
+              width: 36, height: 36, flexShrink: 0,
+              background: BG, borderRadius: 10,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 17,
+            }}>
+              {p.emoji}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: TEXT, margin: '0 0 1px' }}>{p.label}</p>
+              <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>{p.desc}</p>
+            </div>
+            {/* Toggle pill */}
+            <button
+              onClick={() => toggle(p.key)}
+              disabled={saving === p.key}
+              style={{
+                flexShrink: 0, width: 44, height: 24,
+                background: isOn ? GOLD : '#D1D5DB',
+                border: 'none', borderRadius: 12,
+                cursor: saving === p.key ? 'not-allowed' : 'pointer',
+                minHeight: 'auto', minWidth: 'auto',
+                position: 'relative',
+                transition: 'background 0.25s',
+              }}
+            >
+              <div style={{
+                position: 'absolute', top: 2,
+                left: isOn ? 22 : 2,
+                width: 20, height: 20,
+                background: WHITE, borderRadius: '50%',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                transition: 'left 0.25s',
+              }} />
+            </button>
+          </div>
+        )
+      })}
+
+      <p style={{ fontSize: 11, color: MUTED, marginTop: 14, marginBottom: 0 }}>
+        Las notificaciones se enviarán a tu email registrado.
+      </p>
+    </Card>
+  )
+}
+
 // ─── Admin: Modal lista de inscritos ─────────────────────────────────────────
 function AttendeesModal({ event, onClose }) {
   const [attendees, setAttendees] = useState([])
@@ -491,6 +579,15 @@ export default function Profile() {
       {/* Hijos */}
       {user && (
         <HijosSection
+          fallero={fallero}
+          userId={user.uid}
+          onUpdate={updateFallero}
+        />
+      )}
+
+      {/* Notification preferences */}
+      {user && (
+        <NotificationPreferences
           fallero={fallero}
           userId={user.uid}
           onUpdate={updateFallero}
