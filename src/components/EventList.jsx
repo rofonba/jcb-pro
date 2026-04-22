@@ -7,7 +7,7 @@ import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import {
   Plus, MapPin, Calendar, Users, ChevronRight,
-  X, Check, AlertCircle, Loader2, BarChart2, Pencil,
+  X, Check, AlertCircle, Loader2, BarChart2, Pencil, Trash2,
 } from 'lucide-react'
 import AdminEventControl from './AdminEventControl'
 
@@ -83,8 +83,8 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
       onKeyDown={e => e.key === 'Enter' && onPress(event)}
       style={{
         width: '100%', textAlign: 'left',
-        background: CARD,
-        border: `1px solid ${isRegistered ? 'rgba(212,175,55,0.3)' : 'rgba(255,255,255,0.07)'}`,
+        background: isRegistered ? 'rgba(16,185,129,0.04)' : CARD,
+        border: `1px solid ${isRegistered ? 'rgba(16,185,129,0.35)' : 'rgba(255,255,255,0.07)'}`,
         borderRadius: '18px', padding: '1rem 1.1rem',
         marginBottom: '0.75rem', cursor: 'pointer',
         transition: 'border-color 0.15s, transform 0.12s',
@@ -92,8 +92,8 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
         animationDelay: `${index * 0.07}s`,
         outline: 'none',
       }}
-      onMouseEnter={e => { e.currentTarget.style.borderColor = isRegistered ? 'rgba(212,175,55,0.55)' : 'rgba(212,175,55,0.35)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = isRegistered ? 'rgba(212,175,55,0.3)' : 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'translateY(0)' }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = isRegistered ? 'rgba(16,185,129,0.6)' : 'rgba(212,175,55,0.35)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = isRegistered ? 'rgba(16,185,129,0.35)' : 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'translateY(0)' }}
     >
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', marginBottom: '0.75rem' }}>
@@ -109,8 +109,8 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
               {t.label}
             </span>
             {isRegistered && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.1rem 0.45rem', background: 'rgba(212,175,55,0.12)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: '6px', fontSize: '0.6rem', fontWeight: '700', color: GOLD, letterSpacing: '0.06em' }}>
-                <Check size={9} strokeWidth={3} /> YA APUNTADO
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.22rem 0.65rem', background: 'rgba(16,185,129,0.15)', border: '1.5px solid rgba(16,185,129,0.5)', borderRadius: '8px', fontSize: '0.65rem', fontWeight: '800', color: GREEN, letterSpacing: '0.05em' }}>
+                ✅ ESTÁS APUNTADO
               </span>
             )}
             {isFull && (
@@ -197,8 +197,8 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
           {event.precio != null ? `${event.precio} €` : 'Gratuito'}
         </span>
         {isRegistered ? (
-          <span style={{ padding: '0.38rem 0.9rem', background: 'rgba(212,175,55,0.12)', border: `1px solid rgba(212,175,55,0.35)`, borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: GOLD, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-            <Check size={12} strokeWidth={3} /> Ya estás apuntado
+          <span style={{ padding: '0.38rem 1rem', background: 'rgba(16,185,129,0.12)', border: `1.5px solid rgba(16,185,129,0.4)`, borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: GREEN, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <Check size={12} strokeWidth={3} /> Ver mi inscripción →
           </span>
         ) : isFull ? (
           <span style={{ padding: '0.38rem 0.9rem', background: 'rgba(206,17,38,0.1)', border: '1px solid rgba(206,17,38,0.25)', borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: 'rgba(206,17,38,0.7)' }}>
@@ -217,29 +217,39 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
 // ─── Registration / Cancellation modal ───────────────────────────────────────
 function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelled }) {
   const { user, fallero } = useAuth()
-  const hijos = fallero?.hijos ?? []
-  const allMembers = [
-    { key: 'yo', label: fallero ? `${fallero.nombre} ${fallero.apellidos ?? ''}`.trim() : 'Yo mismo', emoji: '👤' },
-    ...hijos.map(h => ({ key: `hijo:${h}`, label: h, emoji: '👦' })),
-  ]
+  const isAdmin = fallero?.rol === 'admin'
+  const myName  = fallero
+    ? `${fallero.nombre} ${fallero.apellidos ?? ''}`.trim()
+    : (user?.email?.split('@')[0] ?? 'Yo')
 
-  const [selected, setSelected]         = useState(new Set(['yo']))
-  const [nota, setNota]                 = useState('')
-  const [alergias, setAlergias]         = useState('')
-  const [status, setStatus]             = useState(isRegistered ? 'duplicate' : 'clean')
-  const [saving, setSaving]             = useState(false)
+  const [acomp,      setAcomp]      = useState(0)
+  const [nota,       setNota]       = useState('')
+  const [alergias,   setAlergias]   = useState('')
+  const [status,     setStatus]     = useState(isRegistered ? 'duplicate' : 'clean')
+  const [saving,     setSaving]     = useState(false)
 
-  // Real-time inscription count for aforo check
   const [inscritosCount, setInscritosCount] = useState(null)
+  const [myIns,       setMyIns]     = useState(null)
+  const [loadingMine, setLoadingMine] = useState(isRegistered)
+  const [cancelling,  setCancelling] = useState(false)
 
-  // User's own inscriptions for cancellation UI
-  const [myInscriptions, setMyInscriptions] = useState([])
-  const [loadingMine, setLoadingMine]       = useState(isRegistered)
-  const [cancelling, setCancelling]         = useState(null)
+  // Modify-count flow
+  const [modMode,  setModMode]  = useState(false)
+  const [newAcomp, setNewAcomp] = useState(0)
+  const [updating, setUpdating] = useState(false)
+
+  // Admin external inscription
+  const [showExt,   setShowExt]   = useState(false)
+  const [extNombre, setExtNombre] = useState('')
+  const [extEsHijo, setExtEsHijo] = useState(false)
+  const [savingExt, setSavingExt] = useState(false)
+  const [extDone,   setExtDone]   = useState(false)
 
   useEffect(() => {
     const q = query(collection(db, 'inscripciones'), where('eventId', '==', event.id))
-    return onSnapshot(q, snap => setInscritosCount(snap.size))
+    return onSnapshot(q, snap => {
+      setInscritosCount(snap.docs.reduce((s, d) => s + (d.data().totalPersonas ?? 1), 0))
+    })
   }, [event.id])
 
   useEffect(() => {
@@ -248,80 +258,89 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
       collection(db, 'inscripciones'),
       where('eventId', '==', event.id),
       where('uid', '==', user.uid),
-    ))
-      .then(snap => setMyInscriptions(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-      .finally(() => setLoadingMine(false))
+    )).then(snap => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const mine = docs.find(d => !d.esManual) ?? docs[0] ?? null
+      setMyIns(mine)
+      if (mine) setNewAcomp(mine.acompañantes ?? 0)
+    }).finally(() => setLoadingMine(false))
   }, [event.id, user?.uid, isRegistered])
 
-  const plazasTotal  = event.plazasTotal ?? null
-  const disponibles  = plazasTotal != null ? Math.max(0, plazasTotal - (inscritosCount ?? 0)) : Infinity
-  const wouldExceed  = plazasTotal != null && selected.size > disponibles
-  const isAforoFull  = plazasTotal != null && disponibles <= 0
-
-  const t     = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
-  const count = selected.size
-  const total = event.precio != null ? event.precio * count : null
-
-  const toggleMember = (key) => {
-    if (key === 'yo') return
-    setSelected(prev => {
-      const next = new Set(prev)
-      next.has(key) ? next.delete(key) : next.add(key)
-      return next
-    })
-  }
-
-  const handleCancel = async (docId) => {
-    setCancelling(docId)
-    try {
-      await deleteDoc(doc(db, 'inscripciones', docId))
-      setMyInscriptions(prev => {
-        const updated = prev.filter(i => i.id !== docId)
-        if (updated.length === 0) {
-          setStatus('cancelled')
-          setTimeout(() => onCancelled(event.id), 800)
-        }
-        return updated
-      })
-    } catch {} finally {
-      setCancelling(null)
-    }
-  }
+  const plazasTotal   = event.plazasTotal ?? null
+  const disponibles   = plazasTotal != null ? Math.max(0, plazasTotal - (inscritosCount ?? 0)) : Infinity
+  const totalPersonas = 1 + acomp
+  const wouldExceed   = plazasTotal != null && totalPersonas > disponibles
+  const isAforoFull   = plazasTotal != null && disponibles <= 0
+  const t             = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
+  const totalCost     = event.precio != null ? event.precio * totalPersonas : null
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (saving || wouldExceed || isAforoFull) return
     setSaving(true)
-    // Re-verify capacity before writing (server-side guard)
     if (plazasTotal) {
       const snap = await getDocs(query(collection(db, 'inscripciones'), where('eventId', '==', event.id)))
-      if (snap.size + selected.size > plazasTotal) {
-        setInscritosCount(snap.size)
-        setSaving(false)
-        return
-      }
+      const live = snap.docs.reduce((s, d) => s + (d.data().totalPersonas ?? 1), 0)
+      if (live + totalPersonas > plazasTotal) { setInscritosCount(live); setSaving(false); return }
     }
     try {
-      for (const key of selected) {
-        const isHijo = key.startsWith('hijo:')
-        const nombre = isHijo
-          ? key.replace('hijo:', '')
-          : (fallero ? `${fallero.nombre} ${fallero.apellidos ?? ''}`.trim() : user.email)
-        await addDoc(collection(db, 'inscripciones'), {
-          eventId: event.id, eventoTitulo: event.titulo,
-          uid: user.uid, nombre,
-          numFallero: fallero?.numero ?? '—',
-          esHijo: isHijo, nota: nota.trim() || null,
-          alergias: (['comida', 'cena'].includes(event.tipo)) ? (alergias.trim() || null) : null,
-          createdAt: serverTimestamp(),
-        })
-      }
+      await addDoc(collection(db, 'inscripciones'), {
+        eventId: event.id, eventoTitulo: event.titulo,
+        uid: user.uid, nombre: myName,
+        numFallero: fallero?.numero ?? '—',
+        esHijo: false, esManual: false,
+        acompañantes: acomp, totalPersonas,
+        nota: nota.trim() || null,
+        alergias: (['comida', 'cena'].includes(event.tipo)) ? (alergias.trim() || null) : null,
+        createdAt: serverTimestamp(),
+      })
       setStatus('saved')
       setTimeout(onSuccess, 900)
-    } catch {
-      setSaving(false)
-    }
+    } catch { setSaving(false) }
   }
+
+  const handleCancel = async () => {
+    if (!myIns || cancelling) return
+    setCancelling(true)
+    try {
+      await deleteDoc(doc(db, 'inscripciones', myIns.id))
+      setStatus('cancelled')
+      setTimeout(() => onCancelled(event.id), 800)
+    } catch {} finally { setCancelling(false) }
+  }
+
+  const handleModify = async () => {
+    if (!myIns || updating) return
+    setUpdating(true)
+    try {
+      await updateDoc(doc(db, 'inscripciones', myIns.id), {
+        acompañantes: newAcomp,
+        totalPersonas: 1 + newAcomp,
+      })
+      setMyIns(prev => ({ ...prev, acompañantes: newAcomp, totalPersonas: 1 + newAcomp }))
+      setModMode(false)
+    } catch {} finally { setUpdating(false) }
+  }
+
+  const handleExternal = async (e) => {
+    e.preventDefault()
+    const nombre = extNombre.trim()
+    if (!nombre || savingExt) return
+    setSavingExt(true)
+    try {
+      await addDoc(collection(db, 'inscripciones'), {
+        eventId: event.id, eventoTitulo: event.titulo,
+        uid: 'manual', nombre, numFallero: '—',
+        esHijo: extEsHijo, esManual: true,
+        acompañantes: 0, totalPersonas: 1,
+        nota: null, alergias: null, createdAt: serverTimestamp(),
+      })
+      setExtDone(true)
+      setTimeout(() => { setExtDone(false); setExtNombre(''); setExtEsHijo(false); setShowExt(false) }, 1400)
+    } catch {} finally { setSavingExt(false) }
+  }
+
+  const showAdminSection = isAdmin && status !== 'saved' && status !== 'cancelled'
 
   return (
     <Overlay onClose={onClose} scrollable>
@@ -343,40 +362,80 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
         </button>
       </div>
 
-      {/* ── Duplicate: muestra inscripciones del usuario con opción de anular ─── */}
+      {/* ── Duplicate: my inscription + modify / cancel ─── */}
       {status === 'duplicate' && (
         <div>
-          <p style={{ margin: '0 0 0.75rem', fontSize: '0.78rem', fontWeight: '700', color: GOLD, letterSpacing: '0.04em' }}>
-            ✅ Tus inscripciones confirmadas:
+          <p style={{ margin: '0 0 0.75rem', fontSize: '0.78rem', fontWeight: '700', color: GREEN, letterSpacing: '0.04em' }}>
+            ✅ Tu inscripción confirmada:
           </p>
           {loadingMine ? (
-            <div style={{ textAlign: 'center', padding: '1rem', color: 'rgba(255,255,255,0.3)', fontSize: '0.85rem' }}>
-              Cargando…
-            </div>
-          ) : (
-            myInscriptions.map(ins => (
-              <div key={ins.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.65rem 0.9rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', marginBottom: '0.5rem' }}>
-                <span style={{ fontSize: '1.1rem' }}>{ins.esHijo ? '👦' : '👤'}</span>
-                <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: '600', color: 'white' }}>{ins.nombre}</span>
-                <button
-                  onClick={() => handleCancel(ins.id)}
-                  disabled={cancelling === ins.id}
-                  style={{ background: 'rgba(206,17,38,0.12)', border: '1px solid rgba(206,17,38,0.3)', borderRadius: '8px', padding: '0.35rem 0.65rem', color: RED, fontSize: '0.72rem', fontWeight: '700', cursor: cancelling === ins.id ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', minHeight: 'auto' }}
-                >
-                  {cancelling === ins.id
-                    ? <Loader2 size={12} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
-                    : <><X size={12} /> Anular</>}
-                </button>
+            <div style={{ textAlign: 'center', padding: '1rem', color: 'rgba(255,255,255,0.3)', fontSize: '0.85rem' }}>Cargando…</div>
+          ) : myIns ? (
+            <div>
+              <div style={{ padding: '0.85rem 1rem', background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '14px', marginBottom: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', marginBottom: modMode ? '0.9rem' : 0 }}>
+                  <span style={{ fontSize: '1.1rem' }}>👤</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '0.9rem', fontWeight: '700', color: 'white' }}>{myIns.nombre}</div>
+                    <div style={{ fontSize: '0.73rem', color: GREEN, marginTop: 2 }}>
+                      {(myIns.acompañantes ?? 0) > 0
+                        ? `Tú + ${myIns.acompañantes} acompañante${myIns.acompañantes > 1 ? 's' : ''} · Total ${1 + myIns.acompañantes} personas`
+                        : 'Solo tú · 1 persona confirmada'}
+                    </div>
+                  </div>
+                </div>
+                {modMode && (
+                  <div style={{ paddingTop: '0.9rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <label style={{ ...sharedLabel, marginBottom: '0.5rem' }}>Nuevo número de acompañantes</label>
+                    <select
+                      value={newAcomp}
+                      onChange={e => setNewAcomp(Number(e.target.value))}
+                      style={{ ...sharedInput, marginBottom: '0.75rem', cursor: 'pointer' }}
+                    >
+                      {[0,1,2,3,4,5].map(n => (
+                        <option key={n} value={n} style={{ background: CARD }}>
+                          {n === 0 ? '0 acompañantes (solo yo)' : `${n} acompañante${n > 1 ? 's' : ''} · ${1+n} personas`}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button type="button" onClick={handleModify} disabled={updating}
+                        style={{ flex: 1, minHeight: '42px', background: updating ? 'rgba(212,175,55,0.2)' : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: '10px', color: 'white', fontSize: '0.85rem', fontWeight: '700', cursor: updating ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                      >
+                        {updating ? <Loader2 size={15} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : '💾 Confirmar'}
+                      </button>
+                      <button type="button" onClick={() => setModMode(false)}
+                        style={{ minHeight: '42px', padding: '0 1rem', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', color: 'rgba(255,255,255,0.5)', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer' }}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            ))
-          )}
-          <p style={{ margin: '0.75rem 0 0', fontSize: '0.7rem', color: 'rgba(255,255,255,0.22)', textAlign: 'center' }}>
+              {!modMode && (
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <button type="button" onClick={() => { setNewAcomp(myIns.acompañantes ?? 0); setModMode(true) }}
+                    style={{ flex: 1, minHeight: '44px', background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: '10px', color: GOLD, fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                  >
+                    ✏️ Modificar número
+                  </button>
+                  <button type="button" onClick={handleCancel} disabled={cancelling}
+                    style={{ flex: 1, minHeight: '44px', background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.28)', borderRadius: '10px', color: RED, fontSize: '0.82rem', fontWeight: '700', cursor: cancelling ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                  >
+                    {cancelling ? <Loader2 size={14} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : <><X size={13} /> Anular</>}
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : null}
+          <p style={{ margin: '0.5rem 0 0', fontSize: '0.7rem', color: 'rgba(255,255,255,0.22)', textAlign: 'center' }}>
             Al anular, la plaza queda libre automáticamente.
           </p>
         </div>
       )}
 
-      {/* ── Cancelled ─────────────────────────────────────────────────────────── */}
+      {/* ── Cancelled ─── */}
       {status === 'cancelled' && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '2rem 1rem', gap: '0.75rem' }}>
           <div style={{ width: '58px', height: '58px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -388,22 +447,21 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
         </div>
       )}
 
-      {/* ── Saved ─────────────────────────────────────────────────────────────── */}
+      {/* ── Saved ─── */}
       {status === 'saved' && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '2rem 1rem', gap: '0.75rem' }}>
           <div style={{ width: '58px', height: '58px', background: `${GREEN}18`, border: `1px solid ${GREEN}35`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Check size={28} color={GREEN} strokeWidth={2.5} />
           </div>
           <p style={{ margin: 0, fontWeight: '800', fontSize: '1rem', color: GREEN }}>
-            ¡{count > 1 ? `${count} inscripciones confirmadas` : 'Inscripción confirmada'}! 🎉
+            ¡{totalPersonas > 1 ? `${totalPersonas} personas inscritas` : 'Inscripción confirmada'}! 🎉
           </p>
         </div>
       )}
 
-      {/* ── Form ──────────────────────────────────────────────────────────────── */}
+      {/* ── Form (clean) ─── */}
       {status === 'clean' && (
         <form onSubmit={handleSubmit}>
-          {/* Aforo banner */}
           {plazasTotal && inscritosCount !== null && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: isAforoFull ? 'rgba(206,17,38,0.1)' : 'rgba(255,255,255,0.04)', border: `1px solid ${isAforoFull ? 'rgba(206,17,38,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '10px', marginBottom: '1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -417,8 +475,6 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
               </span>
             </div>
           )}
-
-          {/* Aforo completo — no puede registrarse */}
           {isAforoFull ? (
             <div style={{ display: 'flex', gap: '0.65rem', padding: '1rem 1.1rem', background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.28)', borderRadius: '14px' }}>
               <AlertCircle size={20} color={RED} style={{ flexShrink: 0, marginTop: '1px' }} />
@@ -431,49 +487,35 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
             </div>
           ) : (
             <>
-              {/* ¿A quién inscribes? */}
-              <label style={{ ...sharedLabel, marginBottom: '0.6rem' }}>¿A quién inscribes?</label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
-                {allMembers.map(({ key, label, emoji }) => {
-                  const isChecked  = selected.has(key)
-                  const isFixed    = key === 'yo'
-                  // Disable adding if would exceed capacity
-                  const isDisabled = !isChecked && !isFixed && wouldExceed
-                  return (
-                    <button
-                      key={key} type="button"
-                      onClick={() => toggleMember(key)}
-                      disabled={isDisabled}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: '0.75rem',
-                        padding: '0.75rem 1rem',
-                        background: isChecked ? 'rgba(212,175,55,0.1)' : 'rgba(255,255,255,0.04)',
-                        border: `1.5px solid ${isChecked ? 'rgba(212,175,55,0.45)' : 'rgba(255,255,255,0.1)'}`,
-                        borderRadius: '14px',
-                        cursor: isFixed || isDisabled ? 'default' : 'pointer',
-                        opacity: isDisabled ? 0.45 : 1,
-                        transition: 'all 0.15s', textAlign: 'left', minHeight: 'auto', width: '100%',
-                      }}
-                    >
-                      <span style={{ fontSize: '1.2rem' }}>{emoji}</span>
-                      <span style={{ flex: 1, fontSize: '0.9rem', fontWeight: '600', color: isChecked ? GOLD : 'rgba(255,255,255,0.65)' }}>
-                        {label}
-                        {isFixed && <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', marginLeft: 6, fontWeight: 400 }}>· tú</span>}
-                      </span>
-                      <div style={{ width: 20, height: 20, borderRadius: 6, background: isChecked ? GOLD : 'rgba(255,255,255,0.08)', border: `1.5px solid ${isChecked ? GOLD : 'rgba(255,255,255,0.2)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        {isChecked && <Check size={12} color="white" strokeWidth={3} />}
-                      </div>
-                    </button>
-                  )
-                })}
+              {/* Fixed "yo" row */}
+              <label style={{ ...sharedLabel, marginBottom: '0.6rem' }}>Tu inscripción</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', background: 'rgba(212,175,55,0.08)', border: '1.5px solid rgba(212,175,55,0.3)', borderRadius: '14px', marginBottom: '0.75rem' }}>
+                <span style={{ fontSize: '1.2rem' }}>👤</span>
+                <span style={{ flex: 1, fontSize: '0.9rem', fontWeight: '600', color: GOLD }}>
+                  {myName} <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', fontWeight: 400 }}>· tú</span>
+                </span>
+                <Check size={14} color={GOLD} strokeWidth={3} />
               </div>
 
-              {/* Aviso si la selección superaría el aforo */}
+              {/* Companion count */}
+              <label style={{ ...sharedLabel, marginBottom: '0.5rem' }}>Acompañantes</label>
+              <select
+                value={acomp}
+                onChange={e => setAcomp(Number(e.target.value))}
+                style={{ ...sharedInput, marginBottom: '1rem', cursor: 'pointer' }}
+              >
+                {[0,1,2,3,4,5].map(n => (
+                  <option key={n} value={n} style={{ background: CARD }}>
+                    {n === 0 ? '0 acompañantes (solo yo)' : `${n} acompañante${n > 1 ? 's' : ''} · ${1+n} personas total`}
+                  </option>
+                ))}
+              </select>
+
               {wouldExceed && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 0.9rem', background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.28)', borderRadius: '10px', marginBottom: '1rem' }}>
                   <AlertCircle size={14} color={RED} style={{ flexShrink: 0 }} />
                   <span style={{ color: '#ff8080', fontSize: '0.78rem' }}>
-                    Solo {disponibles === 1 ? 'queda 1 plaza' : `quedan ${disponibles} plazas`}. Reduce la selección.
+                    Solo {disponibles === 1 ? 'queda 1 plaza' : `quedan ${disponibles} plazas`}. Reduce el número.
                   </span>
                 </div>
               )}
@@ -495,10 +537,10 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
               <label style={sharedLabel}>Nota (opcional)</label>
               <textarea value={nota} onChange={e => setNota(e.target.value)} placeholder="Menú infantil, silla de ruedas…" rows={2} style={{ ...sharedInput, resize: 'vertical', marginBottom: '1.25rem' }} onFocus={e => e.target.style.borderColor = GOLD} onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'} />
 
-              {total !== null && (
+              {totalCost !== null && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(212,175,55,0.07)', border: '1px solid rgba(212,175,55,0.18)', borderRadius: '12px', marginBottom: '1.25rem' }}>
-                  <span style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.4)' }}>{count} × {event.precio} €</span>
-                  <span style={{ fontSize: '1.1rem', fontWeight: '800', color: GOLD }}>Total: {total} €</span>
+                  <span style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.4)' }}>{totalPersonas} × {event.precio} €</span>
+                  <span style={{ fontSize: '1.1rem', fontWeight: '800', color: GOLD }}>Total: {totalCost} €</span>
                 </div>
               )}
 
@@ -514,11 +556,77 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
                 }}>
                 {saving
                   ? <Loader2 size={18} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
-                  : `✅ Confirmar${count > 1 ? ` (${count} personas)` : ''}`}
+                  : `✅ Confirmar${totalPersonas > 1 ? ` (${totalPersonas} personas)` : ''}`}
               </button>
             </>
           )}
         </form>
+      )}
+
+      {/* ── Admin: inscribir externo ─── */}
+      {showAdminSection && (
+        <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+          <button
+            type="button"
+            onClick={() => { setShowExt(v => !v); setExtDone(false) }}
+            style={{
+              width: '100%', minHeight: '42px',
+              background: showExt ? 'rgba(129,140,248,0.12)' : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${showExt ? 'rgba(129,140,248,0.35)' : 'rgba(255,255,255,0.1)'}`,
+              borderRadius: '12px', color: showExt ? '#818cf8' : 'rgba(255,255,255,0.45)',
+              fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+              transition: 'all 0.2s',
+            }}
+          >
+            ➕ Inscribir externo
+          </button>
+          {showExt && (
+            <form
+              onSubmit={handleExternal}
+              style={{ marginTop: '0.75rem', padding: '1rem', background: 'rgba(129,140,248,0.06)', border: '1px solid rgba(129,140,248,0.2)', borderRadius: '14px', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
+            >
+              {extDone ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '0.5rem 0', color: GREEN, fontSize: '0.88rem', fontWeight: '700' }}>
+                  <Check size={16} strokeWidth={2.5} /> Inscripción añadida
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: '700', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                      Nombre completo *
+                    </label>
+                    <input
+                      required autoFocus
+                      value={extNombre} onChange={e => setExtNombre(e.target.value)}
+                      placeholder="Ej: María García López"
+                      style={sharedInput}
+                      onFocus={e => e.target.style.borderColor = '#818cf8'}
+                      onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: '700', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                      Tipo
+                    </label>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      {[{ val: false, label: '👤 Adulto' }, { val: true, label: '👦 Infantil' }].map(({ val, label }) => (
+                        <button key={String(val)} type="button" onClick={() => setExtEsHijo(val)}
+                          style={{ flex: 1, padding: '0.55rem 0.5rem', background: extEsHijo === val ? 'rgba(129,140,248,0.15)' : 'rgba(255,255,255,0.04)', border: `1.5px solid ${extEsHijo === val ? 'rgba(129,140,248,0.5)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '10px', color: extEsHijo === val ? '#818cf8' : 'rgba(255,255,255,0.4)', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', minHeight: 'auto' }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <button type="submit" disabled={savingExt}
+                    style={{ minHeight: '44px', background: savingExt ? 'rgba(129,140,248,0.2)' : 'rgba(129,140,248,0.85)', border: 'none', borderRadius: '12px', color: 'white', fontSize: '0.88rem', fontWeight: '700', cursor: savingExt ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
+                    {savingExt ? <Loader2 size={15} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : '➕ Añadir como invitado'}
+                  </button>
+                </>
+              )}
+            </form>
+          )}
+        </div>
       )}
     </Overlay>
   )
@@ -543,12 +651,27 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
       descripcion: editEvent.descripcion ?? '',
     }
   })
-  const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState('')
+  const [loading,       setLoading]       = useState(false)
+  const [error,         setError]         = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const fg  = e => e.target.style.borderColor = GOLD
   const fb  = e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'
+
+  const handleDelete = async () => {
+    setLoading(true)
+    try {
+      const insSnap = await getDocs(query(collection(db, 'inscripciones'), where('eventId', '==', editEvent.id)))
+      await Promise.all(insSnap.docs.map(d => deleteDoc(d.ref)))
+      await deleteDoc(doc(db, 'eventos', editEvent.id))
+      onCreated()
+    } catch {
+      setError('Error al eliminar el evento.')
+      setLoading(false)
+      setConfirmDelete(false)
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setError(''); setLoading(true)
@@ -642,6 +765,35 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
             ? <Loader2 size={18} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
             : isEditing ? '💾 Guardar cambios' : '🔥 Crear evento'}
         </button>
+
+        {/* Delete section — only when editing */}
+        {isEditing && !confirmDelete && (
+          <button
+            type="button"
+            onClick={() => setConfirmDelete(true)}
+            style={{ minHeight: '44px', background: 'transparent', border: '1px solid rgba(206,17,38,0.28)', borderRadius: '12px', color: 'rgba(206,17,38,0.7)', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+          >
+            <Trash2 size={14} /> Eliminar evento
+          </button>
+        )}
+
+        {isEditing && confirmDelete && (
+          <div style={{ padding: '1rem', background: 'rgba(206,17,38,0.07)', border: '1px solid rgba(206,17,38,0.28)', borderRadius: '14px' }}>
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: '700', color: '#ff8080', lineHeight: 1.4 }}>
+              ⚠️ ¿Eliminar este evento? Se borrarán también <strong>todos los inscritos</strong>.
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button type="button" onClick={() => setConfirmDelete(false)} disabled={loading}
+                style={{ flex: 1, minHeight: '42px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', color: 'rgba(255,255,255,0.55)', fontSize: '0.82rem', fontWeight: '700', cursor: loading ? 'not-allowed' : 'pointer' }}>
+                Cancelar
+              </button>
+              <button type="button" onClick={handleDelete} disabled={loading}
+                style={{ flex: 1, minHeight: '42px', background: loading ? 'rgba(206,17,38,0.35)' : `linear-gradient(135deg, ${RED}, #a00d1e)`, border: 'none', borderRadius: '10px', color: 'white', fontSize: '0.82rem', fontWeight: '700', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
+                {loading ? <Loader2 size={14} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : <><Trash2 size={14} /> Sí, eliminar</>}
+              </button>
+            </div>
+          </div>
+        )}
       </form>
     </Overlay>
   )

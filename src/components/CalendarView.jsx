@@ -301,8 +301,8 @@ export default function CalendarView() {
                 <div
                   key={ev.id}
                   style={{
-                    background: WHITE,
-                    border: `1.5px solid ${isReg ? `${GOLD}45` : BORDER}`,
+                    background: isReg ? 'rgba(16,185,129,0.04)' : WHITE,
+                    border: `1.5px solid ${isReg ? 'rgba(16,185,129,0.38)' : BORDER}`,
                     borderRadius: 16, padding: '14px 16px',
                     boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
                     display: 'flex', alignItems: 'center', gap: 14,
@@ -399,14 +399,18 @@ export default function CalendarView() {
                       </>
                     )}
                     {isReg ? (
-                      <span style={{
-                        padding: '5px 10px',
-                        background: `${GOLD}12`, border: `1px solid ${GOLD}30`,
-                        borderRadius: 8, fontSize: 10, fontWeight: 700, color: GOLD,
-                        display: 'flex', alignItems: 'center', gap: 3,
-                      }}>
-                        <Check size={10} strokeWidth={3} /> Apuntado
-                      </span>
+                      <button
+                        onClick={() => setSelectedEvent(ev)}
+                        style={{
+                          padding: '7px 12px',
+                          background: 'rgba(16,185,129,0.12)', border: '1.5px solid rgba(16,185,129,0.4)',
+                          borderRadius: 8, fontSize: 10, fontWeight: 700, color: '#10b981',
+                          display: 'flex', alignItems: 'center', gap: 3,
+                          cursor: 'pointer', minHeight: 'auto', minWidth: 'auto',
+                        }}
+                      >
+                        ✅ Ver inscripción
+                      </button>
                     ) : isFull ? (
                       <span style={{
                         padding: '5px 10px',

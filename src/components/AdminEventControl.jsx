@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../firebase'
-import { X, Download, BarChart2, UserPlus, Check, Loader2 } from 'lucide-react'
+import { ArrowLeft, Download, BarChart2, UserPlus, Check, Loader2, Users } from 'lucide-react'
 
 const GOLD   = '#D4AF37'
 const RED    = '#CE1126'
@@ -21,12 +21,11 @@ export default function AdminEventControl({ event, onClose }) {
   const [inscriptions, setInscriptions] = useState([])
   const [loading, setLoading] = useState(true)
 
-  // Manual inscription form state
-  const [showManual, setShowManual]       = useState(false)
-  const [manualNombre, setManualNombre]   = useState('')
-  const [manualEsHijo, setManualEsHijo]   = useState(false)
-  const [savingManual, setSavingManual]   = useState(false)
-  const [manualDone, setManualDone]       = useState(false)
+  const [showManual,    setShowManual]    = useState(false)
+  const [manualNombre,  setManualNombre]  = useState('')
+  const [manualEsHijo,  setManualEsHijo]  = useState(false)
+  const [savingManual,  setSavingManual]  = useState(false)
+  const [manualDone,    setManualDone]    = useState(false)
 
   useEffect(() => {
     const q = query(
@@ -40,20 +39,23 @@ export default function AdminEventControl({ event, onClose }) {
     }, () => setLoading(false))
   }, [event.id])
 
-  const adultos = inscriptions.filter(i => !i.esHijo)
-  const ninos   = inscriptions.filter(i => i.esHijo)
-  const total   = inscriptions.length
-  const limit   = event.plazasTotal ?? null
-  const pct     = limit ? Math.min(100, (total / limit) * 100) : null
-  const pctColor = pct > 80 ? RED : pct > 50 ? GOLD : GREEN
+  // People counts — sum totalPersonas for real headcount
+  const totalAsistentes = inscriptions.reduce((s, i) => s + (i.totalPersonas ?? 1), 0)
+  const adultosTotal    = inscriptions.filter(i => !i.esHijo).reduce((s, i) => s + (i.totalPersonas ?? 1), 0)
+  const ninosTotal      = inscriptions.filter(i => i.esHijo).reduce((s, i) => s + (i.totalPersonas ?? 1), 0)
+  const limit           = event.plazasTotal ?? null
+  const pct             = limit ? Math.min(100, (totalAsistentes / limit) * 100) : null
+  const pctColor        = pct > 80 ? RED : pct > 50 ? GOLD : GREEN
 
   const handleDownload = () => {
     const rows = [
-      ['Nombre', 'Tipo', 'Nº Fallero', 'Alergias', 'Nota', 'Origen'],
+      ['Nombre', 'Tipo', 'Nº Fallero', 'Acompañantes', 'Total Personas', 'Alergias', 'Nota', 'Origen'],
       ...inscriptions.map(i => [
         i.nombre,
         i.esHijo ? 'INFANTIL' : 'ADULTO',
         i.numFallero ?? '—',
+        i.acompañantes ?? 0,
+        i.totalPersonas ?? 1,
         i.alergias ?? '',
         i.nota ?? '',
         i.esManual ? 'Manual' : 'App',
@@ -76,27 +78,17 @@ export default function AdminEventControl({ event, onClose }) {
     setSavingManual(true)
     try {
       await addDoc(collection(db, 'inscripciones'), {
-        eventId:      event.id,
-        eventoTitulo: event.titulo,
-        uid:          'manual',
-        nombre,
-        numFallero:   '—',
-        esHijo:       manualEsHijo,
-        esManual:     true,
-        nota:         null,
-        alergias:     null,
-        createdAt:    serverTimestamp(),
+        eventId: event.id, eventoTitulo: event.titulo,
+        uid: 'manual', nombre, numFallero: '—',
+        esHijo: manualEsHijo, esManual: true,
+        acompañantes: 0, totalPersonas: 1,
+        nota: null, alergias: null, createdAt: serverTimestamp(),
       })
       setManualDone(true)
       setTimeout(() => {
-        setManualDone(false)
-        setManualNombre('')
-        setManualEsHijo(false)
-        setShowManual(false)
+        setManualDone(false); setManualNombre(''); setManualEsHijo(false); setShowManual(false)
       }, 1400)
-    } catch {} finally {
-      setSavingManual(false)
-    }
+    } catch {} finally { setSavingManual(false) }
   }
 
   return (
@@ -111,101 +103,120 @@ export default function AdminEventControl({ event, onClose }) {
         {/* Handle */}
         <div style={{ width: 40, height: 4, background: 'rgba(255,255,255,0.12)', borderRadius: 2, margin: '0 auto 1.25rem', flexShrink: 0 }} />
 
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.25rem', flexShrink: 0 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-              <BarChart2 size={16} color={GOLD} />
-              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '800', color: GOLD }}>Control de Inscritos</h3>
-            </div>
-            <p style={{ margin: 0, fontSize: '0.75rem', color: 'rgba(255,255,255,0.38)' }}>{event.titulo}</p>
-          </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 10, padding: '0.5rem', color: 'rgba(255,255,255,0.4)', display: 'flex', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
-            <X size={18} />
+        {/* Header with prominent back button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', flexShrink: 0 }}>
+          <button
+            onClick={onClose}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: 10, padding: '0.45rem 0.75rem', color: GOLD, fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', flexShrink: 0, transition: 'background 0.15s' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(212,175,55,0.15)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(212,175,55,0.08)'}
+          >
+            <ArrowLeft size={14} /> Volver
           </button>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <BarChart2 size={14} color={GOLD} />
+              <span style={{ fontSize: '0.9rem', fontWeight: '800', color: GOLD }}>Control de Inscritos</span>
+            </div>
+            <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: 'rgba(255,255,255,0.38)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+              {event.titulo}
+            </p>
+          </div>
         </div>
 
-        {/* Stats grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.65rem', marginBottom: '1rem', flexShrink: 0 }}>
-          <StatBox
-            value={loading ? '…' : limit ? `${total}/${limit}` : String(total)}
-            label="Total"
-            color={GOLD}
-            bg="rgba(212,175,55,0.08)"
-            border="rgba(212,175,55,0.2)"
-          />
-          <StatBox
-            value={loading ? '…' : String(adultos.length)}
-            label="Adultos"
-            color="white"
-            bg="rgba(255,255,255,0.04)"
-            border="rgba(255,255,255,0.1)"
-          />
-          <StatBox
-            value={loading ? '…' : String(ninos.length)}
-            label="Niños"
-            color={GREEN}
-            bg="rgba(16,185,129,0.08)"
-            border="rgba(16,185,129,0.2)"
-          />
-        </div>
+        {/* Summary banner */}
+        {!loading && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1.25rem', padding: '0.7rem 1rem', background: 'rgba(212,175,55,0.06)', border: '1px solid rgba(212,175,55,0.16)', borderRadius: 14, marginBottom: '0.85rem', flexShrink: 0, flexWrap: 'wrap' }}>
+            <SummaryItem value={totalAsistentes} label="Total Asistentes" color={GOLD} />
+            <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.08)' }} />
+            <SummaryItem value={adultosTotal} label="Adultos" color="white" />
+            <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.08)' }} />
+            <SummaryItem value={ninosTotal} label="Niños" color={GREEN} />
+            {limit && (
+              <>
+                <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.08)' }} />
+                <SummaryItem value={`${totalAsistentes}/${limit}`} label="Aforo" color={pctColor} />
+              </>
+            )}
+          </div>
+        )}
 
         {/* Aforo bar */}
         {pct !== null && !loading && (
-          <div style={{ marginBottom: '1rem', flexShrink: 0 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-              <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.38)' }}>Ocupación del aforo</span>
-              <span style={{ fontSize: '0.68rem', fontWeight: '800', color: pctColor }}>{Math.round(pct)}%</span>
-            </div>
-            <div style={{ background: 'rgba(255,255,255,0.07)', borderRadius: 4, height: 6 }}>
+          <div style={{ marginBottom: '0.85rem', flexShrink: 0 }}>
+            <div style={{ background: 'rgba(255,255,255,0.07)', borderRadius: 4, height: 5 }}>
               <div style={{ width: `${pct}%`, height: '100%', borderRadius: 4, background: pctColor, transition: 'width 0.4s ease' }} />
             </div>
             {pct >= 100 && (
-              <p style={{ margin: '0.4rem 0 0', fontSize: '0.7rem', color: RED, fontWeight: '700', textAlign: 'center' }}>
+              <p style={{ margin: '0.35rem 0 0', fontSize: '0.68rem', color: RED, fontWeight: '700', textAlign: 'center' }}>
                 AFORO COMPLETO
               </p>
             )}
           </div>
         )}
 
-        {/* List */}
+        {/* Inscription list */}
         <div style={{ flex: 1, overflowY: 'auto', marginBottom: '0.75rem' }}>
           {loading ? (
             <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.85rem', textAlign: 'center', padding: '1.5rem 0', margin: 0 }}>
               Cargando…
             </p>
           ) : inscriptions.length === 0 ? (
-            <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: '0.85rem', textAlign: 'center', padding: '2rem 0', margin: 0 }}>
-              Nadie apuntado todavía
-            </p>
+            <div style={{ textAlign: 'center', padding: '2.5rem 1rem' }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>👥</div>
+              <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: '0.85rem', margin: 0 }}>
+                Nadie apuntado todavía
+              </p>
+            </div>
           ) : (
-            inscriptions.map(ins => (
-              <div key={ins.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.7rem 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <div style={{
-                  width: 34, height: 34, flexShrink: 0,
-                  background: ins.esHijo ? 'rgba(16,185,129,0.1)' : 'rgba(212,175,55,0.1)',
-                  border: `1px solid ${ins.esHijo ? 'rgba(16,185,129,0.25)' : 'rgba(212,175,55,0.25)'}`,
-                  borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem',
-                }}>
-                  {ins.esHijo ? '👦' : '👤'}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '0.88rem', fontWeight: '600', color: 'white', marginBottom: (ins.alergias || ins.nota) ? 2 : 0 }}>
-                    {ins.nombre}
+            inscriptions.map((ins, idx) => {
+              const acomp = ins.acompañantes ?? 0
+              const total = ins.totalPersonas ?? 1
+              return (
+                <div
+                  key={ins.id}
+                  style={{ padding: '0.85rem 0', borderBottom: idx < inscriptions.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                    {/* Avatar */}
+                    <div style={{ width: 36, height: 36, flexShrink: 0, background: ins.esHijo ? 'rgba(16,185,129,0.1)' : 'rgba(212,175,55,0.1)', border: `1px solid ${ins.esHijo ? 'rgba(16,185,129,0.25)' : 'rgba(212,175,55,0.25)'}`, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', marginTop: 1 }}>
+                      {ins.esHijo ? '👦' : '👤'}
+                    </div>
+                    {/* Content */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {/* Name + badges row */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginBottom: acomp > 0 || ins.alergias || ins.nota ? 4 : 0 }}>
+                        <span style={{ fontSize: '0.9rem', fontWeight: '700', color: 'white' }}>{ins.nombre}</span>
+                        <TypeBadge esHijo={ins.esHijo} />
+                        {ins.esManual && <ManualBadge />}
+                      </div>
+                      {/* Companion breakdown */}
+                      {acomp > 0 && (
+                        <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <Users size={10} color="rgba(255,255,255,0.3)" />
+                          <span>Titular + {acomp} acompañante{acomp > 1 ? 's' : ''}</span>
+                          <span style={{ display: 'inline-block', padding: '0px 7px', background: 'rgba(212,175,55,0.12)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: 20, fontSize: '0.65rem', fontWeight: '800', color: GOLD }}>
+                            {total} personas
+                          </span>
+                        </div>
+                      )}
+                      {/* Alergias (highlighted) */}
+                      {ins.alergias && (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.28)', borderRadius: 8, marginBottom: 3 }}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: '700', color: '#fbbf24' }}>🌾 {ins.alergias}</span>
+                        </div>
+                      )}
+                      {/* Nota */}
+                      {ins.nota && (
+                        <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.32)', fontStyle: 'italic' }}>
+                          📝 {ins.nota}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  {ins.alergias && (
-                    <div style={{ fontSize: '0.7rem', color: '#fbbf24', fontWeight: '600' }}>🌾 {ins.alergias}</div>
-                  )}
-                  {ins.nota && (
-                    <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.35)' }}>{ins.nota}</div>
-                  )}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
-                  <TypeBadge esHijo={ins.esHijo} />
-                  {ins.esManual && <ManualBadge />}
-                </div>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
 
@@ -227,22 +238,14 @@ export default function AdminEventControl({ event, onClose }) {
             Inscribir fallero / invitado manualmente
           </button>
 
-          {/* Inline form */}
           {showManual && (
             <form
               onSubmit={handleManualSubmit}
-              style={{
-                marginTop: '0.75rem', padding: '1rem',
-                background: 'rgba(129,140,248,0.06)',
-                border: '1px solid rgba(129,140,248,0.2)',
-                borderRadius: 14,
-                display: 'flex', flexDirection: 'column', gap: '0.75rem',
-              }}
+              style={{ marginTop: '0.75rem', padding: '1rem', background: 'rgba(129,140,248,0.06)', border: '1px solid rgba(129,140,248,0.2)', borderRadius: 14, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
             >
               {manualDone ? (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '0.5rem 0', color: GREEN, fontSize: '0.88rem', fontWeight: '700' }}>
-                  <Check size={16} strokeWidth={2.5} />
-                  Inscripción añadida
+                  <Check size={16} strokeWidth={2.5} /> Inscripción añadida
                 </div>
               ) : (
                 <>
@@ -252,8 +255,7 @@ export default function AdminEventControl({ event, onClose }) {
                     </label>
                     <input
                       required autoFocus
-                      value={manualNombre}
-                      onChange={e => setManualNombre(e.target.value)}
+                      value={manualNombre} onChange={e => setManualNombre(e.target.value)}
                       placeholder="Ej: María García López"
                       style={sharedInput}
                       onFocus={e => e.target.style.borderColor = INDIGO}
@@ -266,42 +268,16 @@ export default function AdminEventControl({ event, onClose }) {
                     </label>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       {[{ val: false, label: '👤 Adulto' }, { val: true, label: '👦 Infantil' }].map(({ val, label }) => (
-                        <button
-                          key={String(val)}
-                          type="button"
-                          onClick={() => setManualEsHijo(val)}
-                          style={{
-                            flex: 1, padding: '0.55rem 0.5rem',
-                            background: manualEsHijo === val ? 'rgba(129,140,248,0.15)' : 'rgba(255,255,255,0.04)',
-                            border: `1.5px solid ${manualEsHijo === val ? 'rgba(129,140,248,0.5)' : 'rgba(255,255,255,0.1)'}`,
-                            borderRadius: 10,
-                            color: manualEsHijo === val ? INDIGO : 'rgba(255,255,255,0.4)',
-                            fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', minHeight: 'auto',
-                            transition: 'all 0.15s',
-                          }}
-                        >
+                        <button key={String(val)} type="button" onClick={() => setManualEsHijo(val)}
+                          style={{ flex: 1, padding: '0.55rem 0.5rem', background: manualEsHijo === val ? 'rgba(129,140,248,0.15)' : 'rgba(255,255,255,0.04)', border: `1.5px solid ${manualEsHijo === val ? 'rgba(129,140,248,0.5)' : 'rgba(255,255,255,0.1)'}`, borderRadius: 10, color: manualEsHijo === val ? INDIGO : 'rgba(255,255,255,0.4)', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', minHeight: 'auto', transition: 'all 0.15s' }}>
                           {label}
                         </button>
                       ))}
                     </div>
                   </div>
-                  <button
-                    type="submit" disabled={savingManual || !manualNombre.trim()}
-                    style={{
-                      minHeight: '44px',
-                      background: savingManual || !manualNombre.trim()
-                        ? 'rgba(129,140,248,0.2)'
-                        : 'rgba(129,140,248,0.25)',
-                      border: '1px solid rgba(129,140,248,0.4)',
-                      borderRadius: 12, color: INDIGO,
-                      fontSize: '0.88rem', fontWeight: '700',
-                      cursor: savingManual || !manualNombre.trim() ? 'not-allowed' : 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-                    }}
-                  >
-                    {savingManual
-                      ? <Loader2 size={15} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
-                      : <><UserPlus size={15} /> Confirmar inscripción</>}
+                  <button type="submit" disabled={savingManual || !manualNombre.trim()}
+                    style={{ minHeight: '44px', background: savingManual || !manualNombre.trim() ? 'rgba(129,140,248,0.2)' : 'rgba(129,140,248,0.25)', border: '1px solid rgba(129,140,248,0.4)', borderRadius: 12, color: INDIGO, fontSize: '0.88rem', fontWeight: '700', cursor: savingManual || !manualNombre.trim() ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
+                    {savingManual ? <Loader2 size={15} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : <><UserPlus size={15} /> Confirmar inscripción</>}
                   </button>
                 </>
               )}
@@ -309,14 +285,14 @@ export default function AdminEventControl({ event, onClose }) {
           )}
         </div>
 
-        {/* CSV button */}
+        {/* CSV download */}
         {!loading && inscriptions.length > 0 && (
           <button
             onClick={handleDownload}
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', width: '100%', minHeight: '50px', background: `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: 14, color: 'white', fontSize: '0.9rem', fontWeight: '700', cursor: 'pointer', boxShadow: `0 4px 18px rgba(212,175,55,0.3)`, flexShrink: 0 }}
           >
             <Download size={17} />
-            Descargar CSV
+            Descargar CSV ({totalAsistentes} personas)
           </button>
         )}
       </div>
@@ -324,25 +300,18 @@ export default function AdminEventControl({ event, onClose }) {
   )
 }
 
-function StatBox({ value, label, color, bg, border }) {
+function SummaryItem({ value, label, color }) {
   return (
-    <div style={{ background: bg, border: `1px solid ${border}`, borderRadius: 14, padding: '0.85rem 0.5rem', textAlign: 'center' }}>
-      <div style={{ fontSize: '1.6rem', fontWeight: '900', color, lineHeight: 1, letterSpacing: '-0.02em' }}>{value}</div>
-      <div style={{ fontSize: '0.6rem', fontWeight: '700', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: '0.3rem' }}>{label}</div>
+    <div style={{ textAlign: 'center' }}>
+      <div style={{ fontSize: '1.4rem', fontWeight: '900', color, lineHeight: 1, letterSpacing: '-0.02em' }}>{value}</div>
+      <div style={{ fontSize: '0.58rem', fontWeight: '700', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: 3 }}>{label}</div>
     </div>
   )
 }
 
 function TypeBadge({ esHijo }) {
   return (
-    <span style={{
-      padding: '0.18rem 0.55rem',
-      background: esHijo ? 'rgba(16,185,129,0.12)' : 'rgba(212,175,55,0.12)',
-      border: `1px solid ${esHijo ? 'rgba(16,185,129,0.28)' : 'rgba(212,175,55,0.28)'}`,
-      borderRadius: 20, fontSize: '0.58rem', fontWeight: '800',
-      letterSpacing: '0.08em', textTransform: 'uppercase',
-      color: esHijo ? GREEN : GOLD,
-    }}>
+    <span style={{ padding: '0.18rem 0.55rem', background: esHijo ? 'rgba(16,185,129,0.12)' : 'rgba(212,175,55,0.12)', border: `1px solid ${esHijo ? 'rgba(16,185,129,0.28)' : 'rgba(212,175,55,0.28)'}`, borderRadius: 20, fontSize: '0.58rem', fontWeight: '800', letterSpacing: '0.08em', textTransform: 'uppercase', color: esHijo ? GREEN : GOLD }}>
       {esHijo ? 'INFANTIL' : 'ADULTO'}
     </span>
   )
@@ -350,14 +319,7 @@ function TypeBadge({ esHijo }) {
 
 function ManualBadge() {
   return (
-    <span style={{
-      padding: '0.15rem 0.5rem',
-      background: 'rgba(129,140,248,0.12)',
-      border: '1px solid rgba(129,140,248,0.28)',
-      borderRadius: 20, fontSize: '0.55rem', fontWeight: '800',
-      letterSpacing: '0.08em', textTransform: 'uppercase',
-      color: INDIGO,
-    }}>
+    <span style={{ padding: '0.15rem 0.5rem', background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.28)', borderRadius: 20, fontSize: '0.55rem', fontWeight: '800', letterSpacing: '0.08em', textTransform: 'uppercase', color: INDIGO }}>
       MANUAL
     </span>
   )
