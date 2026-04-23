@@ -1,7 +1,7 @@
 import { initializeApp, cert, getApps, getApp } from 'firebase-admin/app'
-import { getAuth }      from 'firebase-admin/auth'
-import { getFirestore } from 'firebase-admin/firestore'
-import { getMessaging } from 'firebase-admin/messaging'
+import { getAuth }                              from 'firebase-admin/auth'
+import { getFirestore, FieldValue }             from 'firebase-admin/firestore'
+import { getMessaging }                         from 'firebase-admin/messaging'
 
 function adminApp() {
   if (getApps().length) return getApp()
@@ -41,10 +41,10 @@ export default async function handler(req, res) {
     const { title, body } = req.body ?? {}
     if (!title) return res.status(400).json({ error: 'Falta el título' })
 
-    // Fetch all registered FCM tokens
-    const snap      = await db.collection('fcm_tokens').get()
+    // Fetch all falleros that have a registered FCM token
+    const snap      = await db.collection('falleros').where('fcmToken', '!=', null).get()
     const tokenDocs = snap.docs
-      .map(d => ({ uid: d.id, token: d.data().token }))
+      .map(d => ({ uid: d.id, token: d.data().fcmToken }))
       .filter(d => d.token)
 
     if (!tokenDocs.length) return res.json({ sent: 0, failed: 0 })
@@ -62,7 +62,7 @@ export default async function handler(req, res) {
       },
     })
 
-    // Remove stale / invalid tokens
+    // Remove stale tokens from falleros docs
     const staleUids = tokenDocs
       .filter((_, i) => {
         const code = result.responses[i]?.error?.code ?? ''
@@ -74,7 +74,13 @@ export default async function handler(req, res) {
       .map(d => d.uid)
 
     if (staleUids.length) {
-      await Promise.all(staleUids.map(uid => db.collection('fcm_tokens').doc(uid).delete()))
+      await Promise.all(staleUids.map(uid =>
+        db.collection('falleros').doc(uid).update({
+          fcmToken:          FieldValue.delete(),
+          fcmPlatform:       FieldValue.delete(),
+          fcmTokenUpdatedAt: FieldValue.delete(),
+        }),
+      ))
     }
 
     res.json({ sent: result.successCount, failed: result.failureCount })

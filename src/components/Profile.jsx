@@ -833,7 +833,7 @@ export default function Profile() {
 
       {/* Logout */}
       <button
-        onClick={logout}
+        onClick={() => { if (window.confirm('¿Cerrar sesión? Tendrás que volver a entrar con tu email y contraseña.')) logout() }}
         style={{
           width: '100%', minHeight: '50px', marginTop: 4,
           background: 'rgba(239,68,68,0.06)',

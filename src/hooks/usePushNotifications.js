@@ -1,5 +1,5 @@
 import { getToken } from 'firebase/messaging'
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { messaging, db } from '../firebase'
 import { useState, useEffect } from 'react'
 
@@ -7,7 +7,7 @@ const VAPID_KEY   = import.meta.env.VITE_FIREBASE_VAPID_KEY
 const STORAGE_KEY = 'jcb_fcm_token_saved'
 
 // Returns the firebase-messaging SW registration, waiting until the worker
-// reaches "activated" state. Calling getToken() before activation causes
+// reaches "activated" state. Calling getToken() before activation throws
 // "AbortError: no active Service Worker".
 async function getSwRegistration() {
   let reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js')
@@ -40,32 +40,35 @@ async function getSwRegistration() {
   return reg
 }
 
+// Saves the FCM token directly into the falleros/{uid} document so it lives
+// alongside the rest of the user data and matches the Firestore security rules.
 async function persistToken(userId) {
   const swReg = await getSwRegistration()
-  const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg })
+  const token = await getToken(messaging, {
+    vapidKey: VAPID_KEY,
+    serviceWorkerRegistration: swReg,
+  })
   if (!token) throw new Error('FCM devolvió un token vacío — comprueba la VAPID key.')
 
   const platform = /iPhone|iPad/.test(navigator.userAgent) ? 'ios'
     : /Android/.test(navigator.userAgent) ? 'android' : 'web'
 
   try {
-    await setDoc(doc(db, 'fcm_tokens', userId), {
-      token,
-      userId,
-      updatedAt: serverTimestamp(),
-      platform,
+    await updateDoc(doc(db, 'falleros', userId), {
+      fcmToken:          token,
+      fcmPlatform:       platform,
+      fcmTokenUpdatedAt: serverTimestamp(),
     })
   } catch (err) {
-    // Firestore blocked by an ad blocker → give the user a clear hint
     const msg = err?.message ?? ''
-    const isNetworkBlock = (
+    const isBlocked = (
       msg.includes('ERR_BLOCKED') ||
       msg.includes('Failed to fetch') ||
       err?.code === 'unavailable' ||
       err?.code === 'failed-precondition'
     )
     throw new Error(
-      isNetworkBlock
+      isBlocked
         ? 'Un bloqueador de anuncios está impidiendo guardar el token. Desactívalo para esta web e inténtalo de nuevo.'
         : msg || 'Error al guardar el token en Firestore.',
     )

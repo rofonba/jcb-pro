@@ -12,6 +12,8 @@ import Navigation from './Navigation'
 import AdminMetrics from './AdminMetrics'
 import { RegistrationModal, SuccessToast, CancelConfirmModal } from './EventList'
 import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X, Loader2, Trash2 } from 'lucide-react'
+import logoFalla from '../assets/logo-falla.png'
+import { usePushNotifications } from '../hooks/usePushNotifications'
 
 const LAST_READ_KEY  = 'jcb_last_read_avisos'
 const getLastRead    = () => parseInt(localStorage.getItem(LAST_READ_KEY) || '0', 10)
@@ -609,6 +611,46 @@ function UrgentNotification({ events, onView }) {
   )
 }
 
+// ─── Push notification opt-in banner ─────────────────────────────────────────
+
+function PushBanner({ permission, tokenSaved, loading, onEnable }) {
+  if (permission === 'unsupported' || permission === 'denied' || tokenSaved) return null
+  return (
+    <div style={{
+      margin: '0 20px 0',
+      background: `linear-gradient(135deg, rgba(212,175,55,0.12), rgba(212,175,55,0.06))`,
+      border: `1.5px solid rgba(212,175,55,0.38)`,
+      borderRadius: 16,
+      padding: '13px 16px',
+      display: 'flex', alignItems: 'center', gap: 12,
+      animation: 'falla-fadeIn 0.4s ease-out',
+    }}>
+      <span style={{ fontSize: 22, flexShrink: 0, animation: 'falla-bell 2s ease-in-out infinite', transformOrigin: 'top center', display: 'inline-block' }}>🔔</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: TEXT, lineHeight: 1.2 }}>Activa las notificaciones</p>
+        <p style={{ margin: '2px 0 0', fontSize: 11, color: TEXT2 }}>Entérate al instante de avisos y eventos.</p>
+      </div>
+      <button
+        onClick={onEnable}
+        disabled={loading}
+        style={{
+          flexShrink: 0, padding: '7px 14px',
+          background: GOLD, border: 'none', borderRadius: 10,
+          color: 'white', fontSize: 12, fontWeight: 800,
+          cursor: loading ? 'not-allowed' : 'pointer', minHeight: 'auto',
+          opacity: loading ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: 5,
+          boxShadow: `0 3px 10px rgba(212,175,55,0.35)`,
+        }}
+      >
+        {loading
+          ? <Loader2 size={13} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
+          : <><Bell size={12} /> Activar</>
+        }
+      </button>
+    </div>
+  )
+}
+
 // ─── Home Tab ─────────────────────────────────────────────────────────────────
 
 function HomeTab({
@@ -618,6 +660,7 @@ function HomeTab({
   onNavigate, onMetrics,
   onEventPress, onCancelPress,
   unreadCount,
+  pushPermission, pushTokenSaved, pushLoading, onEnablePush,
 }) {
   const firstName       = nombre.split(' ')[0]
   const [showMyCitas, setShowMyCitas] = useState(false)
@@ -667,6 +710,16 @@ function HomeTab({
             👑 ADMIN · Nº {String(numFallero).padStart(3, '0')}
           </span>
         )}
+      </div>
+
+      {/* ── Push opt-in banner — shown only until user activates ── */}
+      <div style={{ paddingTop: 4, paddingBottom: 16 }}>
+        <PushBanner
+          permission={pushPermission}
+          tokenSaved={pushTokenSaved}
+          loading={pushLoading}
+          onEnable={onEnablePush}
+        />
       </div>
 
       {/* ── Hero Calendar (full-bleed, ~half page) ───────────────── */}
@@ -926,6 +979,13 @@ export default function Dashboard() {
   const numFallero = fallero?.numero ?? '—'
   const isAdmin    = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
+  const {
+    permission: pushPermission,
+    tokenSaved: pushTokenSaved,
+    loading:    pushLoading,
+    enableNotifications: enablePush,
+  } = usePushNotifications(user?.uid)
+
   const unreadCount = useMemo(
     () => announcements.filter(a => (a.createdAt?.toMillis?.() ?? 0) > lastReadTs).length,
     [announcements, lastReadTs],
@@ -937,9 +997,11 @@ export default function Dashboard() {
       {/* Header */}
       <header style={{ padding: '12px 20px', background: 'rgba(249,250,251,0.96)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 50, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 36, height: 36, background: GOLD, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Flame size={18} color="white" strokeWidth={2.2} />
-          </div>
+          <img
+            src={logoFalla}
+            alt="Falla Joaquín Costa"
+            style={{ width: 40, height: 40, objectFit: 'contain', flexShrink: 0 }}
+          />
           <div>
             <div style={{ fontSize: 13, fontWeight: 800, color: TEXT, lineHeight: 1, letterSpacing: '-0.01em' }}>Falla Joaquín Costa</div>
             <div style={{ fontSize: 10, color: MUTED, letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 2 }}>Burriana</div>
@@ -973,6 +1035,10 @@ export default function Dashboard() {
             onEventPress={setSelectedEvent}
             onCancelPress={setCancelTarget}
             unreadCount={unreadCount}
+            pushPermission={pushPermission}
+            pushTokenSaved={pushTokenSaved}
+            pushLoading={pushLoading}
+            onEnablePush={enablePush}
           />
         )}
         {activeTab === 'calendario' && <CalendarView />}
