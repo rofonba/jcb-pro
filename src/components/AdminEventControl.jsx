@@ -17,6 +17,18 @@ const sharedInput = {
   outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
 }
 
+function getInsCounts(ins) {
+  if (ins.acompañantesAdultos !== undefined || ins.acompañantesNinos !== undefined) {
+    return {
+      adultos: 1 + (ins.acompañantesAdultos?.length ?? 0),
+      ninos:   ins.acompañantesNinos?.length ?? 0,
+    }
+  }
+  return ins.esHijo
+    ? { adultos: 0, ninos: ins.totalPersonas ?? 1 }
+    : { adultos: ins.totalPersonas ?? 1, ninos: 0 }
+}
+
 export default function AdminEventControl({ event, onClose }) {
   const [inscriptions, setInscriptions] = useState([])
   const [loading, setLoading] = useState(true)
@@ -39,10 +51,10 @@ export default function AdminEventControl({ event, onClose }) {
     }, () => setLoading(false))
   }, [event.id])
 
-  // People counts — sum totalPersonas for real headcount
+  // People counts — supports both old (number) and new (named arrays) format
   const totalAsistentes = inscriptions.reduce((s, i) => s + (i.totalPersonas ?? 1), 0)
-  const adultosTotal    = inscriptions.filter(i => !i.esHijo).reduce((s, i) => s + (i.totalPersonas ?? 1), 0)
-  const ninosTotal      = inscriptions.filter(i => i.esHijo).reduce((s, i) => s + (i.totalPersonas ?? 1), 0)
+  const adultosTotal    = inscriptions.reduce((s, i) => s + getInsCounts(i).adultos, 0)
+  const ninosTotal      = inscriptions.reduce((s, i) => s + getInsCounts(i).ninos, 0)
   const limit           = event.plazasTotal ?? null
   const pct             = limit ? Math.min(100, (totalAsistentes / limit) * 100) : null
   const pctColor        = pct > 80 ? RED : pct > 50 ? GOLD : GREEN
@@ -155,6 +167,19 @@ export default function AdminEventControl({ event, onClose }) {
           </div>
         )}
 
+        {/* KPI — Attendance Analysis */}
+        {!loading && totalAsistentes > 0 && (
+          <div style={{ marginBottom: '0.85rem', flexShrink: 0 }}>
+            <p style={{ margin: '0 0 0.55rem', fontSize: '0.62rem', fontWeight: '700', color: 'rgba(255,255,255,0.35)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+              Análisis de Asistencia
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <KPICard icon="👤" label="Adultos"  value={adultosTotal} total={totalAsistentes} color="#3b82f6" />
+              <KPICard icon="🧒" label="Niños/as" value={ninosTotal}   total={totalAsistentes} color="#f97316" />
+            </div>
+          </div>
+        )}
+
         {/* Inscription list */}
         <div style={{ flex: 1, overflowY: 'auto', marginBottom: '0.75rem' }}>
           {loading ? (
@@ -201,7 +226,27 @@ export default function AdminEventControl({ event, onClose }) {
                         </div>
                       )}
                       {/* Companion breakdown */}
-                      {acomp > 0 && (
+                      {ins.acompañantesAdultos !== undefined || ins.acompañantesNinos !== undefined ? (
+                        <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          {(ins.acompañantesAdultos ?? []).map((a, idx) => (
+                            <div key={`a${idx}`} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)' }}>
+                              <span style={{ padding: '1px 6px', background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.28)', borderRadius: 20, fontSize: '0.58rem', fontWeight: '800', color: '#3b82f6', flexShrink: 0, letterSpacing: '0.04em' }}>👤 ADULTO</span>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nombre || `Adulto ${idx + 1}`}</span>
+                            </div>
+                          ))}
+                          {(ins.acompañantesNinos ?? []).map((n, idx) => (
+                            <div key={`n${idx}`} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)' }}>
+                              <span style={{ padding: '1px 6px', background: 'rgba(249,115,22,0.12)', border: '1px solid rgba(249,115,22,0.28)', borderRadius: 20, fontSize: '0.58rem', fontWeight: '800', color: '#f97316', flexShrink: 0, letterSpacing: '0.04em' }}>🧒 NIÑO/A</span>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.nombre || `Niño/a ${idx + 1}`}</span>
+                            </div>
+                          ))}
+                          {(ins.acompañantesAdultos?.length > 0 || ins.acompañantesNinos?.length > 0) && (
+                            <span style={{ display: 'inline-block', marginTop: 2, padding: '1px 7px', background: 'rgba(212,175,55,0.12)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: 20, fontSize: '0.63rem', fontWeight: '800', color: GOLD }}>
+                              {ins.totalPersonas ?? 1} personas total
+                            </span>
+                          )}
+                        </div>
+                      ) : acomp > 0 ? (
                         <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
                           <Users size={10} color="rgba(255,255,255,0.3)" />
                           <span>Titular + {acomp} acompañante{acomp > 1 ? 's' : ''}</span>
@@ -209,7 +254,7 @@ export default function AdminEventControl({ event, onClose }) {
                             {total} personas
                           </span>
                         </div>
-                      )}
+                      ) : null}
                       {/* Alergias (highlighted) */}
                       {ins.alergias && (
                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.28)', borderRadius: 8, marginBottom: 3 }}>
@@ -305,6 +350,20 @@ export default function AdminEventControl({ event, onClose }) {
             Descargar CSV ({totalAsistentes} personas)
           </button>
         )}
+      </div>
+    </div>
+  )
+}
+
+function KPICard({ icon, label, value, total, color }) {
+  const pct = total > 0 ? Math.round((value / total) * 100) : 0
+  return (
+    <div style={{ flex: 1, background: `${color}0d`, border: `1.5px solid ${color}28`, borderRadius: 14, padding: '14px 12px', textAlign: 'center' }}>
+      <div style={{ fontSize: 22, marginBottom: 4 }}>{icon}</div>
+      <div style={{ fontSize: 30, fontWeight: 900, color, lineHeight: 1, letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.45)', marginTop: 3, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
+      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800, color, background: `${color}18`, border: `1px solid ${color}2e`, borderRadius: 20, padding: '2px 10px', display: 'inline-block' }}>
+        {pct}%
       </div>
     </div>
   )

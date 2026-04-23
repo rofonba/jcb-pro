@@ -70,7 +70,7 @@ function Overlay({ children, onClose, scrollable = false }) {
 }
 
 // ─── Event card ───────────────────────────────────────────────────────────────
-function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEditPress, onCancelPress, index = 0 }) {
+function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEditPress, onCancelPress, onDeletePress, index = 0 }) {
   const t      = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
   const ocupadas = event.plazasOcupadas ?? 0
   const pct    = event.plazasTotal ? Math.min(100, (ocupadas / event.plazasTotal) * 100) : null
@@ -146,6 +146,14 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
               onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
             >
               <Pencil size={12} /><span>Editar</span>
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); onDeletePress(event) }}
+              style={{ background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.25)', borderRadius: '8px', padding: '0.35rem 0.55rem', color: RED, display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', fontSize: '0.6rem', fontWeight: '700', transition: 'background 0.15s' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(206,17,38,0.18)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(206,17,38,0.08)'}
+            >
+              <Trash2 size={12} /><span>Borrar</span>
             </button>
           </div>
         ) : (
@@ -252,7 +260,8 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
     ? `${fallero.nombre} ${fallero.apellidos ?? ''}`.trim()
     : (user?.email?.split('@')[0] ?? 'Yo')
 
-  const [acomp,      setAcomp]      = useState(0)
+  const [adultos,    setAdultos]    = useState([]) // [{nombre:''}]
+  const [ninos,      setNinos]      = useState([]) // [{nombre:''}]
   const [nota,       setNota]       = useState('')
   const [alergias,   setAlergias]   = useState('')
   const [status,     setStatus]     = useState(isRegistered ? 'duplicate' : 'clean')
@@ -300,7 +309,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
 
   const plazasTotal   = event.plazasTotal ?? null
   const disponibles   = plazasTotal != null ? Math.max(0, plazasTotal - (inscritosCount ?? 0)) : Infinity
-  const totalPersonas = 1 + acomp
+  const totalPersonas = 1 + adultos.length + ninos.length
   const wouldExceed   = plazasTotal != null && totalPersonas > disponibles
   const isAforoFull   = plazasTotal != null && disponibles <= 0
   const t             = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
@@ -321,7 +330,10 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
         uid: user.uid, nombre: myName,
         numFallero: fallero?.numero ?? '—',
         esHijo: false, esManual: false,
-        acompañantes: acomp, totalPersonas,
+        acompañantesAdultos: adultos.map(a => ({ nombre: a.nombre.trim() || 'Adulto' })),
+        acompañantesNinos:   ninos.map(n => ({ nombre: n.nombre.trim() || 'Niño/a' })),
+        acompañantes: adultos.length + ninos.length,
+        totalPersonas,
         nota: nota.trim() || null,
         alergias: (['comida', 'cena'].includes(event.tipo)) ? (alergias.trim() || null) : null,
         telefono:   fallero?.telefono ?? null,
@@ -538,19 +550,76 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
                 <Check size={14} color={GOLD} strokeWidth={3} />
               </div>
 
-              {/* Companion count */}
-              <label style={{ ...sharedLabel, marginBottom: '0.5rem' }}>Acompañantes</label>
-              <select
-                value={acomp}
-                onChange={e => setAcomp(Number(e.target.value))}
-                style={{ ...sharedInput, marginBottom: '1rem', cursor: 'pointer' }}
-              >
-                {[0,1,2,3,4,5].map(n => (
-                  <option key={n} value={n} style={{ background: CARD }}>
-                    {n === 0 ? '0 acompañantes (solo yo)' : `${n} acompañante${n > 1 ? 's' : ''} · ${1+n} personas total`}
-                  </option>
-                ))}
-              </select>
+              {/* ── Adult companions ───────────────────────────── */}
+              <label style={{ ...sharedLabel, marginBottom: '0.5rem' }}>👤 Acompañantes adultos</label>
+              {adultos.map((a, i) => (
+                <div key={i} style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.4rem' }}>
+                  <input
+                    value={a.nombre}
+                    onChange={e => { const next = [...adultos]; next[i] = { nombre: e.target.value }; setAdultos(next) }}
+                    placeholder={`Nombre adulto ${i + 1}`}
+                    style={{ ...sharedInput, flex: 1 }}
+                    onFocus={e => e.target.style.borderColor = GOLD}
+                    onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                  />
+                  <button type="button" onClick={() => setAdultos(adultos.filter((_, j) => j !== i))}
+                    style={{ background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.2)', borderRadius: '8px', padding: '0 0.55rem', color: 'rgba(220,38,38,0.7)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              <button type="button" onClick={() => setAdultos([...adultos, { nombre: '' }])}
+                style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px dashed rgba(255,255,255,0.14)', borderRadius: '10px', padding: '0.45rem', color: 'rgba(255,255,255,0.4)', fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', minHeight: 'auto', marginBottom: '1rem' }}>
+                + Añadir adulto
+              </button>
+
+              {/* ── Child companions ────────────────────────────── */}
+              <label style={{ ...sharedLabel, marginBottom: '0.5rem' }}>🧒 Acompañantes niños/as</label>
+              {ninos.map((n, i) => (
+                <div key={i} style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.4rem' }}>
+                  <input
+                    value={n.nombre}
+                    onChange={e => { const next = [...ninos]; next[i] = { nombre: e.target.value }; setNinos(next) }}
+                    placeholder={`Nombre niño/a ${i + 1}`}
+                    style={{ ...sharedInput, flex: 1 }}
+                    onFocus={e => e.target.style.borderColor = '#f97316'}
+                    onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                  />
+                  <button type="button" onClick={() => setNinos(ninos.filter((_, j) => j !== i))}
+                    style={{ background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.2)', borderRadius: '8px', padding: '0 0.55rem', color: 'rgba(220,38,38,0.7)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              <button type="button" onClick={() => setNinos([...ninos, { nombre: '' }])}
+                style={{ width: '100%', background: 'rgba(249,115,22,0.05)', border: '1px dashed rgba(249,115,22,0.22)', borderRadius: '10px', padding: '0.45rem', color: 'rgba(249,115,22,0.6)', fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', minHeight: 'auto', marginBottom: '1rem' }}>
+                + Añadir niño/a
+              </button>
+
+              {/* ── Breakdown summary ───────────────────────────── */}
+              {(adultos.length > 0 || ninos.length > 0) && (
+                <div style={{ padding: '0.85rem 1rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', marginBottom: '1rem' }}>
+                  <p style={{ margin: '0 0 0.5rem', fontSize: '0.65rem', fontWeight: '700', color: 'rgba(255,255,255,0.35)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Resumen</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.28rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: 'rgba(255,255,255,0.6)' }}>
+                      <span>👤</span><span style={{ flex: 1 }}>Tú (Adulto)</span><span style={{ fontWeight: '800', color: GOLD }}>1</span>
+                    </div>
+                    {adultos.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: 'rgba(255,255,255,0.6)' }}>
+                        <span>👤</span><span style={{ flex: 1 }}>Adultos extra</span><span style={{ fontWeight: '800', color: '#3b82f6' }}>{adultos.length}</span>
+                      </div>
+                    )}
+                    {ninos.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: 'rgba(255,255,255,0.6)' }}>
+                        <span>🧒</span><span style={{ flex: 1 }}>Niños/as</span><span style={{ fontWeight: '800', color: '#f97316' }}>{ninos.length}</span>
+                      </div>
+                    )}
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: '0.35rem', marginTop: '0.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.88rem', fontWeight: '800', color: 'white' }}>
+                      <span>👥</span><span style={{ flex: 1 }}>Total</span><span style={{ color: GOLD }}>{totalPersonas} {totalPersonas === 1 ? 'persona' : 'personas'}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {wouldExceed && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 0.9rem', background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.28)', borderRadius: '10px', marginBottom: '1rem' }}>
@@ -941,6 +1010,52 @@ function CancelConfirmModal({ event, onConfirm, onCancel, deleting }) {
   )
 }
 
+// ─── Delete event confirmation modal ─────────────────────────────────────────
+function DeleteEventModal({ event, onConfirm, onCancel, deleting }) {
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 150, background: 'rgba(0,0,0,0.80)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 1.5rem' }}
+      onClick={!deleting ? onCancel : undefined}
+    >
+      <div
+        style={{ width: '100%', maxWidth: '340px', background: CARD, border: '1px solid rgba(206,17,38,0.28)', borderRadius: '20px', padding: '1.5rem', animation: 'falla-slideUp 0.22s ease-out' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+          <div style={{ fontSize: '2.4rem', marginBottom: '0.6rem' }}>🗑️</div>
+          <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', fontWeight: '800', color: 'white' }}>
+            ¿Eliminar este evento?
+          </h3>
+          <p style={{ margin: '0 0 0.6rem', fontSize: '0.8rem', color: 'rgba(255,255,255,0.45)', lineHeight: 1.55 }}>
+            Se borrarán todas las inscripciones asociadas.
+            <br />
+            <strong style={{ color: '#ff8080' }}>Esta acción no se puede deshacer.</strong>
+          </p>
+          <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: '700', color: 'rgba(255,255,255,0.85)', lineHeight: 1.35 }}>
+            {event.titulo}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '0.65rem' }}>
+          <button
+            type="button" onClick={onCancel} disabled={deleting}
+            style={{ flex: 1, minHeight: '46px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: 'rgba(255,255,255,0.55)', fontSize: '0.9rem', fontWeight: '700', cursor: deleting ? 'not-allowed' : 'pointer' }}
+          >
+            Cancelar
+          </button>
+          <button
+            type="button" onClick={onConfirm} disabled={deleting}
+            style={{ flex: 1, minHeight: '46px', background: deleting ? 'rgba(206,17,38,0.35)' : `linear-gradient(135deg, ${RED}, #a00d1e)`, border: 'none', borderRadius: '12px', color: 'white', fontSize: '0.9rem', fontWeight: '700', cursor: deleting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', boxShadow: deleting ? 'none' : '0 4px 16px rgba(206,17,38,0.3)' }}
+          >
+            {deleting
+              ? <Loader2 size={16} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
+              : <><Trash2 size={14} /> Eliminar</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Success toast ────────────────────────────────────────────────────────────
 function SuccessToast({ message, onDismiss }) {
   useEffect(() => {
@@ -958,7 +1073,7 @@ function SuccessToast({ message, onDismiss }) {
 // ─── EventList (main export) ──────────────────────────────────────────────────
 export default function EventList() {
   const { user, fallero } = useAuth()
-  const isAdmin = fallero?.rol === 'admin'
+  const isAdmin = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
   const [events, setEvents]               = useState([])
   const [loading, setLoading]             = useState(true)
@@ -970,6 +1085,8 @@ export default function EventList() {
   const [toast, setToast]                 = useState(null)
   const [cancelTarget, setCancelTarget]   = useState(null)
   const [deleting, setDeleting]           = useState(false)
+  const [deleteTarget, setDeleteTarget]   = useState(null)
+  const [deletingEvt, setDeletingEvt]     = useState(false)
 
   useEffect(() => {
     const q = query(collection(db, 'eventos'), orderBy('fecha', 'asc'))
@@ -1014,6 +1131,21 @@ export default function EventList() {
     } finally { setDeleting(false) }
   }, [cancelTarget, deleting, user?.uid])
 
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteTarget || deletingEvt) return
+    setDeletingEvt(true)
+    try {
+      const insSnap = await getDocs(query(collection(db, 'inscripciones'), where('eventId', '==', deleteTarget.id)))
+      await Promise.all(insSnap.docs.map(d => deleteDoc(d.ref)))
+      await deleteDoc(doc(db, 'eventos', deleteTarget.id))
+      setDeleteTarget(null)
+      setToast('Evento eliminado correctamente 🗑️')
+    } catch (err) {
+      setDeleteTarget(null)
+      setToast(err?.message || 'Error al eliminar el evento.')
+    } finally { setDeletingEvt(false) }
+  }, [deleteTarget, deletingEvt])
+
   const handleCreated = useCallback(() => { setShowForm(false); setToast('Evento creado correctamente 🔥') }, [])
 
   return (
@@ -1045,6 +1177,7 @@ export default function EventList() {
             onAdminPress={setAdminEvent}
             onEditPress={setEditEvent}
             onCancelPress={setCancelTarget}
+            onDeletePress={setDeleteTarget}
           />
         ))
       )}
@@ -1079,8 +1212,16 @@ export default function EventList() {
           deleting={deleting}
         />
       )}
+      {deleteTarget && (
+        <DeleteEventModal
+          event={deleteTarget}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => !deletingEvt && setDeleteTarget(null)}
+          deleting={deletingEvt}
+        />
+      )}
     </>
   )
 }
 
-export { RegistrationModal, EventFormModal, SuccessToast, CancelConfirmModal }
+export { RegistrationModal, EventFormModal, SuccessToast, CancelConfirmModal, DeleteEventModal }

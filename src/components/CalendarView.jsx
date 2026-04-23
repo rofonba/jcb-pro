@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { collection, query, orderBy, onSnapshot, getDocs, where, deleteDoc } from 'firebase/firestore'
+import { collection, query, orderBy, onSnapshot, getDocs, where, deleteDoc, doc } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { ChevronLeft, ChevronRight, Plus, BarChart2, Check, Pencil } from 'lucide-react'
-import { RegistrationModal, EventFormModal, SuccessToast, CancelConfirmModal } from './EventList'
+import { ChevronLeft, ChevronRight, Plus, BarChart2, Check, Pencil, Trash2 } from 'lucide-react'
+import { RegistrationModal, EventFormModal, SuccessToast, CancelConfirmModal, DeleteEventModal } from './EventList'
 import AdminEventControl from './AdminEventControl'
 
 const GOLD  = '#D4AF37'
@@ -58,7 +58,7 @@ function fmtTime(f) {
 
 export default function CalendarView() {
   const { user, fallero } = useAuth()
-  const isAdmin = fallero?.rol === 'admin'
+  const isAdmin = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
   const [events, setEvents]               = useState([])
   const [loading, setLoading]             = useState(true)
@@ -75,6 +75,8 @@ export default function CalendarView() {
   const [toast, setToast]                 = useState(null)
   const [cancelTarget, setCancelTarget]   = useState(null)
   const [deleting, setDeleting]           = useState(false)
+  const [deleteTarget, setDeleteTarget]   = useState(null)
+  const [deletingEvt, setDeletingEvt]     = useState(false)
 
   useEffect(() => {
     const q = query(collection(db, 'eventos'), orderBy('fecha', 'asc'))
@@ -159,6 +161,21 @@ export default function CalendarView() {
       setToast(err?.message || 'Error al anular. Inténtalo de nuevo.')
     } finally { setDeleting(false) }
   }, [cancelTarget, deleting, user?.uid])
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteTarget || deletingEvt) return
+    setDeletingEvt(true)
+    try {
+      const insSnap = await getDocs(query(collection(db, 'inscripciones'), where('eventId', '==', deleteTarget.id)))
+      await Promise.all(insSnap.docs.map(d => deleteDoc(d.ref)))
+      await deleteDoc(doc(db, 'eventos', deleteTarget.id))
+      setDeleteTarget(null)
+      setToast('Evento eliminado correctamente 🗑️')
+    } catch (err) {
+      setDeleteTarget(null)
+      setToast(err?.message || 'Error al eliminar el evento.')
+    } finally { setDeletingEvt(false) }
+  }, [deleteTarget, deletingEvt])
 
   const monthLabel = viewDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
   const capitalMonth = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
@@ -417,6 +434,19 @@ export default function CalendarView() {
                           <Pencil size={11} />
                           <span>Editar</span>
                         </button>
+                        <button
+                          onClick={() => setDeleteTarget(ev)}
+                          style={{
+                            background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.25)',
+                            borderRadius: 8, padding: '4px 8px',
+                            color: RED, fontSize: 10, fontWeight: 700,
+                            cursor: 'pointer', minHeight: 'auto', minWidth: 'auto',
+                            display: 'flex', alignItems: 'center', gap: 3,
+                          }}
+                        >
+                          <Trash2 size={11} />
+                          <span>Borrar</span>
+                        </button>
                       </>
                     )}
                     {isReg ? (
@@ -515,6 +545,14 @@ export default function CalendarView() {
           onConfirm={handleConfirmCancel}
           onCancel={() => !deleting && setCancelTarget(null)}
           deleting={deleting}
+        />
+      )}
+      {deleteTarget && (
+        <DeleteEventModal
+          event={deleteTarget}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => !deletingEvt && setDeleteTarget(null)}
+          deleting={deletingEvt}
         />
       )}
     </div>
