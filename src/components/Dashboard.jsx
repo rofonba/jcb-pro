@@ -11,6 +11,7 @@ import Profile from './Profile'
 import Navigation from './Navigation'
 import Votaciones from './Votaciones'
 import AdminMetrics from './AdminMetrics'
+import DetalleEvento from './DetalleEvento'
 import { RegistrationModal, SuccessToast, CancelConfirmModal } from './EventList'
 import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X, Loader2, Trash2 } from 'lucide-react'
 import logoFalla from '../assets/logo-falla.png'
@@ -252,7 +253,7 @@ function ActionButton({ icon, label, onClick, active = false, badge = 0 }) {
 
 // ─── Mis citas (collapsible reveal) ──────────────────────────────────────────
 
-function MisCitas({ events, registeredIds, onCancelPress }) {
+function MisCitas({ events, registeredIds, onCancelPress, onDetailPress }) {
   const mine = useMemo(() => {
     const now = Date.now()
     return events
@@ -290,7 +291,7 @@ function MisCitas({ events, registeredIds, onCancelPress }) {
         {mine.map(ev => {
           const t = EVENT_TYPES[ev.tipo] ?? EVENT_TYPES.acto
           return (
-            <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.18)', borderRadius: 14 }}>
+            <div key={ev.id} onClick={() => onDetailPress?.(ev.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.18)', borderRadius: 14, cursor: 'pointer' }}>
               <div style={{ width: 36, height: 36, flexShrink: 0, background: `${t.color}14`, border: `1px solid ${t.color}25`, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>
                 {t.emoji}
               </div>
@@ -303,7 +304,7 @@ function MisCitas({ events, registeredIds, onCancelPress }) {
                 </p>
               </div>
               <button
-                onClick={() => onCancelPress(ev)}
+                onClick={e => { e.stopPropagation(); onCancelPress(ev) }}
                 style={{ padding: '5px 9px', background: 'transparent', border: '1px solid rgba(206,17,38,0.28)', borderRadius: 8, fontSize: 10, fontWeight: 700, color: 'rgba(206,17,38,0.75)', cursor: 'pointer', minHeight: 'auto', flexShrink: 0 }}
               >
                 Anular
@@ -382,7 +383,7 @@ function NextEventCountdown({ event }) {
 
 // ─── Próximos eventos (general list) ─────────────────────────────────────────
 
-function ProximosEventos({ events, registeredIds, onPress, onCancelPress }) {
+function ProximosEventos({ events, registeredIds, onPress, onCancelPress, onDetailPress }) {
   const upcoming = useMemo(() => {
     const now = Date.now() - 3600000
     return events
@@ -408,7 +409,7 @@ function ProximosEventos({ events, registeredIds, onPress, onCancelPress }) {
           const ocu    = ev.plazasOcupadas ?? 0
           const isFull = ev.plazasTotal && ocu >= ev.plazasTotal && !isReg
           return (
-            <div key={ev.id} style={{ background: isReg ? 'rgba(16,185,129,0.03)' : WHITE, border: `1.5px solid ${isReg ? 'rgba(16,185,129,0.3)' : BORDER}`, borderRadius: 16, padding: '14px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div key={ev.id} onClick={() => onDetailPress?.(ev.id)} style={{ background: isReg ? 'rgba(16,185,129,0.03)' : WHITE, border: `1.5px solid ${isReg ? 'rgba(16,185,129,0.3)' : BORDER}`, borderRadius: 16, padding: '14px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
               <div style={{ width: 42, height: 42, flexShrink: 0, background: `${t.color}14`, border: `1px solid ${t.color}22`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
                 {t.emoji}
               </div>
@@ -424,7 +425,7 @@ function ProximosEventos({ events, registeredIds, onPress, onCancelPress }) {
               </div>
               <div style={{ flexShrink: 0 }}>
                 {isReg ? (
-                  <button onClick={() => onCancelPress(ev)} style={{ padding: '6px 10px', background: 'transparent', border: '1.5px solid rgba(206,17,38,0.35)', borderRadius: 8, fontSize: 11, fontWeight: 700, color: 'rgba(206,17,38,0.75)', cursor: 'pointer', minHeight: 'auto' }}>
+                  <button onClick={e => { e.stopPropagation(); onCancelPress(ev) }} style={{ padding: '6px 10px', background: 'transparent', border: '1.5px solid rgba(206,17,38,0.35)', borderRadius: 8, fontSize: 11, fontWeight: 700, color: 'rgba(206,17,38,0.75)', cursor: 'pointer', minHeight: 'auto' }}>
                     Anular
                   </button>
                 ) : isFull ? (
@@ -432,7 +433,7 @@ function ProximosEventos({ events, registeredIds, onPress, onCancelPress }) {
                     Completo
                   </span>
                 ) : (
-                  <button onClick={() => onPress(ev)} style={{ padding: '7px 13px', background: RED, border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 700, color: WHITE, cursor: 'pointer', minHeight: 'auto', boxShadow: '0 2px 8px rgba(206,17,38,0.25)' }}>
+                  <button onClick={e => { e.stopPropagation(); onPress(ev) }} style={{ padding: '7px 13px', background: RED, border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 700, color: WHITE, cursor: 'pointer', minHeight: 'auto', boxShadow: '0 2px 8px rgba(206,17,38,0.25)' }}>
                     Apuntarse
                   </button>
                 )}
@@ -725,7 +726,7 @@ function HomeTab({
   announcements, loadingAnns,
   events, registeredIds,
   onNavigate, onMetrics,
-  onEventPress, onCancelPress,
+  onEventPress, onCancelPress, onDetailPress,
   unreadCount,
   pushPermission, pushTokenSaved, pushLoading, onEnablePush,
 }) {
@@ -811,14 +812,14 @@ function HomeTab({
       {/* ── Collapsible: Mis inscripciones ───────────────────────── */}
       {showMyCitas && (
         <div style={{ padding: '16px 20px 0' }}>
-          <MisCitas events={events} registeredIds={registeredIds} onCancelPress={onCancelPress} />
+          <MisCitas events={events} registeredIds={registeredIds} onCancelPress={onCancelPress} onDetailPress={onDetailPress} />
         </div>
       )}
 
       {/* ── Collapsible: Apuntarme (event list) ──────────────────── */}
       {showEvents && (
         <div style={{ padding: '16px 20px 0' }}>
-          <ProximosEventos events={events} registeredIds={registeredIds} onPress={onEventPress} onCancelPress={onCancelPress} />
+          <ProximosEventos events={events} registeredIds={registeredIds} onPress={onEventPress} onCancelPress={onCancelPress} onDetailPress={onDetailPress} />
         </div>
       )}
 
@@ -981,6 +982,7 @@ export default function Dashboard() {
   const [cancelTarget, setCancelTarget]   = useState(null)
   const [deleting, setDeleting]           = useState(false)
   const [toast, setToast]                 = useState(null)
+  const [detailEventId, setDetailEventId] = useState(null)
 
   useEffect(() => {
     const q = query(collection(db, 'anuncios'), orderBy('createdAt', 'desc'), limit(10))
@@ -1078,7 +1080,7 @@ export default function Dashboard() {
       </header>
 
       {/* Urgent event banner */}
-      <UrgentNotification events={events} onView={(ev) => setSelectedEvent(ev)} />
+      <UrgentNotification events={events} onView={(ev) => setDetailEventId(ev.id)} />
 
       {/* Content */}
       <main style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain' }}>
@@ -1091,6 +1093,7 @@ export default function Dashboard() {
             onMetrics={() => setShowMetrics(true)}
             onEventPress={setSelectedEvent}
             onCancelPress={setCancelTarget}
+            onDetailPress={setDetailEventId}
             unreadCount={unreadCount}
             pushPermission={pushPermission}
             pushTokenSaved={pushTokenSaved}
@@ -1129,6 +1132,15 @@ export default function Dashboard() {
       )}
       {toast && <SuccessToast message={toast} onDismiss={() => setToast(null)} />}
       {showMetrics && isAdmin && <AdminMetrics onClose={() => setShowMetrics(false)} />}
+
+      {detailEventId && (
+        <DetalleEvento
+          eventId={detailEventId}
+          onClose={() => setDetailEventId(null)}
+          onRegistered={(evId) => setRegisteredIds(prev => new Set([...prev, evId]))}
+          onCancelled={(evId) => setRegisteredIds(prev => { const next = new Set(prev); next.delete(evId); return next })}
+        />
+      )}
 
       <PushModal
         permission={pushPermission}
