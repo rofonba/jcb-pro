@@ -370,7 +370,8 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
   const [newAcomp, setNewAcomp] = useState(0)
   const [updating, setUpdating] = useState(false)
 
-  const [cancelErr, setCancelErr] = useState('')
+  const [cancelErr,  setCancelErr]  = useState('')
+  const [saveError,  setSaveError]  = useState('')
 
   // Admin external inscription
   const [showExt,   setShowExt]   = useState(false)
@@ -412,6 +413,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
     e.preventDefault()
     if (saving || wouldExceed || isAforoFull) return
     setSaving(true)
+    setSaveError('')
     try {
       const snap = await getDocs(query(collection(db, 'inscripciones'), where('eventId', '==', event.id)))
       if (plazasTotal) {
@@ -419,24 +421,38 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
         if (live + totalPersonas > plazasTotal) { setInscritosCount(live); setSaving(false); return }
       }
       const numeroOrden = snap.docs.length + 1
-      await setDoc(doc(db, 'inscripciones', `${user.uid}_${event.id}`), {
-        eventId: event.id, eventoTitulo: event.titulo,
-        uid: user.uid, nombre: myName,
-        numFallero: fallero?.numero ?? '—',
-        esHijo: false, esManual: false,
+      const payload = {
+        eventId:      event.id,
+        eventoTitulo: event.titulo,
+        uid:          user.uid,
+        nombre:       myName || 'Fallero',
+        numFallero:   fallero?.numero ?? null,
+        esHijo:       false,
+        esManual:     false,
         acompañantesAdultos: adultos.map(a => ({ nombre: a.nombre.trim() || 'Adulto' })),
         acompañantesNinos:   ninos.map(n => ({ nombre: n.nombre.trim() || 'Niño/a' })),
-        acompañantes: adultos.length + ninos.length,
+        acompañantes:  adultos.length + ninos.length,
         totalPersonas,
-        nota: nota.trim() || null,
-        alergias: (['comida', 'cena'].includes(event.tipo)) ? (alergias.trim() || null) : null,
-        telefono:   fallero?.telefono ?? null,
+        nota:          nota.trim() || null,
+        alergias:      (['comida', 'cena'].includes(event.tipo)) ? (alergias.trim() || null) : null,
+        telefono:      fallero?.telefono ?? null,
         numeroOrden,
-        createdAt:  serverTimestamp(),
-      })
+        createdAt:     serverTimestamp(),
+      }
+      await setDoc(doc(db, 'inscripciones', `${user.uid}_${event.id}`), payload)
       setStatus('saved')
       setTimeout(onSuccess, 900)
-    } catch { setSaving(false) }
+    } catch (err) {
+      const msg = err?.message ?? ''
+      const isPermission = msg.includes('permission') || msg.includes('PERMISSION') || err?.code === 'permission-denied'
+      const isOffline    = msg.includes('ERR_BLOCKED') || msg.includes('Failed to fetch') || err?.code === 'unavailable'
+      setSaveError(
+        isPermission ? 'Sin permisos para inscribirse. Contacta con la directiva.' :
+        isOffline    ? 'Sin conexión. Comprueba tu red e inténtalo de nuevo.' :
+        msg || 'Error al guardar la inscripción. Inténtalo de nuevo.',
+      )
+      setSaving(false)
+    }
   }
 
   const handleCancel = async () => {
@@ -749,6 +765,12 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
                 </div>
               )}
 
+              {saveError && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', padding: '0.7rem 0.9rem', background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.28)', borderRadius: '10px', marginBottom: '0.25rem' }}>
+                  <AlertCircle size={14} color={RED} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span style={{ color: '#ff8080', fontSize: '0.8rem', lineHeight: 1.4 }}>{saveError}</span>
+                </div>
+              )}
               <button type="submit" disabled={saving || wouldExceed}
                 className={saving || wouldExceed ? '' : 'btn-shimmer'}
                 style={{

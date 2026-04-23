@@ -1,12 +1,13 @@
-import { Home, CalendarDays, Bell, User } from 'lucide-react'
+import { Home, CalendarDays, Bell, BarChart2, User } from 'lucide-react'
 
 const GOLD = '#D4AF37'
 
 const NAV = [
-  { key: 'home',       Icon: Home,        label: 'Inicio'    },
-  { key: 'calendario', Icon: CalendarDays, label: 'Calendario' },
-  { key: 'avisos',     Icon: Bell,        label: 'Avisos'    },
-  { key: 'perfil',     Icon: User,        label: 'Perfil'    },
+  { key: 'home',        Icon: Home,        label: 'Inicio'    },
+  { key: 'calendario',  Icon: CalendarDays, label: 'Calendario' },
+  { key: 'avisos',      Icon: Bell,        label: 'Avisos'    },
+  { key: 'votaciones',  Icon: BarChart2,   label: 'Votos'     },
+  { key: 'perfil',      Icon: User,        label: 'Perfil'    },
 ]
 
 const INACTIVE = 'rgba(255,255,255,0.38)'

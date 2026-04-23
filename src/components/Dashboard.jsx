@@ -9,6 +9,7 @@ import { useAuth } from '../contexts/AuthContext'
 import CalendarView from './CalendarView'
 import Profile from './Profile'
 import Navigation from './Navigation'
+import Votaciones from './Votaciones'
 import AdminMetrics from './AdminMetrics'
 import { RegistrationModal, SuccessToast, CancelConfirmModal } from './EventList'
 import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X, Loader2, Trash2 } from 'lucide-react'
@@ -611,42 +612,108 @@ function UrgentNotification({ events, onView }) {
   )
 }
 
-// ─── Push notification opt-in banner ─────────────────────────────────────────
+// ─── Push notification opt-in modal ──────────────────────────────────────────
 
-function PushBanner({ permission, tokenSaved, loading, onEnable }) {
-  if (permission === 'unsupported' || permission === 'denied' || tokenSaved) return null
+const PUSH_DISMISS_KEY = 'jcb_push_modal_dismissed'
+
+function PushModal({ permission, tokenSaved, loading, onEnable }) {
+  const [dismissed, setDismissed] = useState(
+    () => sessionStorage.getItem(PUSH_DISMISS_KEY) === '1',
+  )
+
+  const shouldShow = (
+    !dismissed &&
+    !tokenSaved &&
+    permission !== 'unsupported' &&
+    permission !== 'denied' &&
+    permission !== 'granted'
+  )
+
+  const handleDismiss = () => {
+    sessionStorage.setItem(PUSH_DISMISS_KEY, '1')
+    setDismissed(true)
+  }
+
+  const handleEnable = async () => {
+    await onEnable()
+    sessionStorage.setItem(PUSH_DISMISS_KEY, '1')
+    setDismissed(true)
+  }
+
+  if (!shouldShow) return null
+
   return (
-    <div style={{
-      margin: '0 20px 0',
-      background: `linear-gradient(135deg, rgba(212,175,55,0.12), rgba(212,175,55,0.06))`,
-      border: `1.5px solid rgba(212,175,55,0.38)`,
-      borderRadius: 16,
-      padding: '13px 16px',
-      display: 'flex', alignItems: 'center', gap: 12,
-      animation: 'falla-fadeIn 0.4s ease-out',
-    }}>
-      <span style={{ fontSize: 22, flexShrink: 0, animation: 'falla-bell 2s ease-in-out infinite', transformOrigin: 'top center', display: 'inline-block' }}>🔔</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: TEXT, lineHeight: 1.2 }}>Activa las notificaciones</p>
-        <p style={{ margin: '2px 0 0', fontSize: 11, color: TEXT2 }}>Entérate al instante de avisos y eventos.</p>
-      </div>
-      <button
-        onClick={onEnable}
-        disabled={loading}
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 24px' }}
+      onClick={handleDismiss}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
         style={{
-          flexShrink: 0, padding: '7px 14px',
-          background: GOLD, border: 'none', borderRadius: 10,
-          color: 'white', fontSize: 12, fontWeight: 800,
-          cursor: loading ? 'not-allowed' : 'pointer', minHeight: 'auto',
-          opacity: loading ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: 5,
-          boxShadow: `0 3px 10px rgba(212,175,55,0.35)`,
+          width: '100%', maxWidth: 360,
+          background: 'linear-gradient(145deg, #1a1a1a 0%, #0f0f0f 100%)',
+          border: `1.5px solid rgba(212,175,55,0.35)`,
+          borderRadius: 24, padding: '28px 24px',
+          boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
+          animation: 'falla-slideUp 0.3s ease-out',
+          position: 'relative', textAlign: 'center',
         }}
       >
-        {loading
-          ? <Loader2 size={13} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
-          : <><Bell size={12} /> Activar</>
-        }
-      </button>
+        {/* Dismiss X */}
+        <button
+          onClick={handleDismiss}
+          style={{ position: 'absolute', top: 14, right: 14, background: 'rgba(255,255,255,0.07)', border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', display: 'flex', minHeight: 'auto', minWidth: 'auto' }}
+        >
+          <X size={16} color="rgba(255,255,255,0.45)" />
+        </button>
+
+        {/* Icon */}
+        <div style={{ fontSize: 52, marginBottom: 8, display: 'inline-block', animation: 'falla-bell 1.8s ease-in-out infinite', transformOrigin: 'top center' }}>🔔</div>
+
+        {/* Headline */}
+        <h3 style={{ margin: '0 0 8px', fontSize: 20, fontWeight: 900, color: 'white', lineHeight: 1.2, letterSpacing: '-0.02em' }}>
+          ¡No te pierdas nada!
+        </h3>
+        <p style={{ margin: '0 0 22px', fontSize: 13, color: 'rgba(255,255,255,0.55)', lineHeight: 1.55 }}>
+          Activa las notificaciones y entérate al instante de avisos urgentes, comidas y eventos de la Falla.
+        </p>
+
+        {/* Highlight pills */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 22, flexWrap: 'wrap' }}>
+          {['⚡ Avisos urgentes', '🍴 Comidas', '🎭 Eventos'].map(t => (
+            <span key={t} style={{ background: `rgba(212,175,55,0.12)`, border: `1px solid rgba(212,175,55,0.3)`, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700, color: GOLD }}>
+              {t}
+            </span>
+          ))}
+        </div>
+
+        {/* CTA */}
+        <button
+          onClick={handleEnable}
+          disabled={loading}
+          style={{
+            width: '100%', minHeight: 54,
+            background: loading ? `rgba(212,175,55,0.4)` : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`,
+            border: 'none', borderRadius: 16,
+            color: 'white', fontSize: 15, fontWeight: 900,
+            cursor: loading ? 'not-allowed' : 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            boxShadow: `0 6px 24px rgba(212,175,55,0.4)`,
+            letterSpacing: '-0.01em',
+          }}
+        >
+          {loading
+            ? <Loader2 size={18} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
+            : '¡Quiero enterarme de todo! 🔔'}
+        </button>
+
+        <button
+          onClick={handleDismiss}
+          style={{ marginTop: 12, background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: 12, cursor: 'pointer', minHeight: 'auto' }}
+        >
+          Ahora no
+        </button>
+      </div>
     </div>
   )
 }
@@ -710,16 +777,6 @@ function HomeTab({
             👑 ADMIN · Nº {String(numFallero).padStart(3, '0')}
           </span>
         )}
-      </div>
-
-      {/* ── Push opt-in banner — shown only until user activates ── */}
-      <div style={{ paddingTop: 4, paddingBottom: 16 }}>
-        <PushBanner
-          permission={pushPermission}
-          tokenSaved={pushTokenSaved}
-          loading={pushLoading}
-          onEnable={onEnablePush}
-        />
       </div>
 
       {/* ── Hero Calendar (full-bleed, ~half page) ───────────────── */}
@@ -1041,9 +1098,10 @@ export default function Dashboard() {
             onEnablePush={enablePush}
           />
         )}
-        {activeTab === 'calendario' && <CalendarView />}
-        {activeTab === 'avisos'     && <AvisosTab announcements={announcements} loading={loadingAnns} isAdmin={isAdmin} />}
-        {activeTab === 'perfil'     && <Profile />}
+        {activeTab === 'calendario'  && <CalendarView />}
+        {activeTab === 'avisos'      && <AvisosTab announcements={announcements} loading={loadingAnns} isAdmin={isAdmin} />}
+        {activeTab === 'votaciones'  && <Votaciones userId={user?.uid} isAdmin={isAdmin} />}
+        {activeTab === 'perfil'      && <Profile />}
       </main>
 
       <Navigation active={activeTab} onChange={handleTabChange} unreadAvisos={unreadCount} />
@@ -1071,6 +1129,13 @@ export default function Dashboard() {
       )}
       {toast && <SuccessToast message={toast} onDismiss={() => setToast(null)} />}
       {showMetrics && isAdmin && <AdminMetrics onClose={() => setShowMetrics(false)} />}
+
+      <PushModal
+        permission={pushPermission}
+        tokenSaved={pushTokenSaved}
+        loading={pushLoading}
+        onEnable={enablePush}
+      />
     </div>
   )
 }
