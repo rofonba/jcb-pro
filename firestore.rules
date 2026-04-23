@@ -48,14 +48,24 @@ service cloud.firestore {
         && (resource.data.uid == request.auth.uid || isPrivileged());
     }
 
-    // Votaciones: todos los falleros pueden leer y votar una vez; admins crean/cierran/eliminan
+    // Votaciones: todos leen; admins crean/eliminan/cierran; falleros pueden incrementar contadores al votar
     match /votaciones/{pollId} {
       allow read: if request.auth != null;
-      allow create, update, delete: if isPrivileged();
+      allow create, delete: if isPrivileged();
+      // Privileged: full update. Authenticated users: only increment vote counters on active polls.
+      allow update: if isPrivileged()
+        || (request.auth != null
+            && resource.data.activa == true
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resultados', 'totalVotos']));
 
-      match /votos/{uid} {
-        allow read: if request.auth != null;
-        allow create: if request.auth != null && request.auth.uid == uid;
+      match /votos/{voterId} {
+        // Own vote always readable (to know you already voted).
+        // Other votes only visible to privileged users on non-anonymous polls.
+        allow read: if request.auth != null
+          && (request.auth.uid == voterId
+              || (isPrivileged()
+                  && !get(/databases/$(database)/documents/votaciones/$(pollId)).data.isAnonymous));
+        allow create: if request.auth != null && request.auth.uid == voterId;
         allow update, delete: if false;
       }
     }

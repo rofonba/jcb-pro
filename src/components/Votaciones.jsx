@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import {
   collection, query, orderBy, onSnapshot,
-  doc, addDoc, updateDoc, setDoc, getDoc,
+  doc, addDoc, updateDoc, setDoc, getDoc, deleteDoc,
   serverTimestamp, increment,
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { Plus, X, Check, Loader2, BarChart2, Lock } from 'lucide-react'
+import { Plus, X, Check, Loader2, BarChart2, Lock, Trash2, Eye, EyeOff } from 'lucide-react'
 
 const GOLD   = '#D4AF37'
 const RED    = '#CE1126'
@@ -31,16 +31,20 @@ function Card({ children, style = {} }) {
 }
 
 // ─── Single poll card ─────────────────────────────────────────────────────────
-function PollCard({ poll, userId, isAdmin }) {
-  const [myVote,   setMyVote]   = useState(null)   // opcionId or null
-  const [loading,  setLoading]  = useState(true)
-  const [voting,   setVoting]   = useState(false)
-  const [selected, setSelected] = useState(null)
-  const [closing,  setClosing]  = useState(false)
+function PollCard({ poll, userId, isAdmin, falleroNombre }) {
+  const [myVote,         setMyVote]         = useState(null)
+  const [loading,        setLoading]        = useState(true)
+  const [voting,         setVoting]         = useState(false)
+  const [selected,       setSelected]       = useState(null)
+  const [closing,        setClosing]        = useState(false)
+  const [deleting,       setDeleting]       = useState(false)
+  const [votersByOption, setVotersByOption] = useState({})
 
-  const resultados  = poll.resultados ?? {}
+  const resultados  = poll.resultados  ?? {}
   const totalVotos  = poll.totalVotos  ?? 0
   const opciones    = poll.opciones    ?? []
+  // Default true: polls created before this field existed are treated as anonymous
+  const isAnonymous = poll.isAnonymous !== false
 
   // Check if current user already voted
   useEffect(() => {
@@ -50,16 +54,35 @@ function PollCard({ poll, userId, isAdmin }) {
       .finally(() => setLoading(false))
   }, [poll.id, userId])
 
+  // Real-time voter list — only for admin viewing a nominal poll
+  useEffect(() => {
+    if (!isAdmin || isAnonymous) return
+    return onSnapshot(
+      collection(db, 'votaciones', poll.id, 'votos'),
+      snap => {
+        const grouped = {}
+        snap.docs.forEach(d => {
+          const { opcionId, voterName } = d.data()
+          if (!grouped[opcionId]) grouped[opcionId] = []
+          grouped[opcionId].push({ uid: d.id, name: voterName ?? '—' })
+        })
+        setVotersByOption(grouped)
+      },
+      () => {},
+    )
+  }, [poll.id, isAdmin, isAnonymous])
+
   const handleVote = async () => {
     if (!selected || voting || myVote) return
     setVoting(true)
     try {
-      // Write vote (one per user — subcollection doc with UID as ID)
+      // Vote doc uses UID as ID → enforces one vote per user
       await setDoc(doc(db, 'votaciones', poll.id, 'votos', userId), {
         opcionId: selected,
         votadoAt: serverTimestamp(),
+        ...(!isAnonymous && falleroNombre ? { voterName: falleroNombre } : {}),
       })
-      // Increment counter in the poll document
+      // Increment counters in poll doc — allowed by Firestore rule for authenticated users
       await updateDoc(doc(db, 'votaciones', poll.id), {
         [`resultados.${selected}`]: increment(1),
         totalVotos: increment(1),
@@ -79,48 +102,82 @@ function PollCard({ poll, userId, isAdmin }) {
     } finally { setClosing(false) }
   }
 
+  const handleDelete = async () => {
+    if (!window.confirm('¿Eliminar esta votación? Esta acción no se puede deshacer.')) return
+    setDeleting(true)
+    try {
+      await deleteDoc(doc(db, 'votaciones', poll.id))
+    } catch (err) {
+      console.error('[delete poll]', err)
+      setDeleting(false)
+    }
+  }
+
   const hasVoted = Boolean(myVote)
+  const maxVotes = opciones.length > 0
+    ? Math.max(...opciones.map(o => resultados[o.id] ?? 0))
+    : 0
 
   return (
     <Card>
-      {/* Header */}
+      {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 16 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5, flexWrap: 'wrap' }}>
             <BarChart2 size={14} color={GOLD} />
             <span style={{ fontSize: 10, fontWeight: 700, color: GOLD, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
               {poll.activa ? 'Votación activa' : 'Cerrada'}
             </span>
             {!poll.activa && <Lock size={11} color={MUTED} />}
+            <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 600, color: isAnonymous ? MUTED : TEXT2 }}>
+              {isAnonymous ? <><EyeOff size={10} /> Anónima</> : <><Eye size={10} /> Nominal</>}
+            </span>
           </div>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: TEXT, lineHeight: 1.3 }}>
             {poll.pregunta}
           </h3>
         </div>
-        {isAdmin && poll.activa && (
-          <button
-            onClick={handleClose}
-            disabled={closing}
-            style={{ flexShrink: 0, background: 'rgba(206,17,38,0.07)', border: `1.5px solid rgba(206,17,38,0.2)`, borderRadius: 10, padding: '5px 10px', fontSize: 11, fontWeight: 700, color: RED, cursor: closing ? 'not-allowed' : 'pointer', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}
-          >
-            {closing ? <Loader2 size={11} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : <Lock size={11} />}
-            Cerrar
-          </button>
+
+        {isAdmin && (
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            {poll.activa && (
+              <button
+                onClick={handleClose} disabled={closing}
+                style={{ background: 'rgba(206,17,38,0.07)', border: `1.5px solid rgba(206,17,38,0.2)`, borderRadius: 10, padding: '5px 10px', fontSize: 11, fontWeight: 700, color: RED, cursor: closing ? 'not-allowed' : 'pointer', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}
+              >
+                {closing
+                  ? <Loader2 size={11} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
+                  : <Lock size={11} />}
+                Cerrar
+              </button>
+            )}
+            <button
+              onClick={handleDelete} disabled={deleting}
+              style={{ background: 'rgba(206,17,38,0.07)', border: `1.5px solid rgba(206,17,38,0.2)`, borderRadius: 10, padding: '5px 8px', cursor: deleting ? 'not-allowed' : 'pointer', minHeight: 'auto', minWidth: 'auto', display: 'flex', alignItems: 'center' }}
+            >
+              {deleting
+                ? <Loader2 size={13} color={RED} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
+                : <Trash2 size={13} color={RED} />}
+            </button>
+          </div>
         )}
       </div>
 
+      {/* ── Body ── */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: '1rem 0' }}>
           <Loader2 size={18} color={GOLD} style={{ animation: 'falla-spin 0.8s linear infinite', display: 'inline-block' }} />
         </div>
+
       ) : hasVoted || !poll.activa ? (
-        /* ── Results view ── */
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        /* Results view */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {opciones.map(op => {
-            const votes = resultados[op.id] ?? 0
-            const pct   = totalVotos > 0 ? Math.round((votes / totalVotos) * 100) : 0
-            const isWin = votes === Math.max(...opciones.map(o => resultados[o.id] ?? 0)) && votes > 0
+            const votes  = resultados[op.id] ?? 0
+            const pct    = totalVotos > 0 ? Math.round((votes / totalVotos) * 100) : 0
+            const isWin  = votes === maxVotes && votes > 0
             const isMine = myVote === op.id
+            const voters = votersByOption[op.id] ?? []
             return (
               <div key={op.id}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -129,29 +186,46 @@ function PollCard({ poll, userId, isAdmin }) {
                     {op.texto}
                   </span>
                   <span style={{ fontSize: 12, fontWeight: 700, color: isWin ? GREEN : TEXT2 }}>
-                    {pct}% <span style={{ fontWeight: 400, color: MUTED }}>({votes})</span>
+                    {pct}%{' '}
+                    <span style={{ fontWeight: 400, color: MUTED }}>({votes})</span>
                   </span>
                 </div>
                 <div style={{ height: 8, background: BORDER, borderRadius: 4, overflow: 'hidden' }}>
                   <div style={{
-                    height: '100%', borderRadius: 4,
-                    width: `${pct}%`,
+                    height: '100%', borderRadius: 4, width: `${pct}%`,
                     background: isMine
                       ? `linear-gradient(90deg, ${GOLD}, #8a6f1a)`
-                      : isWin ? `linear-gradient(90deg, ${GREEN}, #059669)` : '#D1D5DB',
+                      : isWin
+                        ? `linear-gradient(90deg, ${GREEN}, #059669)`
+                        : '#D1D5DB',
                     transition: 'width 0.6s ease',
                   }} />
                 </div>
+                {/* Voter name badges — admin + nominal only */}
+                {isAdmin && !isAnonymous && voters.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                    {voters.map(v => (
+                      <span key={v.uid} style={{
+                        fontSize: 10, fontWeight: 600, color: TEXT2,
+                        background: BG, border: `1px solid ${BORDER}`,
+                        borderRadius: 20, padding: '2px 8px',
+                      }}>
+                        {v.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             )
           })}
-          <p style={{ margin: '6px 0 0', fontSize: 11, color: MUTED, textAlign: 'right' }}>
+          <p style={{ margin: '4px 0 0', fontSize: 11, color: MUTED, textAlign: 'right' }}>
             {totalVotos} {totalVotos === 1 ? 'voto' : 'votos'} totales
             {hasVoted && ' · Tu voto está registrado ✓'}
           </p>
         </div>
+
       ) : (
-        /* ── Voting view ── */
+        /* Voting view */
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {opciones.map(op => (
             <button
@@ -188,7 +262,8 @@ function PollCard({ poll, userId, isAdmin }) {
               background: selected ? `linear-gradient(135deg, ${GOLD}, #8a6f1a)` : BORDER,
               border: 'none', borderRadius: 12,
               color: selected ? 'white' : MUTED,
-              fontSize: 13, fontWeight: 800, cursor: selected ? 'pointer' : 'not-allowed',
+              fontSize: 13, fontWeight: 800,
+              cursor: selected ? 'pointer' : 'not-allowed',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
               boxShadow: selected ? `0 4px 14px rgba(212,175,55,0.3)` : 'none',
               transition: 'all 0.2s',
@@ -206,15 +281,16 @@ function PollCard({ poll, userId, isAdmin }) {
 
 // ─── Admin create poll form ────────────────────────────────────────────────────
 function CreatePollForm({ onCreated }) {
-  const [open,     setOpen]     = useState(false)
-  const [pregunta, setPregunta] = useState('')
-  const [opciones, setOpciones] = useState(['', ''])
-  const [saving,   setSaving]   = useState(false)
-  const [error,    setError]    = useState('')
+  const [open,        setOpen]        = useState(false)
+  const [pregunta,    setPregunta]    = useState('')
+  const [opciones,    setOpciones]    = useState(['', ''])
+  const [isAnonymous, setIsAnonymous] = useState(true)
+  const [saving,      setSaving]      = useState(false)
+  const [error,       setError]       = useState('')
 
-  const addOpcion   = () => setOpciones(o => [...o, ''])
+  const addOpcion    = () => setOpciones(o => [...o, ''])
   const removeOpcion = (i) => setOpciones(o => o.filter((_, j) => j !== i))
-  const setOpcion   = (i, v) => setOpciones(o => o.map((x, j) => j === i ? v : x))
+  const setOpcion    = (i, v) => setOpciones(o => o.map((x, j) => j === i ? v : x))
 
   const handleCreate = async (e) => {
     e.preventDefault()
@@ -224,18 +300,26 @@ function CreatePollForm({ onCreated }) {
     setSaving(true); setError('')
     try {
       await addDoc(collection(db, 'votaciones'), {
-        pregunta:   pregunta.trim(),
-        opciones:   filled.map((texto, i) => ({ id: `op_${i}`, texto })),
-        resultados: Object.fromEntries(filled.map((_, i) => [`op_${i}`, 0])),
-        totalVotos: 0,
-        activa:     true,
-        createdAt:  serverTimestamp(),
+        pregunta:    pregunta.trim(),
+        opciones:    filled.map((texto, i) => ({ id: `op_${i}`, texto })),
+        resultados:  Object.fromEntries(filled.map((_, i) => [`op_${i}`, 0])),
+        totalVotos:  0,
+        isAnonymous,
+        activa:      true,
+        createdAt:   serverTimestamp(),
       })
-      setPregunta(''); setOpciones(['', '']); setOpen(false)
+      setPregunta(''); setOpciones(['', '']); setIsAnonymous(true); setOpen(false)
       onCreated?.()
     } catch (err) {
       setError(err?.message || 'Error al crear la votación.')
     } finally { setSaving(false) }
+  }
+
+  const inputStyle = {
+    width: '100%', padding: '10px 14px',
+    border: `1.5px solid ${BORDER}`, borderRadius: 12,
+    fontSize: 14, fontFamily: 'inherit', color: TEXT,
+    background: BG, boxSizing: 'border-box', outline: 'none',
   }
 
   if (!open) {
@@ -258,23 +342,34 @@ function CreatePollForm({ onCreated }) {
     <Card style={{ border: `1.5px solid ${GOLD}40` }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <span style={{ fontSize: 14, fontWeight: 700, color: TEXT }}>Nueva votación</span>
-        <button onClick={() => setOpen(false)} style={{ background: BORDER, border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', display: 'flex', minHeight: 'auto', minWidth: 'auto' }}>
+        <button
+          onClick={() => setOpen(false)}
+          style={{ background: BORDER, border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', display: 'flex', minHeight: 'auto', minWidth: 'auto' }}
+        >
           <X size={15} color={MUTED} />
         </button>
       </div>
+
       <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Pregunta */}
         <div>
-          <label style={{ fontSize: 11, fontWeight: 700, color: TEXT2, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Pregunta *</label>
+          <label style={{ fontSize: 11, fontWeight: 700, color: TEXT2, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
+            Pregunta *
+          </label>
           <input
             required value={pregunta} onChange={e => setPregunta(e.target.value)}
             placeholder="¿Cuál es tu opinión sobre...?"
-            style={{ width: '100%', padding: '10px 14px', border: `1.5px solid ${BORDER}`, borderRadius: 12, fontSize: 14, fontFamily: 'inherit', color: TEXT, background: BG, boxSizing: 'border-box', outline: 'none' }}
+            style={inputStyle}
             onFocus={e => e.target.style.borderColor = GOLD}
             onBlur={e => e.target.style.borderColor = BORDER}
           />
         </div>
+
+        {/* Opciones */}
         <div>
-          <label style={{ fontSize: 11, fontWeight: 700, color: TEXT2, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Opciones *</label>
+          <label style={{ fontSize: 11, fontWeight: 700, color: TEXT2, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
+            Opciones *
+          </label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {opciones.map((op, i) => (
               <div key={i} style={{ display: 'flex', gap: 8 }}>
@@ -286,22 +381,84 @@ function CreatePollForm({ onCreated }) {
                   onBlur={e => e.target.style.borderColor = BORDER}
                 />
                 {opciones.length > 2 && (
-                  <button type="button" onClick={() => removeOpcion(i)} style={{ background: 'rgba(239,68,68,0.08)', border: '1.5px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '0 10px', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', color: '#EF4444', display: 'flex', alignItems: 'center' }}>
+                  <button
+                    type="button" onClick={() => removeOpcion(i)}
+                    style={{ background: 'rgba(239,68,68,0.08)', border: '1.5px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '0 10px', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', color: '#EF4444', display: 'flex', alignItems: 'center' }}
+                  >
                     <X size={13} />
                   </button>
                 )}
               </div>
             ))}
             {opciones.length < 6 && (
-              <button type="button" onClick={addOpcion} style={{ background: BG, border: `1.5px dashed ${BORDER}`, borderRadius: 10, padding: '8px', fontSize: 12, color: TEXT2, cursor: 'pointer', minHeight: 'auto', fontWeight: 600 }}>
+              <button
+                type="button" onClick={addOpcion}
+                style={{ background: BG, border: `1.5px dashed ${BORDER}`, borderRadius: 10, padding: '8px', fontSize: 12, color: TEXT2, cursor: 'pointer', minHeight: 'auto', fontWeight: 600 }}
+              >
                 + Añadir opción
               </button>
             )}
           </div>
         </div>
+
+        {/* Anonymous toggle */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '10px 12px',
+          background: isAnonymous ? `${GOLD}08` : 'rgba(107,114,128,0.05)',
+          border: `1.5px solid ${isAnonymous ? `${GOLD}35` : BORDER}`,
+          borderRadius: 12, transition: 'all 0.2s',
+        }}>
+          <div>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: TEXT }}>
+              {isAnonymous ? '🔒 Votación anónima' : '👁 Votación nominal'}
+            </p>
+            <p style={{ margin: '2px 0 0', fontSize: 11, color: TEXT2 }}>
+              {isAnonymous
+                ? 'Nadie verá quién ha votado qué'
+                : 'Los admins verán el nombre de cada votante'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsAnonymous(v => !v)}
+            style={{
+              width: 46, height: 26, flexShrink: 0,
+              background: isAnonymous ? GOLD : 'rgba(0,0,0,0.12)',
+              border: 'none', borderRadius: 13,
+              position: 'relative', cursor: 'pointer',
+              transition: 'background 0.22s', minHeight: 'auto', minWidth: 'auto',
+            }}
+            role="switch" aria-checked={isAnonymous}
+          >
+            <div style={{
+              position: 'absolute', top: 3,
+              left: isAnonymous ? 23 : 3,
+              width: 20, height: 20,
+              background: WHITE, borderRadius: '50%',
+              transition: 'left 0.22s',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.22)',
+            }} />
+          </button>
+        </div>
+
         {error && <p style={{ margin: 0, fontSize: 12, color: RED, fontWeight: 600 }}>{error}</p>}
-        <button type="submit" disabled={saving} style={{ minHeight: 46, background: saving ? `${GOLD}50` : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: 12, color: 'white', fontSize: 13, fontWeight: 800, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, boxShadow: `0 4px 14px rgba(212,175,55,0.3)` }}>
-          {saving ? <Loader2 size={15} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : '✅ Publicar votación'}
+
+        <button
+          type="submit" disabled={saving}
+          style={{
+            minHeight: 46,
+            background: saving ? `${GOLD}50` : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`,
+            border: 'none', borderRadius: 12,
+            color: 'white', fontSize: 13, fontWeight: 800,
+            cursor: saving ? 'not-allowed' : 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            boxShadow: `0 4px 14px rgba(212,175,55,0.3)`,
+          }}
+        >
+          {saving
+            ? <Loader2 size={15} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
+            : '✅ Publicar votación'}
         </button>
       </form>
     </Card>
@@ -309,19 +466,21 @@ function CreatePollForm({ onCreated }) {
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
-export default function Votaciones() {
-  const { user, fallero } = useAuth()
-  const isAdmin = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
+export default function Votaciones({ userId, isAdmin }) {
+  const { fallero } = useAuth()
+  const falleroNombre = fallero
+    ? `${fallero.nombre}${fallero.apellidos ? ' ' + fallero.apellidos : ''}`.trim()
+    : ''
 
   const [polls,   setPolls]   = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const q = query(collection(db, 'votaciones'), orderBy('createdAt', 'desc'))
-    return onSnapshot(q, snap => {
-      setPolls(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-      setLoading(false)
-    }, () => setLoading(false))
+    return onSnapshot(q,
+      snap => { setPolls(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false) },
+      () => setLoading(false),
+    )
   }, [])
 
   const activePolls = polls.filter(p => p.activa)
@@ -353,7 +512,10 @@ export default function Votaciones() {
           {activePolls.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {activePolls.map(poll => (
-                <PollCard key={poll.id} poll={poll} userId={user?.uid} isAdmin={isAdmin} />
+                <PollCard
+                  key={poll.id} poll={poll}
+                  userId={userId} isAdmin={isAdmin} falleroNombre={falleroNombre}
+                />
               ))}
             </div>
           )}
@@ -365,7 +527,10 @@ export default function Votaciones() {
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {closedPolls.map(poll => (
-                  <PollCard key={poll.id} poll={poll} userId={user?.uid} isAdmin={isAdmin} />
+                  <PollCard
+                    key={poll.id} poll={poll}
+                    userId={userId} isAdmin={isAdmin} falleroNombre={falleroNombre}
+                  />
                 ))}
               </div>
             </>
