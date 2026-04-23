@@ -31,6 +31,21 @@ const FILTER_DEFS = [
 
 const WEEKDAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 
+const HOLIDAYS_ES = new Set([
+  // 2025 — nacional + Comunitat Valenciana
+  '2025-0-1',  '2025-0-6',  '2025-2-19', '2025-3-18',
+  '2025-4-1',  '2025-5-24', '2025-7-15', '2025-9-9',
+  '2025-9-12', '2025-10-1', '2025-11-6', '2025-11-8', '2025-11-25',
+  // 2026
+  '2026-0-1',  '2026-0-6',  '2026-2-19', '2026-3-3',
+  '2026-4-1',  '2026-5-24', '2026-7-15', '2026-9-9',
+  '2026-9-12', '2026-10-1', '2026-11-6', '2026-11-8', '2026-11-25',
+  // 2027
+  '2027-0-1',  '2027-0-6',  '2027-2-19', '2027-2-26',
+  '2027-4-1',  '2027-5-24', '2027-7-15', '2027-9-9',
+  '2027-9-12', '2027-10-1', '2027-11-6', '2027-11-8', '2027-11-25',
+])
+
 function toKey(d) { return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` }
 
 function buildCalendarDays(year, month) {
@@ -222,13 +237,26 @@ export default function CalendarView() {
             const isToday    = key === todayKey
             const isSelected = selectedDay && toKey(selectedDay) === key
             const hasEvents  = (eventsByDay[key]?.length ?? 0) > 0
+            const dow        = date.getDay()
+            const isWeekend  = isCurrentMonth && (dow === 0 || dow === 6)
+            const isHoliday  = isCurrentMonth && HOLIDAYS_ES.has(key)
+
+            const cellBg = isSelected ? GOLD
+              : isToday    ? `${GOLD}14`
+              : isHoliday  ? '#EFF6FF'
+              : isWeekend  ? '#F3F4F6'
+              : 'transparent'
+            const cellColor = isSelected ? WHITE
+              : isToday   ? GOLD
+              : isHoliday ? '#2563EB'
+              : TEXT
 
             return (
               <button
                 key={i}
                 onClick={() => isCurrentMonth && hasEvents && handleDayClick(date)}
                 style={{
-                  background: isSelected ? GOLD : isToday ? `${GOLD}14` : 'transparent',
+                  background: cellBg,
                   border: 'none', borderRadius: 10,
                   padding: '7px 2px',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
@@ -240,8 +268,8 @@ export default function CalendarView() {
               >
                 <span style={{
                   fontSize: 13, lineHeight: 1,
-                  fontWeight: isToday || isSelected ? 700 : 400,
-                  color: isSelected ? WHITE : isToday ? GOLD : TEXT,
+                  fontWeight: isToday || isSelected ? 700 : isHoliday || isWeekend ? 600 : 400,
+                  color: cellColor,
                 }}>
                   {date.getDate()}
                 </span>

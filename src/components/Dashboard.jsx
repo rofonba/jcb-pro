@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   collection, query, orderBy, limit, onSnapshot,
-  getDocs, where, deleteDoc,
+  getDocs, where, deleteDoc, addDoc, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -10,7 +10,7 @@ import Profile from './Profile'
 import Navigation from './Navigation'
 import AdminMetrics from './AdminMetrics'
 import { RegistrationModal, SuccessToast, CancelConfirmModal } from './EventList'
-import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X, Loader2 } from 'lucide-react'
 
 const LAST_READ_KEY  = 'jcb_last_read_avisos'
 const getLastRead    = () => parseInt(localStorage.getItem(LAST_READ_KEY) || '0', 10)
@@ -427,10 +427,13 @@ function AnnCard({ ann }) {
     ? ann.createdAt.toDate().toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
     : null
   return (
-    <div style={{ background: WHITE, borderRadius: 20, padding: '16px 18px', border: `1.5px solid ${isUrgent ? GOLD : BORDER}`, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+    <div
+      className={isUrgent ? 'jcb-urgent-pulse' : ''}
+      style={{ background: WHITE, borderRadius: 20, padding: '16px 18px', border: `1.5px solid ${isUrgent ? 'rgba(206,17,38,0.45)' : BORDER}`, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
         <h3 style={{ fontSize: 15, fontWeight: 600, color: TEXT, margin: 0, flex: 1, lineHeight: 1.35 }}>{ann.titulo}</h3>
-        {isUrgent && <span style={{ background: GOLD, color: WHITE, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 20, flexShrink: 0, letterSpacing: '0.05em' }}>URGENTE</span>}
+        {isUrgent && <span style={{ background: RED, color: WHITE, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 20, flexShrink: 0, letterSpacing: '0.05em' }}>URGENTE</span>}
       </div>
       {ann.cuerpo && <p style={{ fontSize: 13, color: TEXT2, margin: '0 0 8px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{ann.cuerpo}</p>}
       {date && <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>{date}</p>}
@@ -704,11 +707,93 @@ function HomeTab({
 
 // ─── Avisos Tab ───────────────────────────────────────────────────────────────
 
-function AvisosTab({ announcements, loading }) {
+function AvisosTab({ announcements, loading, isAdmin }) {
+  const [showForm,   setShowForm]   = useState(false)
+  const [titulo,     setTitulo]     = useState('')
+  const [cuerpo,     setCuerpo]     = useState('')
+  const [esUrgente,  setEsUrgente]  = useState(false)
+  const [saving,     setSaving]     = useState(false)
+  const [formError,  setFormError]  = useState('')
+
+  const handleCreate = async (e) => {
+    e.preventDefault()
+    if (!titulo.trim()) return
+    setSaving(true); setFormError('')
+    try {
+      await addDoc(collection(db, 'anuncios'), {
+        titulo:    titulo.trim(),
+        cuerpo:    cuerpo.trim() || null,
+        esUrgente,
+        createdAt: serverTimestamp(),
+      })
+      setTitulo(''); setCuerpo(''); setEsUrgente(false); setShowForm(false)
+    } catch (err) {
+      setFormError(err?.message || 'Error al publicar el aviso.')
+    } finally { setSaving(false) }
+  }
+
+  const inputStyle = { width: '100%', padding: '10px 12px', border: `1.5px solid ${BORDER}`, borderRadius: 12, fontSize: 14, fontFamily: 'inherit', color: TEXT, background: BG, boxSizing: 'border-box', outline: 'none' }
+
   return (
     <div style={{ padding: '24px 20px' }}>
-      <h2 style={{ fontSize: 26, fontWeight: 700, color: TEXT, margin: '0 0 4px', letterSpacing: '-0.02em' }}>Avisos</h2>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
+        <h2 style={{ fontSize: 26, fontWeight: 700, color: TEXT, margin: 0, letterSpacing: '-0.02em' }}>Avisos</h2>
+        {isAdmin && (
+          <button
+            onClick={() => { setShowForm(v => !v); setFormError('') }}
+            style={{ background: showForm ? `${GOLD}14` : BG, border: `1.5px solid ${showForm ? GOLD : BORDER}`, borderRadius: 10, padding: '7px 13px', fontSize: 12, fontWeight: 700, color: showForm ? GOLD : TEXT2, cursor: 'pointer', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: 5, transition: 'all 0.15s' }}
+          >
+            {showForm ? '✕ Cancelar' : '✏️ Nuevo aviso'}
+          </button>
+        )}
+      </div>
       <p style={{ fontSize: 13, color: TEXT2, margin: '0 0 20px' }}>Comunicaciones de la Falla</p>
+
+      {/* Admin creation form */}
+      {isAdmin && showForm && (
+        <form onSubmit={handleCreate} style={{ background: WHITE, border: `1.5px solid ${GOLD}30`, borderRadius: 20, padding: '18px 18px 16px', marginBottom: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 5 }}>
+            ✏️ Nuevo aviso
+          </p>
+          <input
+            required value={titulo} onChange={e => setTitulo(e.target.value)}
+            placeholder="Título del aviso *"
+            style={{ ...inputStyle, marginBottom: 10 }}
+            onFocus={e => e.target.style.borderColor = GOLD}
+            onBlur={e => e.target.style.borderColor = BORDER}
+          />
+          <textarea
+            value={cuerpo} onChange={e => setCuerpo(e.target.value)}
+            placeholder="Mensaje (opcional)"
+            rows={3}
+            style={{ ...inputStyle, resize: 'vertical', marginBottom: 14 }}
+            onFocus={e => e.target.style.borderColor = GOLD}
+            onBlur={e => e.target.style.borderColor = BORDER}
+          />
+          {/* Urgency toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: esUrgente ? 'rgba(206,17,38,0.04)' : BG, border: `1.5px solid ${esUrgente ? 'rgba(206,17,38,0.32)' : BORDER}`, borderRadius: 12, marginBottom: 16, transition: 'all 0.2s' }}>
+            <div>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: TEXT }}>⚡ Marcar como urgente</p>
+              <p style={{ margin: '2px 0 0', fontSize: 11, color: TEXT2 }}>Activa el borde rojo pulsante</p>
+            </div>
+            <button
+              type="button" onClick={() => setEsUrgente(v => !v)}
+              style={{ width: 46, height: 26, background: esUrgente ? RED : 'rgba(0,0,0,0.12)', border: 'none', borderRadius: 13, position: 'relative', cursor: 'pointer', transition: 'background 0.22s', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}
+              aria-checked={esUrgente} role="switch"
+            >
+              <div style={{ position: 'absolute', top: 3, left: esUrgente ? 23 : 3, width: 20, height: 20, background: WHITE, borderRadius: '50%', transition: 'left 0.22s', boxShadow: '0 1px 3px rgba(0,0,0,0.22)' }} />
+            </button>
+          </div>
+          {formError && <p style={{ margin: '0 0 10px', fontSize: 12, color: RED }}>{formError}</p>}
+          <button
+            type="submit" disabled={saving}
+            style={{ width: '100%', minHeight: 46, background: saving ? `${GOLD}50` : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: 12, color: WHITE, fontSize: 14, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, boxShadow: saving ? 'none' : `0 4px 14px rgba(212,175,55,0.3)` }}
+          >
+            {saving ? <Loader2 size={16} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : '📢 Publicar aviso'}
+          </button>
+        </form>
+      )}
+
       {loading
         ? <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{[1,2,3].map(i => <SkeletonCard key={i} />)}</div>
         : announcements.length === 0
@@ -788,7 +873,7 @@ export default function Dashboard() {
 
   const nombre     = fallero ? `${fallero.nombre}${fallero.apellidos ? ' ' + fallero.apellidos : ''}` : user?.displayName || user?.email?.split('@')[0] || 'Fallero'
   const numFallero = fallero?.numero ?? '—'
-  const isAdmin    = fallero?.rol === 'admin'
+  const isAdmin    = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
   const unreadCount = useMemo(
     () => announcements.filter(a => (a.createdAt?.toMillis?.() ?? 0) > lastReadTs).length,
@@ -840,7 +925,7 @@ export default function Dashboard() {
           />
         )}
         {activeTab === 'calendario' && <CalendarView />}
-        {activeTab === 'avisos'     && <AvisosTab announcements={announcements} loading={loadingAnns} />}
+        {activeTab === 'avisos'     && <AvisosTab announcements={announcements} loading={loadingAnns} isAdmin={isAdmin} />}
         {activeTab === 'perfil'     && <Profile />}
       </main>
 

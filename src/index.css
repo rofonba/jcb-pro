@@ -180,6 +180,15 @@
   to   { opacity: 0.45; letter-spacing: 0.52em; }
 }
 
+/* ─── Urgent announcement pulse ─────────────────────────────────────────────*/
+@keyframes jcb-urgent-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(206,17,38,0), 0 1px 4px rgba(0,0,0,0.05); }
+  50%       { box-shadow: 0 0 0 4px rgba(206,17,38,0.22), 0 1px 4px rgba(0,0,0,0.05); }
+}
+.jcb-urgent-pulse {
+  animation: jcb-urgent-glow 2s ease-in-out infinite;
+}
+
 /* ─── Gold shimmer text ──────────────────────────────────────────────────────*/
 .gold-shimmer {
   background: linear-gradient(

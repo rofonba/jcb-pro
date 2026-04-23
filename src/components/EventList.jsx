@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   collection, query, orderBy, onSnapshot,
-  setDoc, deleteDoc, serverTimestamp, getDocs, where, doc, updateDoc,
+  addDoc, setDoc, deleteDoc, serverTimestamp, getDocs, where, doc, updateDoc,
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -71,10 +71,66 @@ function Overlay({ children, onClose, scrollable = false }) {
 
 // ─── Event card ───────────────────────────────────────────────────────────────
 function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEditPress, onCancelPress, onDeletePress, index = 0 }) {
-  const t      = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
+  const t        = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
   const ocupadas = event.plazasOcupadas ?? 0
-  const pct    = event.plazasTotal ? Math.min(100, (ocupadas / event.plazasTotal) * 100) : null
-  const isFull = event.plazasTotal && ocupadas >= event.plazasTotal && !isRegistered
+  const pct      = event.plazasTotal ? Math.min(100, (ocupadas / event.plazasTotal) * 100) : null
+  const isFull   = event.plazasTotal && ocupadas >= event.plazasTotal && !isRegistered
+  const hasBanner = Boolean(event.imagenUrl)
+
+  const metaRows = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.28rem', marginBottom: '0.65rem' }}>
+      {event.fecha && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+          <Calendar size={12} color="rgba(255,255,255,0.28)" />
+          <span style={{ fontSize: '0.77rem', color: 'rgba(255,255,255,0.45)', textTransform: 'capitalize' }}>
+            {fmtDate(event.fecha)}
+          </span>
+          {fmtTime(event.fecha) && (
+            <span style={{ display: 'inline-block', padding: '0.1rem 0.45rem', background: 'rgba(212,175,55,0.14)', border: '1px solid rgba(212,175,55,0.28)', borderRadius: '6px', fontSize: '0.68rem', fontWeight: '700', color: GOLD, letterSpacing: '0.04em' }}>
+              {fmtTime(event.fecha)}
+            </span>
+          )}
+        </div>
+      )}
+      {event.lugar && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+          <MapPin size={12} color="rgba(255,255,255,0.28)" />
+          <a
+            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.lugar)}`}
+            target="_blank" rel="noopener noreferrer"
+            onClick={e => e.stopPropagation()}
+            style={{ fontSize: '0.77rem', color: 'rgba(212,175,55,0.7)', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' }}
+          >
+            {event.lugar}
+          </a>
+        </div>
+      )}
+      {event.plazasTotal && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+          <Users size={12} color="rgba(255,255,255,0.28)" />
+          <span style={{ fontSize: '0.77rem', color: 'rgba(255,255,255,0.45)' }}>{ocupadas} / {event.plazasTotal} plazas</span>
+        </div>
+      )}
+    </div>
+  )
+
+  const menuBlock = event.menu ? (
+    <div style={{ marginBottom: '0.65rem', padding: '0.7rem 0.9rem', background: 'rgba(212,175,55,0.06)', border: '1px solid rgba(212,175,55,0.18)', borderRadius: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem' }}>
+        <span style={{ fontSize: '0.85rem' }}>📜</span>
+        <span style={{ fontSize: '0.68rem', fontWeight: '700', color: GOLD, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Menú</span>
+      </div>
+      <p style={{ margin: 0, fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', lineHeight: 1.55, whiteSpace: 'pre-line' }}>{event.menu}</p>
+    </div>
+  ) : null
+
+  const aforoBar = pct !== null ? (
+    <div style={{ marginBottom: '0.65rem' }}>
+      <div style={{ background: 'rgba(255,255,255,0.07)', borderRadius: '4px', height: '3px' }}>
+        <div style={{ width: `${pct}%`, height: '100%', borderRadius: '4px', background: pct >= 100 ? RED : pct > 80 ? RED : pct > 50 ? GOLD : GREEN, transition: 'width 0.4s ease' }} />
+      </div>
+    </div>
+  ) : null
 
   return (
     <div
@@ -95,159 +151,195 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
       onMouseEnter={e => { e.currentTarget.style.borderColor = isRegistered ? 'rgba(16,185,129,0.6)' : 'rgba(212,175,55,0.35)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = isRegistered ? 'rgba(16,185,129,0.35)' : 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'translateY(0)' }}
     >
-      {event.imagenUrl && (
-        <img
-          src={event.imagenUrl} alt={event.titulo}
-          style={{ width: '100%', height: '130px', objectFit: 'cover', display: 'block' }}
-          onError={e => { e.target.style.display = 'none' }}
-        />
-      )}
-      <div style={{ padding: '1rem 1.1rem' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', marginBottom: '0.75rem' }}>
-        <div style={{ width: '44px', height: '44px', flexShrink: 0, background: `${t.color}1a`, border: `1px solid ${t.color}28`, borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
-          {t.emoji}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: '0.95rem', fontWeight: '700', color: 'white', lineHeight: 1.3, marginBottom: '0.2rem' }}>
-            {event.titulo}
+      {hasBanner ? (
+        /* ── Concert / Roig Arena style ───────────────────────── */
+        <>
+          <div style={{ position: 'relative', aspectRatio: '16/9', overflow: 'hidden' }}>
+            {/* Image fills 16:9 */}
+            <img
+              src={event.imagenUrl} alt={event.titulo}
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              onError={e => { e.target.closest('[data-concert]').style.display = 'none' }}
+            />
+            {/* Dark gradient — starts at 40%, fully dark by bottom */}
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, transparent 35%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0.96) 100%)', pointerEvents: 'none' }} />
+
+            {/* Type badge — top left, floating */}
+            <div style={{ position: 'absolute', top: 12, left: 12 }}>
+              <span style={{
+                background: `${t.color}e0`, backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+                borderRadius: '6px', padding: '4px 10px',
+                fontSize: '0.58rem', fontWeight: 800, color: 'white',
+                letterSpacing: '0.12em', textTransform: 'uppercase',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+              }}>
+                {t.emoji} {t.label}
+              </span>
+              {isRegistered && (
+                <span style={{ marginLeft: 5, background: 'rgba(16,185,129,0.88)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', borderRadius: '6px', padding: '4px 10px', fontSize: '0.58rem', fontWeight: 800, color: 'white', letterSpacing: '0.1em' }}>
+                  ✅ APUNTADO
+                </span>
+              )}
+              {isFull && (
+                <span style={{ marginLeft: 5, background: 'rgba(206,17,38,0.88)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', borderRadius: '6px', padding: '4px 10px', fontSize: '0.58rem', fontWeight: 800, color: 'white', letterSpacing: '0.1em' }}>
+                  COMPLETO
+                </span>
+              )}
+            </div>
+
+            {/* Admin buttons — top right, glass-morphism */}
+            {isAdmin && (
+              <div style={{ position: 'absolute', top: 10, right: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <button onClick={e => { e.stopPropagation(); onAdminPress(event) }}
+                  style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', padding: '5px 9px', color: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', fontSize: '0.6rem', fontWeight: 700 }}>
+                  <BarChart2 size={10} /><span>Inscritos</span>
+                </button>
+                <button onClick={e => { e.stopPropagation(); onEditPress(event) }}
+                  style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '8px', padding: '5px 9px', color: 'rgba(255,255,255,0.72)', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', fontSize: '0.6rem', fontWeight: 700 }}>
+                  <Pencil size={10} /><span>Editar</span>
+                </button>
+                <button onClick={e => { e.stopPropagation(); onDeletePress(event) }}
+                  style={{ background: 'rgba(206,17,38,0.6)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '5px 9px', color: 'white', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', fontSize: '0.6rem', fontWeight: 700 }}>
+                  <Trash2 size={10} /><span>Borrar</span>
+                </button>
+              </div>
+            )}
+
+            {/* Overlaid title + price + CTA — anchored to bottom */}
+            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '14px 16px' }}>
+              <div style={{
+                fontSize: '1.25rem', fontWeight: 900, color: 'white',
+                lineHeight: 1.2, letterSpacing: '-0.02em',
+                textShadow: '0 2px 12px rgba(0,0,0,0.8), 0 1px 3px rgba(0,0,0,0.9)',
+                marginBottom: '10px',
+                fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+              }}>
+                {event.titulo}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ fontSize: '1.1rem', fontWeight: 800, color: GOLD, textShadow: '0 1px 6px rgba(0,0,0,0.7)', letterSpacing: '-0.01em' }}>
+                  {event.precio != null ? `${event.precio} €` : 'Gratuito'}
+                </span>
+                {isRegistered ? (
+                  <button onClick={e => { e.stopPropagation(); onCancelPress(event) }}
+                    style={{ padding: '7px 14px', background: 'rgba(206,17,38,0.65)', backdropFilter: 'blur(6px)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '9px', fontSize: '0.75rem', fontWeight: 700, color: 'white', cursor: 'pointer', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <X size={12} /> Anular
+                  </button>
+                ) : isFull ? (
+                  <span style={{ padding: '7px 14px', background: 'rgba(206,17,38,0.6)', borderRadius: '9px', fontSize: '0.75rem', fontWeight: 700, color: 'white' }}>
+                    Aforo completo
+                  </span>
+                ) : (
+                  <button onClick={e => { e.stopPropagation(); onPress(event) }}
+                    className="btn-shimmer"
+                    style={{ padding: '8px 18px', background: `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: '9px', fontSize: '0.8rem', fontWeight: 800, color: 'white', cursor: 'pointer', minHeight: 'auto', boxShadow: `0 4px 16px rgba(212,175,55,0.5), 0 2px 6px rgba(0,0,0,0.4)`, letterSpacing: '0.01em' }}>
+                    Apuntarse →
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-            <span style={{ display: 'inline-block', padding: '0.1rem 0.45rem', background: `${t.color}20`, borderRadius: '6px', fontSize: '0.6rem', fontWeight: '700', letterSpacing: '0.08em', color: t.color, textTransform: 'uppercase' }}>
-              {t.label}
+
+          {/* Compact meta strip below the image */}
+          {(event.fecha || event.lugar || event.plazasTotal || event.menu || pct !== null) && (
+            <div style={{ padding: '0.85rem 1.1rem 0.9rem' }} data-concert>
+              {metaRows}
+              {menuBlock}
+              {aforoBar}
+            </div>
+          )}
+        </>
+      ) : (
+        /* ── Standard card layout ─────────────────────────────── */
+        <div style={{ padding: '1rem 1.1rem' }}>
+          {/* Header */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', marginBottom: '0.75rem' }}>
+            <div style={{ width: '44px', height: '44px', flexShrink: 0, background: `${t.color}1a`, border: `1px solid ${t.color}28`, borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
+              {t.emoji}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '0.95rem', fontWeight: '700', color: 'white', lineHeight: 1.3, marginBottom: '0.2rem' }}>
+                {event.titulo}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                <span style={{ display: 'inline-block', padding: '0.1rem 0.45rem', background: `${t.color}20`, borderRadius: '6px', fontSize: '0.6rem', fontWeight: '700', letterSpacing: '0.08em', color: t.color, textTransform: 'uppercase' }}>
+                  {t.label}
+                </span>
+                {isRegistered && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.22rem 0.65rem', background: 'rgba(16,185,129,0.15)', border: '1.5px solid rgba(16,185,129,0.5)', borderRadius: '8px', fontSize: '0.65rem', fontWeight: '800', color: GREEN, letterSpacing: '0.05em' }}>
+                    ✅ ESTÁS APUNTADO
+                  </span>
+                )}
+                {isFull && (
+                  <span style={{ display: 'inline-block', padding: '0.1rem 0.45rem', background: 'rgba(206,17,38,0.15)', border: '1px solid rgba(206,17,38,0.3)', borderRadius: '6px', fontSize: '0.6rem', fontWeight: '800', color: RED, letterSpacing: '0.08em' }}>
+                    COMPLETO
+                  </span>
+                )}
+              </div>
+            </div>
+            {/* Admin buttons or chevron */}
+            {isAdmin ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', flexShrink: 0 }}>
+                <button onClick={e => { e.stopPropagation(); onAdminPress(event) }}
+                  style={{ background: 'rgba(212,175,55,0.1)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: '8px', padding: '0.35rem 0.55rem', color: GOLD, display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', fontSize: '0.6rem', fontWeight: '700', transition: 'background 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(212,175,55,0.2)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(212,175,55,0.1)'}
+                >
+                  <BarChart2 size={12} /><span>Inscritos</span>
+                </button>
+                <button onClick={e => { e.stopPropagation(); onEditPress(event) }}
+                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '0.35rem 0.55rem', color: 'rgba(255,255,255,0.5)', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', fontSize: '0.6rem', fontWeight: '700', transition: 'background 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                >
+                  <Pencil size={12} /><span>Editar</span>
+                </button>
+                <button onClick={e => { e.stopPropagation(); onDeletePress(event) }}
+                  style={{ background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.25)', borderRadius: '8px', padding: '0.35rem 0.55rem', color: RED, display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', fontSize: '0.6rem', fontWeight: '700', transition: 'background 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(206,17,38,0.18)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(206,17,38,0.08)'}
+                >
+                  <Trash2 size={12} /><span>Borrar</span>
+                </button>
+              </div>
+            ) : (
+              <ChevronRight size={17} color="rgba(255,255,255,0.2)" style={{ flexShrink: 0, marginTop: '3px' }} />
+            )}
+          </div>
+
+          {metaRows}
+          {menuBlock}
+          {aforoBar}
+
+          {/* Footer */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '0.7rem', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+            <span style={{ fontSize: '1.1rem', fontWeight: '800', color: GOLD }}>
+              {event.precio != null ? `${event.precio} €` : 'Gratuito'}
             </span>
-            {isRegistered && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.22rem 0.65rem', background: 'rgba(16,185,129,0.15)', border: '1.5px solid rgba(16,185,129,0.5)', borderRadius: '8px', fontSize: '0.65rem', fontWeight: '800', color: GREEN, letterSpacing: '0.05em' }}>
-                ✅ ESTÁS APUNTADO
+            {isRegistered ? (
+              <button
+                onClick={e => { e.stopPropagation(); onCancelPress(event) }}
+                style={{ padding: '0.38rem 1rem', background: 'transparent', border: `1.5px solid rgba(206,17,38,0.38)`, borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: 'rgba(220,38,38,0.8)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', minHeight: 'auto', transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(206,17,38,0.08)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <X size={12} /> Anular inscripción
+              </button>
+            ) : isFull ? (
+              <span style={{ padding: '0.38rem 0.9rem', background: 'rgba(206,17,38,0.1)', border: '1px solid rgba(206,17,38,0.25)', borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: 'rgba(206,17,38,0.7)' }}>
+                Aforo completo
               </span>
+            ) : (
+              <button
+                onClick={e => { e.stopPropagation(); onPress(event) }}
+                style={{ padding: '0.38rem 1rem', background: `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: 'white', cursor: 'pointer', minHeight: 'auto', boxShadow: `0 2px 10px rgba(212,175,55,0.28)` }}
+              >
+                Apuntarse →
+              </button>
             )}
-            {isFull && (
-              <span style={{ display: 'inline-block', padding: '0.1rem 0.45rem', background: 'rgba(206,17,38,0.15)', border: '1px solid rgba(206,17,38,0.3)', borderRadius: '6px', fontSize: '0.6rem', fontWeight: '800', color: RED, letterSpacing: '0.08em' }}>
-                COMPLETO
-              </span>
-            )}
-          </div>
-        </div>
-        {/* Admin buttons or chevron */}
-        {isAdmin ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', flexShrink: 0 }}>
-            <button
-              onClick={e => { e.stopPropagation(); onAdminPress(event) }}
-              style={{ background: 'rgba(212,175,55,0.1)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: '8px', padding: '0.35rem 0.55rem', color: GOLD, display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', fontSize: '0.6rem', fontWeight: '700', transition: 'background 0.15s' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(212,175,55,0.2)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'rgba(212,175,55,0.1)'}
-            >
-              <BarChart2 size={12} /><span>Inscritos</span>
-            </button>
-            <button
-              onClick={e => { e.stopPropagation(); onEditPress(event) }}
-              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '0.35rem 0.55rem', color: 'rgba(255,255,255,0.5)', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', fontSize: '0.6rem', fontWeight: '700', transition: 'background 0.15s' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-            >
-              <Pencil size={12} /><span>Editar</span>
-            </button>
-            <button
-              onClick={e => { e.stopPropagation(); onDeletePress(event) }}
-              style={{ background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.25)', borderRadius: '8px', padding: '0.35rem 0.55rem', color: RED, display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', fontSize: '0.6rem', fontWeight: '700', transition: 'background 0.15s' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(206,17,38,0.18)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'rgba(206,17,38,0.08)'}
-            >
-              <Trash2 size={12} /><span>Borrar</span>
-            </button>
-          </div>
-        ) : (
-          <ChevronRight size={17} color="rgba(255,255,255,0.2)" style={{ flexShrink: 0, marginTop: '3px' }} />
-        )}
-      </div>
-
-      {/* Meta */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.28rem', marginBottom: '0.75rem' }}>
-        {event.fecha && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
-            <Calendar size={12} color="rgba(255,255,255,0.28)" />
-            <span style={{ fontSize: '0.77rem', color: 'rgba(255,255,255,0.45)', textTransform: 'capitalize' }}>
-              {fmtDate(event.fecha)}
-            </span>
-            {fmtTime(event.fecha) && (
-              <span style={{ display: 'inline-block', padding: '0.1rem 0.45rem', background: 'rgba(212,175,55,0.14)', border: '1px solid rgba(212,175,55,0.28)', borderRadius: '6px', fontSize: '0.68rem', fontWeight: '700', color: GOLD, letterSpacing: '0.04em' }}>
-                {fmtTime(event.fecha)}
-              </span>
-            )}
-          </div>
-        )}
-        {event.lugar && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-            <MapPin size={12} color="rgba(255,255,255,0.28)" />
-            <a
-              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.lugar)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={e => e.stopPropagation()}
-              style={{ fontSize: '0.77rem', color: 'rgba(212,175,55,0.7)', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' }}
-            >
-              {event.lugar}
-            </a>
-          </div>
-        )}
-        {event.plazasTotal && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-            <Users size={12} color="rgba(255,255,255,0.28)" />
-            <span style={{ fontSize: '0.77rem', color: 'rgba(255,255,255,0.45)' }}>{ocupadas} / {event.plazasTotal} plazas</span>
-          </div>
-        )}
-      </div>
-
-      {/* Menu */}
-      {event.menu && (
-        <div style={{ marginBottom: '0.75rem', padding: '0.7rem 0.9rem', background: 'rgba(212,175,55,0.06)', border: '1px solid rgba(212,175,55,0.18)', borderRadius: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem' }}>
-            <span style={{ fontSize: '0.85rem' }}>📜</span>
-            <span style={{ fontSize: '0.68rem', fontWeight: '700', color: '#D4AF37', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Menú</span>
-          </div>
-          <p style={{ margin: 0, fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', lineHeight: 1.55, whiteSpace: 'pre-line' }}>
-            {event.menu}
-          </p>
-        </div>
-      )}
-
-      {/* Aforo bar */}
-      {pct !== null && (
-        <div style={{ marginBottom: '0.75rem' }}>
-          <div style={{ background: 'rgba(255,255,255,0.07)', borderRadius: '4px', height: '3px' }}>
-            <div style={{ width: `${pct}%`, height: '100%', borderRadius: '4px', background: pct >= 100 ? RED : pct > 80 ? RED : pct > 50 ? GOLD : GREEN, transition: 'width 0.4s ease' }} />
           </div>
         </div>
       )}
-
-      {/* Footer */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '0.7rem', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-        <span style={{ fontSize: '1.1rem', fontWeight: '800', color: GOLD }}>
-          {event.precio != null ? `${event.precio} €` : 'Gratuito'}
-        </span>
-        {isRegistered ? (
-          <button
-            onClick={e => { e.stopPropagation(); onCancelPress(event) }}
-            style={{ padding: '0.38rem 1rem', background: 'transparent', border: `1.5px solid rgba(206,17,38,0.38)`, borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: 'rgba(220,38,38,0.8)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', minHeight: 'auto', transition: 'background 0.15s' }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(206,17,38,0.08)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-          >
-            <X size={12} /> Anular inscripción
-          </button>
-        ) : isFull ? (
-          <span style={{ padding: '0.38rem 0.9rem', background: 'rgba(206,17,38,0.1)', border: '1px solid rgba(206,17,38,0.25)', borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: 'rgba(206,17,38,0.7)' }}>
-            Aforo completo
-          </span>
-        ) : (
-          <button
-            onClick={e => { e.stopPropagation(); onPress(event) }}
-            style={{ padding: '0.38rem 1rem', background: `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: 'white', cursor: 'pointer', minHeight: 'auto', boxShadow: `0 2px 10px rgba(212,175,55,0.28)` }}
-          >
-            Apuntarse →
-          </button>
-        )}
-      </div>
-      </div>
     </div>
   )
 }
