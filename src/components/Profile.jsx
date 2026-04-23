@@ -134,8 +134,10 @@ function ContactSection({ fallero, userId, onUpdate }) {
 }
 
 // ─── Carnet Digital (dark — es un carnet físico) ──────────────────────────────
-function CarnetDigital({ nombre, numFallero, rol }) {
-  const isAdmin = rol === 'admin'
+function CarnetDigital({ nombre, numFallero, rol, isLoading }) {
+  const isAdmin   = rol === 'admin'
+  // numFallero: number | null.  null → 'S-000'
+  const numDisplay = numFallero != null ? String(numFallero).padStart(3, '0') : 'S-000'
   return (
     <div style={{
       borderRadius: 20, overflow: 'hidden',
@@ -190,16 +192,27 @@ function CarnetDigital({ nombre, numFallero, rol }) {
             </div>
             <div style={{
               fontSize: '2.4rem', fontWeight: '900', lineHeight: 1, letterSpacing: '-0.02em',
-              background: 'linear-gradient(180deg, #F5D06A 0%, #D4AF37 60%, #A07C1C 100%)',
-              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+              background: isLoading
+                ? 'rgba(255,255,255,0.12)'
+                : 'linear-gradient(180deg, #F5D06A 0%, #D4AF37 60%, #A07C1C 100%)',
+              WebkitBackgroundClip: isLoading ? undefined : 'text',
+              WebkitTextFillColor: isLoading ? 'transparent' : 'transparent',
+              backgroundClip: isLoading ? undefined : 'text',
+              borderRadius: isLoading ? 8 : 0,
+              minWidth: isLoading ? 80 : undefined,
+              minHeight: isLoading ? 38 : undefined,
+              animation: isLoading ? 'falla-pulse 1.4s ease-in-out infinite' : undefined,
             }}>
-              {String(numFallero).padStart(3, '0')}
+              {isLoading ? ' ' : numDisplay}
             </div>
           </div>
         </div>
 
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: '1rem' }}>
-          <div style={{ fontSize: '1.05rem', fontWeight: '800', color: 'white', marginBottom: '0.4rem' }}>{nombre}</div>
+          <div style={{
+            fontSize: '1.05rem', fontWeight: '800', color: 'white', marginBottom: '0.4rem',
+            ...(isLoading ? { background: 'rgba(255,255,255,0.1)', borderRadius: 6, color: 'transparent', minWidth: 120, animation: 'falla-pulse 1.4s ease-in-out infinite' } : {}),
+          }}>{isLoading ? ' ' : nombre}</div>
           <span style={{
             display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
             padding: '0.2rem 0.6rem',
@@ -762,11 +775,12 @@ function AdminPanel() {
 
 // ─── Profile (main export) ────────────────────────────────────────────────────
 export default function Profile() {
-  const { user, fallero, logout, updateFallero } = useAuth()
+  const { user, fallero, loading, logout, updateFallero } = useAuth()
 
-  const nombre     = fallero ? `${fallero.nombre} ${fallero.apellidos ?? ''}`.trim() : user?.displayName || user?.email?.split('@')[0] || 'Fallero'
-  const numFallero = fallero?.numero ?? '—'
-  const rol        = fallero?.rol ?? 'fallero'
+  // Support both field names: memberNumber (new) and numero (legacy)
+  const numFallero   = fallero?.memberNumber ?? fallero?.numero ?? null
+  const nombre       = fallero ? `${fallero.nombre} ${fallero.apellidos ?? ''}`.trim() : user?.displayName || user?.email?.split('@')[0] || 'Fallero'
+  const rol          = fallero?.rol ?? 'fallero'
   const isAdmin      = rol === 'admin'
   const isPrivileged = rol === 'admin' || rol === 'directiva'
 
@@ -777,7 +791,7 @@ export default function Profile() {
         <p style={{ fontSize: 13, color: TEXT2, margin: 0 }}>Tu carnet digital de fallero</p>
       </div>
 
-      <CarnetDigital nombre={nombre} numFallero={numFallero} rol={rol} />
+      <CarnetDigital nombre={nombre} numFallero={numFallero} rol={rol} isLoading={loading} />
 
       {/* Info */}
       <Card>

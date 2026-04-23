@@ -9,13 +9,15 @@ const NAV = [
   { key: 'perfil',     Icon: User,        label: 'Perfil'    },
 ]
 
+const INACTIVE = 'rgba(255,255,255,0.38)'
+
 export default function Navigation({ active, onChange, unreadAvisos = 0 }) {
   return (
     <nav style={{
-      background: 'rgba(255,255,255,0.97)',
+      background: 'rgba(30,41,59,0.97)',       /* slate-800 */
       backdropFilter: 'blur(24px)',
       WebkitBackdropFilter: 'blur(24px)',
-      borderTop: '1px solid #F3F4F6',
+      borderTop: '1px solid rgba(255,255,255,0.08)',
       padding: '0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom))',
       display: 'flex',
       position: 'sticky',
@@ -32,7 +34,7 @@ export default function Navigation({ active, onChange, unreadAvisos = 0 }) {
               flex: 1, background: 'none', border: 'none',
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem',
               padding: '0.5rem 0.25rem',
-              color: isActive ? GOLD : '#9CA3AF',
+              color: isActive ? GOLD : INACTIVE,
               minHeight: 'auto', transition: 'color 0.2s ease',
               position: 'relative',
             }}
@@ -50,6 +52,7 @@ export default function Navigation({ active, onChange, unreadAvisos = 0 }) {
                   borderRadius: '100px', padding: '1px 4px',
                   minWidth: '14px', textAlign: 'center',
                   lineHeight: 1.4,
+                  boxShadow: '0 0 0 1.5px rgba(30,41,59,0.97)',   /* badge pop on dark bg */
                 }}>
                   {unreadAvisos > 9 ? '9+' : unreadAvisos}
                 </span>

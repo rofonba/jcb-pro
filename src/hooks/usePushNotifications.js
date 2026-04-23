@@ -6,29 +6,71 @@ import { useState, useEffect } from 'react'
 const VAPID_KEY   = import.meta.env.VITE_FIREBASE_VAPID_KEY
 const STORAGE_KEY = 'jcb_fcm_token_saved'
 
-// Register (or find) the SW and return the registration.
-// Passing serviceWorkerRegistration to getToken() is required for reliable
-// token generation on iOS Safari and some Android browsers.
+// Returns the firebase-messaging SW registration, waiting until the worker
+// reaches "activated" state. Calling getToken() before activation causes
+// "AbortError: no active Service Worker".
 async function getSwRegistration() {
-  const existing = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js')
-  if (existing) return existing
-  return navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' })
+  let reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js')
+  if (!reg) {
+    reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' })
+  }
+
+  if (!reg.active) {
+    await new Promise((resolve, reject) => {
+      const tid = setTimeout(
+        () => reject(new Error('El Service Worker tardó demasiado en activarse.')),
+        8000,
+      )
+      const sw = reg.installing ?? reg.waiting
+      if (!sw) { clearTimeout(tid); resolve(); return }
+      sw.addEventListener('statechange', function handler() {
+        if (this.state === 'activated') {
+          clearTimeout(tid)
+          this.removeEventListener('statechange', handler)
+          resolve()
+        } else if (this.state === 'redundant') {
+          clearTimeout(tid)
+          this.removeEventListener('statechange', handler)
+          reject(new Error('El Service Worker no se pudo activar.'))
+        }
+      })
+    })
+  }
+
+  return reg
 }
 
 async function persistToken(userId) {
   const swReg = await getSwRegistration()
   const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg })
-  if (!token) throw new Error('FCM devolvió un token vacío. Comprueba la VAPID key.')
+  if (!token) throw new Error('FCM devolvió un token vacío — comprueba la VAPID key.')
 
   const platform = /iPhone|iPad/.test(navigator.userAgent) ? 'ios'
     : /Android/.test(navigator.userAgent) ? 'android' : 'web'
 
-  await setDoc(doc(db, 'fcm_tokens', userId), {
-    token,
-    userId,
-    updatedAt: serverTimestamp(),
-    platform,
-  })
+  try {
+    await setDoc(doc(db, 'fcm_tokens', userId), {
+      token,
+      userId,
+      updatedAt: serverTimestamp(),
+      platform,
+    })
+  } catch (err) {
+    // Firestore blocked by an ad blocker → give the user a clear hint
+    const msg = err?.message ?? ''
+    const isNetworkBlock = (
+      msg.includes('ERR_BLOCKED') ||
+      msg.includes('Failed to fetch') ||
+      err?.code === 'unavailable' ||
+      err?.code === 'failed-precondition'
+    )
+    throw new Error(
+      isNetworkBlock
+        ? 'Un bloqueador de anuncios está impidiendo guardar el token. Desactívalo para esta web e inténtalo de nuevo.'
+        : msg || 'Error al guardar el token en Firestore.',
+    )
+  }
+
   localStorage.setItem(STORAGE_KEY, 'true')
   return token
 }
@@ -41,17 +83,17 @@ export function usePushNotifications(userId) {
   const [loading,    setLoading]    = useState(false)
   const [error,      setError]      = useState(null)
   const [tokenSaved, setTokenSaved] = useState(
-    () => localStorage.getItem(STORAGE_KEY) === 'true'
+    () => localStorage.getItem(STORAGE_KEY) === 'true',
   )
 
   // Silently refresh the token on every app load when permission is already
-  // granted. FCM rotates tokens periodically; if we only save on the first
-  // click the stored token goes stale and no push ever arrives.
+  // granted. FCM rotates tokens; if we only save on the first click the stored
+  // token goes stale and no push ever arrives.
   useEffect(() => {
     if (!messaging || !userId || Notification.permission !== 'granted') return
     persistToken(userId)
       .then(() => setTokenSaved(true))
-      .catch(e => console.warn('[FCM] token refresh silencioso falló:', e))
+      .catch(e => console.warn('[FCM] token refresh silencioso falló:', e.message))
   }, [userId])
 
   async function enableNotifications() {
