@@ -4,6 +4,7 @@ import {
   getDocs, where, deleteDoc, addDoc, serverTimestamp, doc,
 } from 'firebase/firestore'
 import { db } from '../firebase'
+import { enviarNotificacionFCM } from '../services/fcmService'
 import { useAuth } from '../contexts/AuthContext'
 import CalendarView from './CalendarView'
 import Profile from './Profile'
@@ -761,6 +762,12 @@ function AvisosTab({ announcements, loading, isAdmin }) {
         esUrgente,
         createdAt: serverTimestamp(),
       })
+      if (esUrgente) {
+        enviarNotificacionFCM(
+          `⚡ ${titulo.trim()}`,
+          cuerpo.trim() || 'Nuevo aviso urgente de la Falla.',
+        ).catch(() => {})
+      }
       setTitulo(''); setCuerpo(''); setEsUrgente(false); setShowForm(false)
     } catch (err) {
       setFormError(err?.message || 'Error al publicar el aviso.')

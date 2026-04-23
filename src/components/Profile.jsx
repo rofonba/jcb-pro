@@ -1,13 +1,15 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   collection, query, orderBy, getDocs, where,
   doc, updateDoc, arrayUnion, arrayRemove,
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
+import { usePushNotifications } from '../hooks/usePushNotifications'
+import { enviarNotificacionFCM } from '../services/fcmService'
 import {
   Download, Users, ChevronRight, X, Loader2,
-  Shield, Star, Flame, Plus, Trash2, Baby, Bell, Phone, Check,
+  Shield, Star, Flame, Plus, Trash2, Baby, Bell, Phone, Check, Zap,
 } from 'lucide-react'
 
 const GOLD  = '#D4AF37'
@@ -386,6 +388,7 @@ const NOTIF_PREFS = [
 function NotificationPreferences({ fallero, userId, onUpdate }) {
   const prefs = fallero?.notificaciones ?? {}
   const [saving, setSaving] = useState(null)
+  const { permission, loading: pushLoading, error: pushError, tokenSaved, enableNotifications } = usePushNotifications(userId)
 
   const toggle = async (key) => {
     const newVal = !(prefs[key] ?? true)
@@ -456,9 +459,129 @@ function NotificationPreferences({ fallero, userId, onUpdate }) {
         )
       })}
 
-      <p style={{ fontSize: 11, color: MUTED, marginTop: 14, marginBottom: 0 }}>
-        Las notificaciones se enviarán a tu email registrado.
+      {/* Push permission button */}
+      <div style={{ borderTop: `1px solid ${BORDER}`, marginTop: 14, paddingTop: 14 }}>
+        {permission === 'unsupported' ? (
+          <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>
+            Tu navegador no soporta notificaciones push.
+          </p>
+        ) : permission === 'denied' ? (
+          <p style={{ fontSize: 11, color: RED, margin: 0 }}>
+            🔕 Notificaciones bloqueadas. Actívalas en los ajustes del navegador.
+          </p>
+        ) : tokenSaved ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Check size={13} color={GREEN} strokeWidth={2.5} />
+            <span style={{ fontSize: 12, color: GREEN, fontWeight: 600 }}>Notificaciones push activas</span>
+          </div>
+        ) : (
+          <button
+            onClick={enableNotifications}
+            disabled={pushLoading}
+            style={{
+              width: '100%', minHeight: 42,
+              background: pushLoading ? `${GOLD}40` : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`,
+              border: 'none', borderRadius: 12,
+              color: WHITE, fontSize: 13, fontWeight: 700,
+              cursor: pushLoading ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+              boxShadow: pushLoading ? 'none' : `0 4px 14px rgba(212,175,55,0.3)`,
+            }}
+          >
+            {pushLoading
+              ? <Loader2 size={15} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
+              : <><Bell size={14} /> Activar notificaciones push</>}
+          </button>
+        )}
+        {pushError && <p style={{ fontSize: 11, color: RED, margin: '6px 0 0' }}>{pushError}</p>}
+      </div>
+    </Card>
+  )
+}
+
+// ─── Admin: Quick Actions (push notifications) ────────────────────────────────
+
+const GREEN = '#10b981'
+
+function AdminQuickActions() {
+  const [sending, setSending] = useState(null)
+  const [result,  setResult]  = useState(null)
+
+  const send = useCallback(async (title, body) => {
+    setSending(title); setResult(null)
+    try {
+      const res = await enviarNotificacionFCM(title, body)
+      setResult(`✅ Enviado a ${res.sent} dispositivo${res.sent !== 1 ? 's' : ''}`)
+    } catch (err) {
+      setResult(`❌ ${err?.message || 'Error al enviar'}`)
+    } finally { setSending(null) }
+  }, [])
+
+  const actions = [
+    {
+      id: 'comida',
+      emoji: '🥘',
+      label: '¡Comida lista!',
+      title: '🥘 ¡A COMER!',
+      body: 'La comida ya está servida en el casal. ¡Ven antes de que se enfríe!',
+      color: '#f97316',
+    },
+    {
+      id: 'reunion',
+      emoji: '📋',
+      label: 'Convocar reunión',
+      title: '📋 Convocatoria de reunión',
+      body: 'Hay una reunión en el casal. ¡Os esperamos!',
+      color: '#6366f1',
+    },
+  ]
+
+  return (
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <Zap size={15} color={RED} fill={`${RED}40`} />
+        <span style={{ fontSize: 14, fontWeight: 700, color: TEXT }}>Acciones Rápidas</span>
+        <span style={{ background: 'rgba(206,17,38,0.08)', color: RED, fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20, border: `1px solid rgba(206,17,38,0.22)` }}>
+          PUSH
+        </span>
+      </div>
+      <p style={{ fontSize: 12, color: MUTED, margin: '0 0 14px' }}>
+        Envía una notificación push a todos los falleros con la app instalada.
       </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {actions.map(a => (
+          <button
+            key={a.id}
+            onClick={() => send(a.title, a.body)}
+            disabled={!!sending}
+            style={{
+              width: '100%', minHeight: 52,
+              background: sending === a.title ? `${a.color}30` : `${a.color}12`,
+              border: `1.5px solid ${a.color}${sending === a.title ? '60' : '30'}`,
+              borderRadius: 14, cursor: sending ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: 12, padding: '0 16px',
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { if (!sending) e.currentTarget.style.background = `${a.color}22` }}
+            onMouseLeave={e => { if (!sending) e.currentTarget.style.background = `${a.color}12` }}
+          >
+            <span style={{ fontSize: 24, flexShrink: 0 }}>{a.emoji}</span>
+            <div style={{ flex: 1, textAlign: 'left' }}>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: TEXT }}>{a.label}</p>
+              <p style={{ margin: 0, fontSize: 11, color: MUTED }}>{a.body.slice(0, 48)}…</p>
+            </div>
+            {sending === a.title
+              ? <Loader2 size={17} color={a.color} style={{ animation: 'falla-spin 0.8s linear infinite', flexShrink: 0 }} />
+              : <Bell size={15} color={a.color} style={{ flexShrink: 0 }} />
+            }
+          </button>
+        ))}
+      </div>
+      {result && (
+        <p style={{ margin: '12px 0 0', fontSize: 12, fontWeight: 600, color: result.startsWith('✅') ? GREEN : RED, textAlign: 'center' }}>
+          {result}
+        </p>
+      )}
     </Card>
   )
 }
@@ -644,7 +767,8 @@ export default function Profile() {
   const nombre     = fallero ? `${fallero.nombre} ${fallero.apellidos ?? ''}`.trim() : user?.displayName || user?.email?.split('@')[0] || 'Fallero'
   const numFallero = fallero?.numero ?? '—'
   const rol        = fallero?.rol ?? 'fallero'
-  const isAdmin    = rol === 'admin'
+  const isAdmin      = rol === 'admin'
+  const isPrivileged = rol === 'admin' || rol === 'directiva'
 
   return (
     <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -689,8 +813,9 @@ export default function Profile() {
         />
       )}
 
-      {/* Admin panel */}
-      {isAdmin && <AdminPanel />}
+      {/* Admin quick actions + panel */}
+      {isPrivileged && <AdminQuickActions />}
+      {isPrivileged && <AdminPanel />}
 
       {/* Logout */}
       <button

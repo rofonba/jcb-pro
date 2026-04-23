@@ -33,6 +33,12 @@ service cloud.firestore {
       allow write: if isPrivileged();
     }
 
+    // FCM tokens: cada usuario gestiona el suyo; privilegiados pueden leer todos (para enviar push)
+    match /fcm_tokens/{userId} {
+      allow read:   if request.auth != null && (request.auth.uid == userId || isPrivileged());
+      allow write:  if request.auth != null && request.auth.uid == userId;
+    }
+
     // Inscripciones: fallero autenticado crea la suya y borra/edita las suyas; admins gestionan todo
     match /inscripciones/{docId} {
       allow read:   if request.auth != null;

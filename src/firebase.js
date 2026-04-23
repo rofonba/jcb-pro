@@ -38,3 +38,4 @@ try {
   }
 } catch (_) { /* messaging no disponible en este entorno */ }
 export const messaging = _messaging
+

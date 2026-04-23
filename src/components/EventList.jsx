@@ -4,6 +4,7 @@ import {
   addDoc, setDoc, deleteDoc, serverTimestamp, getDocs, where, doc, updateDoc,
 } from 'firebase/firestore'
 import { db } from '../firebase'
+import { enviarNotificacionFCM } from '../services/fcmService'
 import { useAuth } from '../contexts/AuthContext'
 import {
   Plus, MapPin, Calendar, Users, ChevronRight,
@@ -863,6 +864,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
   })
   const [loading,       setLoading]       = useState(false)
   const [error,         setError]         = useState('')
+  const [pushStatus,    setPushStatus]    = useState(null) // null | 'sending' | 'done' | 'error'
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -905,10 +907,24 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
       }
       if (isEditing) {
         await updateDoc(doc(db, 'eventos', editEvent.id), payload)
+        onCreated()
       } else {
         await addDoc(collection(db, 'eventos'), { ...payload, plazasOcupadas: 0, createdAt: serverTimestamp() })
+        const needsPush = form.notificar && ['comida', 'cena'].includes(form.tipo)
+        if (needsPush) {
+          setPushStatus('sending')
+          const tipo  = form.tipo === 'cena' ? 'Cena' : 'Comida'
+          try {
+            await enviarNotificacionFCM(
+              `🍴 ¡Nueva ${tipo}!`,
+              `Se ha publicado "${form.titulo.trim()}". ¡Ya puedes inscribirte!`,
+            )
+            setPushStatus('done')
+          } catch { setPushStatus('error') }
+          await new Promise(r => setTimeout(r, 900))
+        }
+        onCreated()
       }
-      onCreated()
     } catch {
       setError(isEditing ? 'Error al guardar los cambios.' : 'Error al crear el evento.')
     } finally { setLoading(false) }
@@ -1024,7 +1040,22 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
             <span style={{ color: '#ff8080', fontSize: '0.82rem' }}>{error}</span>
           </div>
         )}
-        <button type="submit" disabled={loading} style={{ minHeight: '52px', background: loading ? `rgba(212,175,55,0.35)` : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: '14px', color: 'white', fontSize: '1rem', fontWeight: '800', cursor: loading ? 'not-allowed' : 'pointer', boxShadow: loading ? 'none' : `0 6px 20px rgba(212,175,55,0.3)`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+
+        {pushStatus && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1rem', background: pushStatus === 'error' ? 'rgba(206,17,38,0.08)' : 'rgba(212,175,55,0.07)', border: `1px solid ${pushStatus === 'error' ? 'rgba(206,17,38,0.28)' : 'rgba(212,175,55,0.25)'}`, borderRadius: '10px' }}>
+            {pushStatus === 'sending'
+              ? <Loader2 size={14} color={GOLD} style={{ animation: 'falla-spin 0.8s linear infinite', flexShrink: 0 }} />
+              : pushStatus === 'done'
+              ? <Check size={14} color={GREEN} style={{ flexShrink: 0 }} />
+              : <AlertCircle size={14} color={RED} style={{ flexShrink: 0 }} />
+            }
+            <span style={{ fontSize: '0.82rem', fontWeight: 600, color: pushStatus === 'error' ? '#ff8080' : pushStatus === 'done' ? GREEN : GOLD }}>
+              {pushStatus === 'sending' ? 'Enviando notificaciones…' : pushStatus === 'done' ? 'Notificaciones enviadas ✓' : 'Error al enviar notificaciones'}
+            </span>
+          </div>
+        )}
+
+        <button type="submit" disabled={loading || pushStatus === 'sending'} style={{ minHeight: '52px', background: loading ? `rgba(212,175,55,0.35)` : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: '14px', color: 'white', fontSize: '1rem', fontWeight: '800', cursor: loading ? 'not-allowed' : 'pointer', boxShadow: loading ? 'none' : `0 6px 20px rgba(212,175,55,0.3)`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
           {loading
             ? <Loader2 size={18} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
             : isEditing ? '💾 Guardar cambios' : '🔥 Crear evento'}
