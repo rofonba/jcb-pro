@@ -133,6 +133,11 @@ export default function AdminEventControl({ event, onClose }) {
             <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: 'rgba(255,255,255,0.38)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
               {event.titulo}
             </p>
+            {event.descripcion && (
+              <p style={{ margin: '4px 0 0', fontSize: '0.7rem', color: 'rgba(255,255,255,0.28)', lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                {event.descripcion}
+              </p>
+            )}
           </div>
         </div>
 

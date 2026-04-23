@@ -383,7 +383,7 @@ function NextEventCountdown({ event }) {
 
 // ─── Próximos eventos (general list) ─────────────────────────────────────────
 
-function ProximosEventos({ events, registeredIds, onPress, onCancelPress, onDetailPress }) {
+function ProximosEventos({ events, registeredIds, inscCountMap = {}, onPress, onCancelPress, onDetailPress }) {
   const upcoming = useMemo(() => {
     const now = Date.now() - 3600000
     return events
@@ -406,7 +406,7 @@ function ProximosEventos({ events, registeredIds, onPress, onCancelPress, onDeta
         {upcoming.map(ev => {
           const t      = EVENT_TYPES[ev.tipo] ?? EVENT_TYPES.acto
           const isReg  = registeredIds.has(ev.id)
-          const ocu    = ev.plazasOcupadas ?? 0
+          const ocu    = inscCountMap[ev.id] ?? ev.plazasOcupadas ?? 0
           const isFull = ev.plazasTotal && ocu >= ev.plazasTotal && !isReg
           return (
             <div key={ev.id} onClick={() => onDetailPress?.(ev.id)} style={{ background: isReg ? 'rgba(16,185,129,0.03)' : WHITE, border: `1.5px solid ${isReg ? 'rgba(16,185,129,0.3)' : BORDER}`, borderRadius: 16, padding: '14px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
@@ -724,7 +724,7 @@ function PushModal({ permission, tokenSaved, loading, onEnable }) {
 function HomeTab({
   nombre, numFallero, isAdmin,
   announcements, loadingAnns,
-  events, registeredIds,
+  events, registeredIds, inscCountMap,
   onNavigate, onMetrics,
   onEventPress, onCancelPress, onDetailPress,
   unreadCount,
@@ -819,7 +819,7 @@ function HomeTab({
       {/* ── Collapsible: Apuntarme (event list) ──────────────────── */}
       {showEvents && (
         <div style={{ padding: '16px 20px 0' }}>
-          <ProximosEventos events={events} registeredIds={registeredIds} onPress={onEventPress} onCancelPress={onCancelPress} onDetailPress={onDetailPress} />
+          <ProximosEventos events={events} registeredIds={registeredIds} inscCountMap={inscCountMap} onPress={onEventPress} onCancelPress={onCancelPress} onDetailPress={onDetailPress} />
         </div>
       )}
 
@@ -978,6 +978,7 @@ export default function Dashboard() {
 
   const [events, setEvents]               = useState([])
   const [registeredIds, setRegisteredIds] = useState(new Set())
+  const [inscCountMap, setInscCountMap]   = useState({})
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [cancelTarget, setCancelTarget]   = useState(null)
   const [deleting, setDeleting]           = useState(false)
@@ -1003,6 +1004,18 @@ export default function Dashboard() {
       .then(snap => setRegisteredIds(new Set(snap.docs.map(d => d.data().eventId))))
       .catch(() => {})
   }, [user?.uid])
+
+  // Real-time inscription counts for all events (capacity / isFull logic)
+  useEffect(() => {
+    return onSnapshot(collection(db, 'inscripciones'), snap => {
+      const map = {}
+      for (const d of snap.docs) {
+        const { eventId, totalPersonas } = d.data()
+        if (eventId) map[eventId] = (map[eventId] ?? 0) + (totalPersonas ?? 1)
+      }
+      setInscCountMap(map)
+    })
+  }, [])
 
   const handleTabChange = (tab) => {
     if (tab === 'avisos') { markAvisosRead(); setLastReadTs(Date.now()) }
@@ -1088,7 +1101,7 @@ export default function Dashboard() {
           <HomeTab
             nombre={nombre} numFallero={numFallero} isAdmin={isAdmin}
             announcements={announcements} loadingAnns={loadingAnns}
-            events={events} registeredIds={registeredIds}
+            events={events} registeredIds={registeredIds} inscCountMap={inscCountMap}
             onNavigate={handleTabChange}
             onMetrics={() => setShowMetrics(true)}
             onEventPress={setSelectedEvent}

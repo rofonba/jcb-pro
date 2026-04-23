@@ -71,9 +71,9 @@ function Overlay({ children, onClose, scrollable = false }) {
 }
 
 // ─── Event card ───────────────────────────────────────────────────────────────
-function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEditPress, onCancelPress, onDeletePress, index = 0 }) {
+function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEditPress, onCancelPress, onDeletePress, index = 0, liveCount = 0 }) {
   const t        = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
-  const ocupadas = event.plazasOcupadas ?? 0
+  const ocupadas = liveCount > 0 ? liveCount : (event.plazasOcupadas ?? 0)
   const pct      = event.plazasTotal ? Math.min(100, (ocupadas / event.plazasTotal) * 100) : null
   const isFull   = event.plazasTotal && ocupadas >= event.plazasTotal && !isRegistered
   const hasBanner = Boolean(event.imagenUrl)
@@ -114,6 +114,12 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
       )}
     </div>
   )
+
+  const descBlock = event.descripcion ? (
+    <p style={{ margin: '0 0 0.65rem', fontSize: '0.78rem', color: 'rgba(255,255,255,0.42)', lineHeight: 1.55, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+      {event.descripcion}
+    </p>
+  ) : null
 
   const menuBlock = event.menu ? (
     <div style={{ marginBottom: '0.65rem', padding: '0.7rem 0.9rem', background: 'rgba(212,175,55,0.06)', border: '1px solid rgba(212,175,55,0.18)', borderRadius: '12px' }}>
@@ -242,9 +248,10 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
           </div>
 
           {/* Compact meta strip below the image */}
-          {(event.fecha || event.lugar || event.plazasTotal || event.menu || pct !== null) && (
+          {(event.fecha || event.lugar || event.plazasTotal || event.menu || event.descripcion || pct !== null) && (
             <div style={{ padding: '0.85rem 1.1rem 0.9rem' }} data-concert>
               {metaRows}
+              {descBlock}
               {menuBlock}
               {aforoBar}
             </div>
@@ -309,6 +316,7 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
           </div>
 
           {metaRows}
+          {descBlock}
           {menuBlock}
           {aforoBar}
 
@@ -1225,6 +1233,7 @@ export default function EventList() {
   const [events, setEvents]               = useState([])
   const [loading, setLoading]             = useState(true)
   const [registeredIds, setRegisteredIds] = useState(new Set())
+  const [inscCountMap, setInscCountMap]   = useState({})
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [adminEvent, setAdminEvent]       = useState(null)
   const [showForm, setShowForm]           = useState(false)
@@ -1246,6 +1255,18 @@ export default function EventList() {
       .then(snap => setRegisteredIds(new Set(snap.docs.map(d => d.data().eventId))))
       .catch(() => {})
   }, [user?.uid])
+
+  // Real-time inscription counts for all events
+  useEffect(() => {
+    return onSnapshot(collection(db, 'inscripciones'), snap => {
+      const map = {}
+      for (const d of snap.docs) {
+        const { eventId, totalPersonas } = d.data()
+        if (eventId) map[eventId] = (map[eventId] ?? 0) + (totalPersonas ?? 1)
+      }
+      setInscCountMap(map)
+    })
+  }, [])
 
   const handleRegistered = useCallback((eventId) => {
     setSelectedEvent(null)
@@ -1320,6 +1341,7 @@ export default function EventList() {
             key={ev.id} event={ev} index={i}
             isRegistered={registeredIds.has(ev.id)}
             isAdmin={isAdmin}
+            liveCount={inscCountMap[ev.id] ?? 0}
             onPress={setSelectedEvent}
             onAdminPress={setAdminEvent}
             onEditPress={setEditEvent}

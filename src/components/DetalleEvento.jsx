@@ -296,12 +296,12 @@ export default function DetalleEvento({ eventId, onClose, onRegistered, onCancel
               )}
 
               {/* Description */}
-              {event.descripcion && (
-                <div style={{ marginBottom: 14 }}>
-                  <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 700, color: TEXT2, letterSpacing: '0.07em', textTransform: 'uppercase' }}>Descripción</p>
-                  <p style={{ margin: 0, fontSize: 14, color: TEXT, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{event.descripcion}</p>
-                </div>
-              )}
+              <div style={{ marginBottom: 14 }}>
+                <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 700, color: TEXT2, letterSpacing: '0.07em', textTransform: 'uppercase' }}>Descripción</p>
+                <p style={{ margin: 0, fontSize: 14, color: event.descripcion ? TEXT : MUTED, lineHeight: 1.6, whiteSpace: 'pre-wrap', fontStyle: event.descripcion ? 'normal' : 'italic' }}>
+                  {event.descripcion || 'Sin descripción disponible'}
+                </p>
+              </div>
 
               {/* Menu */}
               {event.menu && (
