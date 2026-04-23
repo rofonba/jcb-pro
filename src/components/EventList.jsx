@@ -411,12 +411,13 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
     e.preventDefault()
     if (saving || wouldExceed || isAforoFull) return
     setSaving(true)
-    if (plazasTotal) {
-      const snap = await getDocs(query(collection(db, 'inscripciones'), where('eventId', '==', event.id)))
-      const live = snap.docs.reduce((s, d) => s + (d.data().totalPersonas ?? 1), 0)
-      if (live + totalPersonas > plazasTotal) { setInscritosCount(live); setSaving(false); return }
-    }
     try {
+      const snap = await getDocs(query(collection(db, 'inscripciones'), where('eventId', '==', event.id)))
+      if (plazasTotal) {
+        const live = snap.docs.reduce((s, d) => s + (d.data().totalPersonas ?? 1), 0)
+        if (live + totalPersonas > plazasTotal) { setInscritosCount(live); setSaving(false); return }
+      }
+      const numeroOrden = snap.docs.length + 1
       await setDoc(doc(db, 'inscripciones', `${user.uid}_${event.id}`), {
         eventId: event.id, eventoTitulo: event.titulo,
         uid: user.uid, nombre: myName,
@@ -429,6 +430,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
         nota: nota.trim() || null,
         alergias: (['comida', 'cena'].includes(event.tipo)) ? (alergias.trim() || null) : null,
         telefono:   fallero?.telefono ?? null,
+        numeroOrden,
         createdAt:  serverTimestamp(),
       })
       setStatus('saved')

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   collection, query, orderBy, limit, onSnapshot,
-  getDocs, where, deleteDoc, addDoc, serverTimestamp,
+  getDocs, where, deleteDoc, addDoc, serverTimestamp, doc,
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -10,7 +10,7 @@ import Profile from './Profile'
 import Navigation from './Navigation'
 import AdminMetrics from './AdminMetrics'
 import { RegistrationModal, SuccessToast, CancelConfirmModal } from './EventList'
-import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X, Loader2 } from 'lucide-react'
+import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X, Loader2, Trash2 } from 'lucide-react'
 
 const LAST_READ_KEY  = 'jcb_last_read_avisos'
 const getLastRead    = () => parseInt(localStorage.getItem(LAST_READ_KEY) || '0', 10)
@@ -34,6 +34,18 @@ const EVENT_TYPES = {
 }
 
 const WEEKDAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
+
+const HOLIDAYS_ES = new Set([
+  '2025-0-1',  '2025-0-6',  '2025-2-19', '2025-3-18',
+  '2025-4-1',  '2025-5-24', '2025-7-15', '2025-9-9',
+  '2025-9-12', '2025-10-1', '2025-11-6', '2025-11-8', '2025-11-25',
+  '2026-0-1',  '2026-0-6',  '2026-2-19', '2026-3-3',
+  '2026-4-1',  '2026-5-24', '2026-7-15', '2026-9-9',
+  '2026-9-12', '2026-10-1', '2026-11-6', '2026-11-8', '2026-11-25',
+  '2027-0-1',  '2027-0-6',  '2027-2-19', '2027-2-26',
+  '2027-4-1',  '2027-5-24', '2027-7-15', '2027-9-9',
+  '2027-9-12', '2027-10-1', '2027-11-6', '2027-11-8', '2027-11-25',
+])
 
 function fmtDate(f) {
   if (!f) return '—'
@@ -157,15 +169,25 @@ function HeroCalendar({ events, registeredIds, onNavigate }) {
           const isToday        = key === todayKey
           const hasEvents      = (eventsByDay[key]?.length ?? 0) > 0
           const isReg          = regDays.has(key)
-          const isSelected     = isToday
+          const dow            = date.getDay()
+          const isWeekend      = isCurrentMonth && (dow === 0 || dow === 6)
+          const isHoliday      = isCurrentMonth && HOLIDAYS_ES.has(key)
+
+          const cellBg = isToday   ? `${GOLD}18`
+            : isHoliday ? '#EFF6FF'
+            : isWeekend ? '#F3F4F6'
+            : 'transparent'
+          const cellBorder = isToday ? `1.5px solid ${GOLD}45` : '1.5px solid transparent'
+          const cellColor  = isToday ? GOLD : isHoliday ? '#2563EB' : TEXT
+          const cellWeight = isToday ? 800 : isHoliday || isWeekend ? 600 : isCurrentMonth ? 500 : 400
 
           return (
             <button
               key={i}
               onClick={() => hasEvents && isCurrentMonth && onNavigate('calendario')}
               style={{
-                background: isToday ? `${GOLD}18` : 'transparent',
-                border: isToday ? `1.5px solid ${GOLD}45` : '1.5px solid transparent',
+                background: cellBg,
+                border: cellBorder,
                 borderRadius: 12,
                 padding: '10px 2px 8px',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
@@ -177,8 +199,8 @@ function HeroCalendar({ events, registeredIds, onNavigate }) {
             >
               <span style={{
                 fontSize: 14, lineHeight: 1, fontVariantNumeric: 'tabular-nums',
-                fontWeight: isToday ? 800 : isCurrentMonth ? 500 : 400,
-                color: isToday ? GOLD : TEXT,
+                fontWeight: cellWeight,
+                color: cellColor,
               }}>
                 {date.getDate()}
               </span>
@@ -421,7 +443,7 @@ function ProximosEventos({ events, registeredIds, onPress, onCancelPress }) {
 
 // ─── Announcement card ────────────────────────────────────────────────────────
 
-function AnnCard({ ann }) {
+function AnnCard({ ann, isAdmin = false, onDelete }) {
   const isUrgent = ann.esUrgente || ann.importante
   const date = ann.createdAt?.toDate?.()
     ? ann.createdAt.toDate().toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -433,7 +455,20 @@ function AnnCard({ ann }) {
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
         <h3 style={{ fontSize: 15, fontWeight: 600, color: TEXT, margin: 0, flex: 1, lineHeight: 1.35 }}>{ann.titulo}</h3>
-        {isUrgent && <span style={{ background: RED, color: WHITE, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 20, flexShrink: 0, letterSpacing: '0.05em' }}>URGENTE</span>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {isUrgent && <span style={{ background: RED, color: WHITE, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 20, letterSpacing: '0.05em' }}>URGENTE</span>}
+          {isAdmin && (
+            <button
+              onClick={() => onDelete(ann.id)}
+              style={{ background: 'transparent', border: `1px solid rgba(206,17,38,0.22)`, borderRadius: 8, padding: '4px 6px', color: 'rgba(206,17,38,0.55)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'auto', minWidth: 'auto', transition: 'all 0.15s' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(206,17,38,0.07)'; e.currentTarget.style.color = RED }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(206,17,38,0.55)' }}
+              title="Eliminar aviso"
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
       </div>
       {ann.cuerpo && <p style={{ fontSize: 13, color: TEXT2, margin: '0 0 8px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{ann.cuerpo}</p>}
       {date && <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>{date}</p>}
@@ -732,6 +767,15 @@ function AvisosTab({ announcements, loading, isAdmin }) {
     } finally { setSaving(false) }
   }
 
+  const handleDeleteAnnouncement = async (annId) => {
+    if (!window.confirm('¿Quieres eliminar este aviso definitivamente?')) return
+    try {
+      await deleteDoc(doc(db, 'anuncios', annId))
+    } catch (err) {
+      window.alert(err?.message || 'Error al eliminar el aviso.')
+    }
+  }
+
   const inputStyle = { width: '100%', padding: '10px 12px', border: `1.5px solid ${BORDER}`, borderRadius: 12, fontSize: 14, fontFamily: 'inherit', color: TEXT, background: BG, boxSizing: 'border-box', outline: 'none' }
 
   return (
@@ -798,7 +842,7 @@ function AvisosTab({ announcements, loading, isAdmin }) {
         ? <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{[1,2,3].map(i => <SkeletonCard key={i} />)}</div>
         : announcements.length === 0
           ? <div style={{ textAlign: 'center', padding: '52px 24px' }}><div style={{ fontSize: 40, marginBottom: 12 }}>📭</div><p style={{ color: MUTED, fontSize: 14, margin: 0 }}>Sin avisos recientes</p></div>
-          : <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{announcements.map(a => <AnnCard key={a.id} ann={a} />)}</div>
+          : <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{announcements.map(a => <AnnCard key={a.id} ann={a} isAdmin={isAdmin} onDelete={handleDeleteAnnouncement} />)}</div>
       }
     </div>
   )

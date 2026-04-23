@@ -203,9 +203,12 @@ export default function AdminEventControl({ event, onClose }) {
                   style={{ padding: '0.85rem 0', borderBottom: idx < inscriptions.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-                    {/* Avatar */}
-                    <div style={{ width: 36, height: 36, flexShrink: 0, background: ins.esHijo ? 'rgba(16,185,129,0.1)' : 'rgba(212,175,55,0.1)', border: `1px solid ${ins.esHijo ? 'rgba(16,185,129,0.25)' : 'rgba(212,175,55,0.25)'}`, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', marginTop: 1 }}>
-                      {ins.esHijo ? '👦' : '👤'}
+                    {/* Order-number avatar */}
+                    <div style={{ width: 36, height: 36, flexShrink: 0, background: ins.esHijo ? 'rgba(16,185,129,0.1)' : 'rgba(212,175,55,0.1)', border: `1px solid ${ins.esHijo ? 'rgba(16,185,129,0.25)' : 'rgba(212,175,55,0.25)'}`, borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', marginTop: 1, gap: 1 }}>
+                      <span style={{ fontSize: '0.6rem', fontWeight: 800, color: ins.esHijo ? '#10b981' : GOLD, lineHeight: 1, letterSpacing: '0.04em' }}>
+                        #{ins.numeroOrden ?? idx + 1}
+                      </span>
+                      <span style={{ fontSize: '0.75rem', lineHeight: 1 }}>{ins.esHijo ? '👦' : '👤'}</span>
                     </div>
                     {/* Content */}
                     <div style={{ flex: 1, minWidth: 0 }}>
