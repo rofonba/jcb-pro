@@ -58,18 +58,74 @@ function calcAge(fechaNacimiento) {
 }
 
 // ─── Contact info (phone + birthdate, editable) ───────────────────────────────
-function ContactSection({ fallero, userId, onUpdate }) {
-  const [editPhone, setEditPhone] = useState(false)
-  const [phone, setPhone]         = useState(fallero?.telefono ?? '')
-  const [saving, setSaving]       = useState(false)
+function EditableRow({ label, displayValue, editValue, onEditStart, onSave, onCancel, saving, inputProps, last = false }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal]         = useState(editValue)
 
-  const savePhone = async () => {
-    setSaving(true)
+  const handleEdit = () => { setVal(editValue); setEditing(true); onEditStart?.() }
+  const handleSave = async () => { await onSave(val); setEditing(false) }
+  const handleCancel = () => { setEditing(false); onCancel?.() }
+
+  return (
+    <div style={{
+      paddingBottom: last ? 0 : '0.65rem', marginBottom: last ? 0 : '0.65rem',
+      borderBottom: last ? 'none' : `1px solid ${BORDER}`,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 13, color: TEXT2 }}>{label}</span>
+        {!editing ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: TEXT, fontWeight: 600 }}>{displayValue}</span>
+            <button
+              onClick={handleEdit}
+              style={{ fontSize: 11, color: GOLD, background: `${GOLD}14`, border: `1px solid ${GOLD}30`, borderRadius: 8, padding: '3px 8px', cursor: 'pointer', minHeight: 'auto', fontWeight: 700 }}
+            >
+              ✏️
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+              autoFocus value={val} onChange={e => setVal(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') handleCancel() }}
+              style={{ padding: '6px 10px', background: BG, border: `1.5px solid ${GOLD}50`, borderRadius: 10, fontSize: 13, color: TEXT, outline: 'none', fontFamily: 'inherit', width: 120 }}
+              {...inputProps}
+            />
+            <button onClick={handleSave} disabled={saving} style={{ background: GOLD, border: 'none', borderRadius: 8, padding: '6px 8px', cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', minHeight: 'auto' }}>
+              {saving ? <Loader2 size={13} color="white" style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : <Check size={13} color="white" strokeWidth={2.5} />}
+            </button>
+            <button onClick={handleCancel} style={{ background: BORDER, border: 'none', borderRadius: 8, padding: '6px 8px', cursor: 'pointer', display: 'flex', minHeight: 'auto' }}>
+              <X size={13} color={MUTED} />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ContactSection({ fallero, userId, onUpdate }) {
+  const [savingPhone,  setSavingPhone]  = useState(false)
+  const [savingNumero, setSavingNumero] = useState(false)
+
+  const numFallero = fallero?.numeroFallero ?? fallero?.memberNumber ?? fallero?.numero ?? null
+
+  const savePhone = async (val) => {
+    setSavingPhone(true)
     try {
-      await updateDoc(doc(db, 'falleros', userId), { telefono: phone.trim() })
-      onUpdate({ telefono: phone.trim() })
-      setEditPhone(false)
-    } finally { setSaving(false) }
+      await updateDoc(doc(db, 'falleros', userId), { telefono: val.trim() })
+      onUpdate({ telefono: val.trim() })
+    } finally { setSavingPhone(false) }
+  }
+
+  const saveNumero = async (val) => {
+    const n = parseInt(val, 10)
+    if (!val || isNaN(n) || n < 1) return
+    setSavingNumero(true)
+    try {
+      await updateDoc(doc(db, 'falleros', userId), { numeroFallero: n })
+      onUpdate({ numeroFallero: n })
+    } finally { setSavingNumero(false) }
   }
 
   const age = calcAge(fallero?.fechaNacimiento)
@@ -84,43 +140,31 @@ function ContactSection({ fallero, userId, onUpdate }) {
         <span style={{ fontSize: 14, fontWeight: 700, color: TEXT }}>Contacto</span>
       </div>
 
-      {/* Phone row */}
-      <div style={{ paddingBottom: '0.65rem', marginBottom: '0.65rem', borderBottom: `1px solid ${BORDER}` }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 13, color: TEXT2 }}>Teléfono</span>
-          {!editPhone ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {fallero?.telefono
-                ? <a href={`tel:${fallero.telefono}`} style={{ fontSize: 13, color: TEXT, fontWeight: 600, textDecoration: 'none' }}>{fallero.telefono}</a>
-                : <span style={{ fontSize: 13, color: MUTED }}>Sin teléfono</span>
-              }
-              <button
-                onClick={() => { setPhone(fallero?.telefono ?? ''); setEditPhone(true) }}
-                style={{ fontSize: 11, color: GOLD, background: `${GOLD}14`, border: `1px solid ${GOLD}30`, borderRadius: 8, padding: '3px 8px', cursor: 'pointer', minHeight: 'auto', fontWeight: 700 }}
-              >
-                ✏️
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input
-                autoFocus type="tel"
-                value={phone} onChange={e => setPhone(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && savePhone()}
-                style={{ padding: '6px 10px', background: BG, border: `1.5px solid ${GOLD}50`, borderRadius: 10, fontSize: 13, color: TEXT, outline: 'none', fontFamily: 'inherit', width: 130 }}
-              />
-              <button onClick={savePhone} disabled={saving} style={{ background: GOLD, border: 'none', borderRadius: 8, padding: '6px 8px', cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', minHeight: 'auto' }}>
-                {saving ? <Loader2 size={13} color="white" style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : <Check size={13} color="white" strokeWidth={2.5} />}
-              </button>
-              <button onClick={() => setEditPhone(false)} style={{ background: BORDER, border: 'none', borderRadius: 8, padding: '6px 8px', cursor: 'pointer', display: 'flex', minHeight: 'auto' }}>
-                <X size={13} color={MUTED} />
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
+      {/* Número de fallero */}
+      <EditableRow
+        label="Nº Fallero"
+        displayValue={numFallero != null ? `Nº ${String(numFallero).padStart(3, '0')}` : 'S/N'}
+        editValue={numFallero != null ? String(numFallero) : ''}
+        onSave={saveNumero}
+        saving={savingNumero}
+        inputProps={{ type: 'number', min: '1', inputMode: 'numeric', placeholder: 'Ej: 124', style: { width: 90 } }}
+      />
 
-      {/* Birthdate row */}
+      {/* Teléfono */}
+      <EditableRow
+        label="Teléfono"
+        displayValue={
+          fallero?.telefono
+            ? <a href={`tel:${fallero.telefono}`} style={{ fontSize: 13, color: TEXT, fontWeight: 600, textDecoration: 'none' }}>{fallero.telefono}</a>
+            : <span style={{ color: MUTED }}>Sin teléfono</span>
+        }
+        editValue={fallero?.telefono ?? ''}
+        onSave={savePhone}
+        saving={savingPhone}
+        inputProps={{ type: 'tel', placeholder: '6XX XXX XXX', style: { width: 130 } }}
+      />
+
+      {/* Birthdate (read-only) */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: 13, color: TEXT2 }}>Fecha de nacimiento</span>
         <span style={{ fontSize: 13, color: TEXT, fontWeight: 600 }}>
@@ -777,8 +821,8 @@ function AdminPanel() {
 export default function Profile() {
   const { user, fallero, loading, logout, updateFallero } = useAuth()
 
-  // Support both field names: memberNumber (new) and numero (legacy)
-  const numFallero   = fallero?.memberNumber ?? fallero?.numero ?? null
+  // Support all field name variants across app versions
+  const numFallero   = fallero?.numeroFallero ?? fallero?.memberNumber ?? fallero?.numero ?? null
   const nombre       = fallero ? `${fallero.nombre} ${fallero.apellidos ?? ''}`.trim() : user?.displayName || user?.email?.split('@')[0] || 'Fallero'
   const rol          = fallero?.rol ?? 'fallero'
   const isAdmin      = rol === 'admin'

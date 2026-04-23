@@ -774,7 +774,7 @@ function HomeTab({
         </h1>
         {isAdmin && (
           <span style={{ display: 'inline-block', marginTop: 7, background: `${GOLD}14`, border: `1.5px solid ${GOLD}40`, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: '0.08em' }}>
-            👑 ADMIN · Nº {String(numFallero).padStart(3, '0')}
+            👑 ADMIN{numFallero != null ? ` · Nº ${String(numFallero).padStart(3, '0')}` : ''}
           </span>
         )}
       </div>
@@ -1033,7 +1033,7 @@ export default function Dashboard() {
   }, [cancelTarget, deleting, user?.uid])
 
   const nombre     = fallero ? `${fallero.nombre}${fallero.apellidos ? ' ' + fallero.apellidos : ''}` : user?.displayName || user?.email?.split('@')[0] || 'Fallero'
-  const numFallero = fallero?.numero ?? '—'
+  const numFallero = fallero?.numeroFallero ?? fallero?.memberNumber ?? fallero?.numero ?? null
   const isAdmin    = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
   const {

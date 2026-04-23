@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { User, Phone, AlertCircle, Loader2 } from 'lucide-react'
+import { User, Phone, Hash, AlertCircle, Loader2 } from 'lucide-react'
 import logoFalla from '../assets/logo-falla.png'
 
 const GOLD = '#C9A84C'
@@ -46,11 +46,12 @@ function Field({ icon: Icon, type, value, onChange, placeholder, autoFocus }) {
 
 export default function CompletarPerfil() {
   const { completeProfile, logout } = useAuth()
-  const [nombre,    setNombre]    = useState('')
-  const [apellidos, setApellidos] = useState('')
-  const [telefono,  setTelefono]  = useState('')
-  const [loading,   setLoading]   = useState(false)
-  const [error,     setError]     = useState('')
+  const [nombre,         setNombre]         = useState('')
+  const [apellidos,      setApellidos]      = useState('')
+  const [telefono,       setTelefono]       = useState('')
+  const [numeroFallero,  setNumeroFallero]  = useState('')
+  const [loading,        setLoading]        = useState(false)
+  const [error,          setError]          = useState('')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -58,9 +59,11 @@ export default function CompletarPerfil() {
     if (!nombre.trim())    return setError('El nombre es obligatorio.')
     if (!apellidos.trim()) return setError('Los apellidos son obligatorios.')
     if (!telefono.trim())  return setError('El teléfono es obligatorio.')
+    if (!numeroFallero || isNaN(Number(numeroFallero)) || Number(numeroFallero) < 1)
+      return setError('Introduce un número de fallero válido.')
     setLoading(true)
     try {
-      await completeProfile(nombre, apellidos, telefono)
+      await completeProfile(nombre, apellidos, telefono, numeroFallero)
     } catch (err) {
       setError(err?.message || 'No se pudo guardar el perfil. Inténtalo de nuevo.')
       setLoading(false)
@@ -151,13 +154,33 @@ export default function CompletarPerfil() {
             />
           </div>
 
-          <div style={{ marginBottom: '1.5rem' }}>
+          <div style={{ marginBottom: '1rem' }}>
             <label style={labelStyle}>Teléfono de contacto *</label>
             <Field
               icon={Phone} type="tel"
               value={telefono} onChange={e => setTelefono(e.target.value)}
               placeholder="6XX XXX XXX"
             />
+          </div>
+
+          <div style={{ marginBottom: '1.5rem' }}>
+            <label style={labelStyle}>Número de fallero *</label>
+            <div style={{ position: 'relative' }}>
+              <Hash size={16} style={{
+                position: 'absolute', left: '14px', top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'rgba(255,255,255,0.3)', pointerEvents: 'none',
+              }} />
+              <input
+                type="number" min="1" inputMode="numeric"
+                value={numeroFallero} onChange={e => setNumeroFallero(e.target.value)}
+                placeholder="Ej: 124"
+                required
+                style={{ ...inputBase, MozAppearance: 'textfield' }}
+                onFocus={e => { e.target.style.borderColor = GOLD }}
+                onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)' }}
+              />
+            </div>
           </div>
 
           {error && (

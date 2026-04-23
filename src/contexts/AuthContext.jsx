@@ -86,18 +86,19 @@ export function AuthProvider({ children }) {
     return cred
   }
 
-  const completeProfile = async (nombre, apellidos, telefono) => {
+  const completeProfile = async (nombre, apellidos, telefono, numeroFallero) => {
     const currentUser = auth.currentUser
     if (!currentUser) throw new Error('No autenticado')
     const data = {
-      nombre:     nombre.trim(),
-      apellidos:  apellidos.trim(),
-      email:      currentUser.email,
-      telefono:   telefono.trim(),
-      rol:        'fallero',
-      estaActivo: true,
-      hijos:      [],
-      createdAt:  serverTimestamp(),
+      nombre:         nombre.trim(),
+      apellidos:      apellidos.trim(),
+      email:          currentUser.email,
+      telefono:       telefono.trim(),
+      numeroFallero:  numeroFallero ? Number(numeroFallero) : null,
+      rol:            'fallero',
+      estaActivo:     true,
+      hijos:          [],
+      createdAt:      serverTimestamp(),
     }
     await setDoc(doc(db, 'falleros', currentUser.uid), data)
     setFallero(data)
