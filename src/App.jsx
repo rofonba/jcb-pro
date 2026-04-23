@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from './contexts/AuthContext'
 import Login from './components/Login'
 import Dashboard from './components/Dashboard'
+import CompletarPerfil from './components/CompletarPerfil'
 import SplashScreen from './components/SplashScreen'
 
 function LoadingScreen() {
@@ -23,7 +24,7 @@ function LoadingScreen() {
 }
 
 export default function App() {
-  const { user, loading } = useAuth()
+  const { user, loading, profileMissing } = useAuth()
   const [showSplash, setShowSplash]       = useState(true)
   const [splashVisible, setSplashVisible] = useState(true)
 
@@ -37,7 +38,14 @@ export default function App() {
   return (
     <>
       {showSplash && <SplashScreen visible={splashVisible} />}
-      {loading ? <LoadingScreen /> : (user ? <Dashboard /> : <Login />)}
+      {loading
+        ? <LoadingScreen />
+        : user && profileMissing
+          ? <CompletarPerfil />
+          : user
+            ? <Dashboard />
+            : <Login />
+      }
     </>
   )
 }

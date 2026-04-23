@@ -11,9 +11,10 @@ import { auth, db, authReady } from '../firebase'
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [user, setUser]       = useState(null)
-  const [fallero, setFallero] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser]                   = useState(null)
+  const [fallero, setFallero]             = useState(null)
+  const [loading, setLoading]             = useState(true)
+  const [profileMissing, setProfileMissing] = useState(false)
 
   useEffect(() => {
     let unsubscribe = () => {}
@@ -27,13 +28,21 @@ export function AuthProvider({ children }) {
           setUser(firebaseUser)
           try {
             const snap = await getDoc(doc(db, 'falleros', firebaseUser.uid))
-            setFallero(snap.exists() ? snap.data() : null)
+            if (snap.exists()) {
+              setFallero(snap.data())
+              setProfileMissing(false)
+            } else {
+              setFallero(null)
+              setProfileMissing(true)
+            }
           } catch {
-            // Network error — keep user logged in, fallero data stays null
+            // Network error — keep user logged in, don't block access
+            setProfileMissing(false)
           }
         } else {
           setUser(null)
           setFallero(null)
+          setProfileMissing(false)
         }
         setLoading(false)
       })
@@ -48,11 +57,13 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     const cred = await signInWithEmailAndPassword(auth, email, password)
     const snap = await getDoc(doc(db, 'falleros', cred.user.uid))
-    if (!snap.exists()) {
-      await signOut(auth)
-      throw new Error('Cuenta no encontrada. Regístrate o contacta con la comisión.')
+    if (snap.exists()) {
+      setFallero(snap.data())
+      setProfileMissing(false)
+    } else {
+      setFallero(null)
+      setProfileMissing(true)
     }
-    setFallero(snap.data())
     return cred
   }
 
@@ -71,7 +82,26 @@ export function AuthProvider({ children }) {
     }
     await setDoc(doc(db, 'falleros', cred.user.uid), data)
     setFallero(data)
+    setProfileMissing(false)
     return cred
+  }
+
+  const completeProfile = async (nombre, apellidos, telefono) => {
+    const currentUser = auth.currentUser
+    if (!currentUser) throw new Error('No autenticado')
+    const data = {
+      nombre:     nombre.trim(),
+      apellidos:  apellidos.trim(),
+      email:      currentUser.email,
+      telefono:   telefono.trim(),
+      rol:        'fallero',
+      estaActivo: true,
+      hijos:      [],
+      createdAt:  serverTimestamp(),
+    }
+    await setDoc(doc(db, 'falleros', currentUser.uid), data)
+    setFallero(data)
+    setProfileMissing(false)
   }
 
   const updateFallero = (patch) => setFallero(prev => ({ ...prev, ...patch }))
@@ -79,7 +109,7 @@ export function AuthProvider({ children }) {
   const logout = () => signOut(auth)
 
   return (
-    <AuthContext.Provider value={{ user, fallero, loading, login, register, logout, updateFallero }}>
+    <AuthContext.Provider value={{ user, fallero, loading, profileMissing, login, register, logout, updateFallero, completeProfile }}>
       {children}
     </AuthContext.Provider>
   )
