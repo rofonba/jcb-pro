@@ -42,13 +42,25 @@ export default async function handler(req, res) {
     if (!title) return res.status(400).json({ error: 'Falta el título' })
 
     // Fetch all falleros that have a registered FCM token
-    const snap      = await db.collection('falleros').where('fcmToken', '!=', null).get()
-    const tokenDocs = snap.docs
+    const snap     = await db.collection('falleros').where('fcmToken', '!=', null).get()
+    const allDocs  = snap.docs
       .map(d => ({ uid: d.id, token: d.data().fcmToken }))
       .filter(d => d.token)
 
-    if (!tokenDocs.length) return res.json({ sent: 0, failed: 0 })
+    if (!allDocs.length) return res.json({ sent: 0, failed: 0 })
 
+    // Deduplicate: keep only the first occurrence of each token value.
+    // The same physical device token can appear in more than one fallero doc
+    // (e.g. after a DB wipe + re-register), which would deliver the notification
+    // multiple times to the same device.
+    const seen      = new Set()
+    const tokenDocs = allDocs.filter(d => {
+      if (seen.has(d.token)) return false
+      seen.add(d.token)
+      return true
+    })
+
+    // Single multicast call — never inside a loop.
     const result = await getMessaging(app).sendEachForMulticast({
       tokens: tokenDocs.map(d => d.token),
       notification: { title, body: body ?? '' },
