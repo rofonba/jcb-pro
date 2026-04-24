@@ -7,6 +7,8 @@ import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { X, Users, Phone, Edit2, Download, Trash2, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
 import { RegistrationModal, EventFormModal, CancelConfirmModal, DeleteEventModal } from './EventList'
+import { getDirectImageUrl } from '../utils/imageUtils'
+import logoFalla from '../assets/logo-falla.png'
 
 const GOLD   = '#D4AF37'
 const BG     = '#F9FAFB'
@@ -63,6 +65,17 @@ export default function DetalleEvento({ eventId, onClose, onRegistered, onCancel
   const [phones,           setPhones]           = useState({})
   const [loadingPhones,    setLoadingPhones]    = useState(false)
   const [deleting,         setDeleting]         = useState(false)
+  const [imgError,         setImgError]         = useState(false)
+
+  const imgSrc = event ? getDirectImageUrl(event.imagenUrl) : null
+
+  // Log the URL being attempted whenever it changes
+  useEffect(() => {
+    if (imgSrc) console.log('Cargando imagen de:', imgSrc)
+  }, [imgSrc])
+
+  // Reset error state if the URL is updated (e.g. admin edits the event)
+  useEffect(() => { setImgError(false) }, [imgSrc])
 
   const seenRef = useRef(false)
 
@@ -255,11 +268,18 @@ export default function DetalleEvento({ eventId, onClose, onRegistered, onCancel
 
               {/* Image */}
               {event.imagenUrl && (
-                <img
-                  src={event.imagenUrl}
-                  alt={event.titulo}
-                  style={{ width: '100%', height: 200, objectFit: 'cover', borderRadius: 16, marginBottom: 14, border: `1.5px solid ${BORDER}` }}
-                />
+                imgError ? (
+                  <div style={{ width: '100%', height: 200, borderRadius: 16, marginBottom: 14, border: `1.5px solid ${BORDER}`, background: 'linear-gradient(135deg, #1c0509 0%, #080818 60%, #0d0d20 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                    <img src={logoFalla} alt="" style={{ width: 80, opacity: 0.2, filter: 'grayscale(1)', pointerEvents: 'none' }} />
+                  </div>
+                ) : (
+                  <img
+                    src={imgSrc}
+                    alt={event.titulo}
+                    style={{ width: '100%', height: 200, objectFit: 'cover', borderRadius: 16, marginBottom: 14, border: `1.5px solid ${BORDER}` }}
+                    onError={() => setImgError(true)}
+                  />
+                )
               )}
 
               {/* Meta */}

@@ -11,6 +11,8 @@ import {
   X, Check, AlertCircle, Loader2, BarChart2, Pencil, Trash2,
 } from 'lucide-react'
 import AdminEventControl from './AdminEventControl'
+import { getDirectImageUrl } from '../utils/imageUtils'
+import logoFalla from '../assets/logo-falla.png'
 
 const GOLD  = '#D4AF37'
 const RED   = '#CE1126'
@@ -72,11 +74,14 @@ function Overlay({ children, onClose, scrollable = false }) {
 
 // ─── Event card ───────────────────────────────────────────────────────────────
 function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEditPress, onCancelPress, onDeletePress, index = 0, liveCount = 0 }) {
+  const [imgError, setImgError] = useState(false)
   const t        = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
   const ocupadas = liveCount > 0 ? liveCount : (event.plazasOcupadas ?? 0)
   const pct      = event.plazasTotal ? Math.min(100, (ocupadas / event.plazasTotal) * 100) : null
   const isFull   = event.plazasTotal && ocupadas >= event.plazasTotal && !isRegistered
-  const hasBanner = Boolean(event.imagenUrl)
+  const imgSrc   = getDirectImageUrl(event.imagenUrl)
+  if (imgSrc) console.log('Cargando imagen de:', imgSrc)
+  const hasBanner = Boolean(imgSrc)
 
   const metaRows = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.28rem', marginBottom: '0.65rem' }}>
@@ -162,13 +167,19 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
         /* ── Concert / Roig Arena style ───────────────────────── */
         <>
           <div style={{ position: 'relative', aspectRatio: '16/9', overflow: 'hidden' }}>
-            {/* Image fills 16:9 */}
-            <img
-              src={event.imagenUrl} alt={event.titulo}
-              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-              onError={e => { e.target.closest('[data-concert]').style.display = 'none' }}
-            />
-            {/* Dark gradient — starts at 40%, fully dark by bottom */}
+            {/* Image or fallback gradient */}
+            {imgError ? (
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, #1c0509 0%, #080818 60%, #0d0d20 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <img src={logoFalla} alt="" style={{ width: 72, opacity: 0.18, filter: 'grayscale(1)', pointerEvents: 'none' }} />
+              </div>
+            ) : (
+              <img
+                src={imgSrc} alt={event.titulo}
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                onError={() => setImgError(true)}
+              />
+            )}
+            {/* Dark gradient overlay — starts at 40%, fully dark by bottom */}
             <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, transparent 35%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0.96) 100%)', pointerEvents: 'none' }} />
 
             {/* Type badge — top left, floating */}
