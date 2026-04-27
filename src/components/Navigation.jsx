@@ -1,13 +1,13 @@
-import { Home, CalendarDays, Bell, BarChart2, User } from 'lucide-react'
+import { Home, CalendarDays, BarChart2, User, Users } from 'lucide-react'
 
 const GOLD = '#D4AF37'
 
 const NAV = [
-  { key: 'home',        Icon: Home,        label: 'Inicio'    },
-  { key: 'calendario',  Icon: CalendarDays, label: 'Calendario' },
-  { key: 'avisos',      Icon: Bell,        label: 'Avisos'    },
-  { key: 'votaciones',  Icon: BarChart2,   label: 'Votos'     },
-  { key: 'perfil',      Icon: User,        label: 'Perfil'    },
+  { key: 'home',         Icon: Home,        label: 'Inicio'       },
+  { key: 'delegaciones', Icon: Users,       label: 'Delegaciones' },
+  { key: 'calendario',   Icon: CalendarDays, label: 'Calendario'  },
+  { key: 'votaciones',   Icon: BarChart2,   label: 'Votos'        },
+  { key: 'perfil',       Icon: User,        label: 'Perfil'       },
 ]
 
 const INACTIVE = 'rgba(255,255,255,0.38)'
@@ -45,19 +45,6 @@ export default function Navigation({ active, onChange, unreadAvisos = 0 }) {
               style={{ animation: isActive ? 'falla-navPop 0.32s ease-out' : 'none', position: 'relative' }}
             >
               <Icon size={22} strokeWidth={isActive ? 2.2 : 1.6} />
-              {key === 'avisos' && unreadAvisos > 0 && (
-                <span style={{
-                  position: 'absolute', top: '-4px', right: '-6px',
-                  background: '#CE1126', color: 'white',
-                  fontSize: '0.5rem', fontWeight: '800',
-                  borderRadius: '100px', padding: '1px 4px',
-                  minWidth: '14px', textAlign: 'center',
-                  lineHeight: 1.4,
-                  boxShadow: '0 0 0 1.5px rgba(30,41,59,0.97)',   /* badge pop on dark bg */
-                }}>
-                  {unreadAvisos > 9 ? '9+' : unreadAvisos}
-                </span>
-              )}
             </div>
             <span style={{
               fontSize: '0.6rem',

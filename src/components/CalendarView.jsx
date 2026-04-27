@@ -14,6 +14,7 @@ const MUTED = '#9CA3AF'
 const BORDER = '#F3F4F6'
 const BG    = '#F9FAFB'
 const RED   = '#CE1126'
+const GREEN = '#10b981'
 
 const EVENT_TYPES = {
   comida:  { emoji: '🍽️', label: 'Comida',  color: GOLD },
@@ -78,6 +79,7 @@ export default function CalendarView() {
   const [events, setEvents]               = useState([])
   const [loading, setLoading]             = useState(true)
   const [registeredIds, setRegisteredIds] = useState(new Set())
+  const [inscCountMap, setInscCountMap]   = useState({})
   const [viewDate, setViewDate]           = useState(() => {
     const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1)
   })
@@ -108,6 +110,17 @@ export default function CalendarView() {
       .catch(() => {})
   }, [user?.uid])
 
+  useEffect(() => {
+    return onSnapshot(collection(db, 'inscripciones'), snap => {
+      const map = {}
+      for (const d of snap.docs) {
+        const { eventId, totalPersonas } = d.data()
+        if (eventId) map[eventId] = (map[eventId] ?? 0) + (totalPersonas ?? 1)
+      }
+      setInscCountMap(map)
+    })
+  }, [])
+
   const year    = viewDate.getFullYear()
   const month   = viewDate.getMonth()
   const calDays = useMemo(() => buildCalendarDays(year, month), [year, month])
@@ -124,6 +137,16 @@ export default function CalendarView() {
     }
     return map
   }, [events])
+
+  const regDays = useMemo(() => {
+    const s = new Set()
+    for (const ev of events) {
+      if (!registeredIds.has(ev.id) || !ev.fecha) continue
+      const d = ev.fecha?.toDate ? ev.fecha.toDate() : new Date(ev.fecha)
+      s.add(toKey(d))
+    }
+    return s
+  }, [events, registeredIds])
 
   const filterTypes = useMemo(() => {
     if (activeFilters.size === 0) return null
@@ -229,6 +252,20 @@ export default function CalendarView() {
           ))}
         </div>
 
+        {/* Legend */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 18, marginBottom: 10 }}>
+          {[
+            { symbol: '🔵', label: 'Actos/Eventos' },
+            { symbol: '✅', label: 'Apuntado'       },
+            { symbol: '🚩', label: 'Festivos'       },
+          ].map(({ symbol, label }) => (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 11 }}>{symbol}</span>
+              <span style={{ fontSize: 10, color: MUTED, fontWeight: 500 }}>{label}</span>
+            </div>
+          ))}
+        </div>
+
         {/* Grid */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
           {calDays.map((date, i) => {
@@ -237,6 +274,7 @@ export default function CalendarView() {
             const isToday    = key === todayKey
             const isSelected = selectedDay && toKey(selectedDay) === key
             const hasEvents  = (eventsByDay[key]?.length ?? 0) > 0
+            const isReg      = regDays.has(key)
             const dow        = date.getDay()
             const isWeekend  = isCurrentMonth && (dow === 0 || dow === 6)
             const isHoliday  = isCurrentMonth && HOLIDAYS_ES.has(key)
@@ -275,7 +313,7 @@ export default function CalendarView() {
                 </span>
                 <div style={{
                   width: 4, height: 4, borderRadius: '50%',
-                  background: hasEvents ? (isSelected ? WHITE : GOLD) : 'transparent',
+                  background: hasEvents ? (isSelected ? WHITE : isReg ? GREEN : GOLD) : 'transparent',
                 }} />
               </button>
             )
@@ -360,7 +398,7 @@ export default function CalendarView() {
             {displayedEvents.map(ev => {
               const t        = EVENT_TYPES[ev.tipo] ?? EVENT_TYPES.otro
               const isReg    = registeredIds.has(ev.id)
-              const ocupadas = ev.plazasOcupadas ?? 0
+              const ocupadas = inscCountMap[ev.id] ?? ev.plazasOcupadas ?? 0
               const isFull   = ev.plazasTotal && ocupadas >= ev.plazasTotal && !isReg
 
               return (

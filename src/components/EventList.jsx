@@ -885,7 +885,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
   const isPrivileged = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
   const [form, setForm] = useState(() => {
-    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', lugar: '', precio: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false }
+    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', lugar: '', precio: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: '' }
     const d = editEvent.fecha?.toDate ? editEvent.fecha.toDate() : editEvent.fecha ? new Date(editEvent.fecha) : null
     const pad = n => String(n).padStart(2, '0')
     return {
@@ -901,6 +901,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
       videoUrl:    editEvent.videoUrl ?? '',
       menu:        editEvent.menu ?? '',
       notificar:   editEvent.notificar ?? false,
+      delegacion:  editEvent.delegacion ?? '',
     }
   })
   const [loading,       setLoading]       = useState(false)
@@ -945,6 +946,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
         menu:        (['comida', 'cena'].includes(form.tipo)) ? (form.menu.trim() || null) : null,
         notificar:   isPrivileged ? Boolean(form.notificar) : false,
         timestampNotificacion: isPrivileged && form.notificar ? serverTimestamp() : null,
+        delegacion:  form.delegacion || null,
       }
       if (isEditing) {
         await updateDoc(doc(db, 'eventos', editEvent.id), payload)
@@ -987,13 +989,24 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
           <label style={sharedLabel}>Título *</label>
           <input required style={sharedInput} value={form.titulo} onChange={e => set('titulo', e.target.value)} placeholder="Ej: Paella de la Falla" onFocus={fg} onBlur={fb} />
         </div>
-        <div>
-          <label style={sharedLabel}>Tipo</label>
-          <select value={form.tipo} onChange={e => set('tipo', e.target.value)} style={{ ...sharedInput, cursor: 'pointer' }}>
-            {Object.entries(EVENT_TYPES).map(([k, v]) => (
-              <option key={k} value={k} style={{ background: CARD }}>{v.emoji} {v.label}</option>
-            ))}
-          </select>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+          <div>
+            <label style={sharedLabel}>Tipo</label>
+            <select value={form.tipo} onChange={e => set('tipo', e.target.value)} style={{ ...sharedInput, cursor: 'pointer' }}>
+              {Object.entries(EVENT_TYPES).map(([k, v]) => (
+                <option key={k} value={k} style={{ background: CARD }}>{v.emoji} {v.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={sharedLabel}>Delegación</label>
+            <select value={form.delegacion} onChange={e => set('delegacion', e.target.value)} style={{ ...sharedInput, cursor: 'pointer' }}>
+              <option value="" style={{ background: CARD }}>— General —</option>
+              {['Baile','Deportes','Falla','Festejos','Infantiles','Perchero','Protocolo'].map(d => (
+                <option key={d} value={d} style={{ background: CARD }}>{d}</option>
+              ))}
+            </select>
+          </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
           <div>

@@ -12,6 +12,7 @@ import Navigation from './Navigation'
 import Votaciones from './Votaciones'
 import AdminMetrics from './AdminMetrics'
 import DetalleEvento from './DetalleEvento'
+import Delegaciones from './Delegaciones'
 import { RegistrationModal, SuccessToast, CancelConfirmModal } from './EventList'
 import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X, Loader2, Trash2 } from 'lucide-react'
 import logoFalla from '../assets/logo-falla.png'
@@ -483,9 +484,10 @@ function AnnCard({ ann, isAdmin = false, onDelete }) {
 
 // ─── Admin shortcuts ──────────────────────────────────────────────────────────
 
-function AdminShortcuts({ onNavigate, onMetrics }) {
+function AdminShortcuts({ onNavigate, onMetrics, onCreateAviso }) {
   const shortcuts = [
     { icon: '➕', label: 'Crear Evento', action: () => onNavigate('calendario') },
+    { icon: '📢', label: 'Crear Aviso',  action: onCreateAviso                  },
     { icon: '📋', label: 'Inscritos',    action: () => onNavigate('perfil')     },
     { icon: '📊', label: 'Métricas',     action: onMetrics                      },
   ]
@@ -497,9 +499,9 @@ function AdminShortcuts({ onNavigate, onMetrics }) {
           Herramientas Admin
         </span>
       </div>
-      <div style={{ display: 'flex', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         {shortcuts.map(({ icon, label, action }) => (
-          <button key={label} onClick={action} style={{ flex: 1, background: WHITE, border: `1.5px solid ${GOLD}30`, borderRadius: 14, padding: '12px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, cursor: 'pointer', minHeight: 'auto', transition: 'border-color 0.15s' }}
+          <button key={label} onClick={action} style={{ background: WHITE, border: `1.5px solid ${GOLD}30`, borderRadius: 14, padding: '12px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, cursor: 'pointer', minHeight: 'auto', transition: 'border-color 0.15s' }}
             onTouchStart={e => e.currentTarget.style.borderColor = GOLD}
             onTouchEnd={e => e.currentTarget.style.borderColor = `${GOLD}30`}
           >
@@ -725,7 +727,7 @@ function HomeTab({
   nombre, numFallero, isAdmin,
   announcements, loadingAnns,
   events, registeredIds, inscCountMap,
-  onNavigate, onMetrics,
+  onNavigate, onMetrics, onCreateAviso,
   onEventPress, onCancelPress, onDetailPress,
   unreadCount,
   pushPermission, pushTokenSaved, pushLoading, onEnablePush,
@@ -780,9 +782,6 @@ function HomeTab({
         )}
       </div>
 
-      {/* ── Hero Calendar (full-bleed, ~half page) ───────────────── */}
-      <HeroCalendar events={events} registeredIds={registeredIds} onNavigate={onNavigate} />
-
       {/* ── 4 Action Buttons ─────────────────────────────────────── */}
       <div style={{ padding: '20px 20px 0' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -802,7 +801,7 @@ function HomeTab({
             onClick={() => onNavigate('calendario')}
           />
           <ActionButton
-            icon="📢" label="Noticias"
+            icon="📢" label="Avisos"
             onClick={() => onNavigate('avisos')}
             badge={unreadCount}
           />
@@ -843,7 +842,7 @@ function HomeTab({
         }
 
         {/* Admin shortcuts */}
-        {isAdmin && <AdminShortcuts onNavigate={onNavigate} onMetrics={onMetrics} />}
+        {isAdmin && <AdminShortcuts onNavigate={onNavigate} onMetrics={onMetrics} onCreateAviso={onCreateAviso} />}
 
         {/* Fallas countdown */}
         <FallasCountdown />
@@ -854,8 +853,8 @@ function HomeTab({
 
 // ─── Avisos Tab ───────────────────────────────────────────────────────────────
 
-function AvisosTab({ announcements, loading, isAdmin }) {
-  const [showForm,   setShowForm]   = useState(false)
+function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false }) {
+  const [showForm,   setShowForm]   = useState(initialShowForm)
   const [titulo,     setTitulo]     = useState('')
   const [cuerpo,     setCuerpo]     = useState('')
   const [esUrgente,  setEsUrgente]  = useState(false)
@@ -979,11 +978,12 @@ export default function Dashboard() {
   const [events, setEvents]               = useState([])
   const [registeredIds, setRegisteredIds] = useState(new Set())
   const [inscCountMap, setInscCountMap]   = useState({})
-  const [selectedEvent, setSelectedEvent] = useState(null)
-  const [cancelTarget, setCancelTarget]   = useState(null)
-  const [deleting, setDeleting]           = useState(false)
-  const [toast, setToast]                 = useState(null)
-  const [detailEventId, setDetailEventId] = useState(null)
+  const [selectedEvent, setSelectedEvent]     = useState(null)
+  const [cancelTarget, setCancelTarget]       = useState(null)
+  const [deleting, setDeleting]               = useState(false)
+  const [toast, setToast]                     = useState(null)
+  const [detailEventId, setDetailEventId]     = useState(null)
+  const [openAvisosForm, setOpenAvisosForm]   = useState(false)
 
   useEffect(() => {
     const q = query(collection(db, 'anuncios'), orderBy('createdAt', 'desc'), limit(10))
@@ -1018,8 +1018,14 @@ export default function Dashboard() {
   }, [])
 
   const handleTabChange = (tab) => {
-    if (tab === 'avisos') { markAvisosRead(); setLastReadTs(Date.now()) }
+    if (tab === 'avisos') { markAvisosRead(); setLastReadTs(Date.now()); setOpenAvisosForm(false) }
     setActiveTab(tab)
+  }
+
+  const handleCreateAviso = () => {
+    markAvisosRead(); setLastReadTs(Date.now())
+    setOpenAvisosForm(true)
+    setActiveTab('avisos')
   }
 
   const handleRegistered = useCallback((eventId) => {
@@ -1104,6 +1110,7 @@ export default function Dashboard() {
             events={events} registeredIds={registeredIds} inscCountMap={inscCountMap}
             onNavigate={handleTabChange}
             onMetrics={() => setShowMetrics(true)}
+            onCreateAviso={handleCreateAviso}
             onEventPress={setSelectedEvent}
             onCancelPress={setCancelTarget}
             onDetailPress={setDetailEventId}
@@ -1114,10 +1121,11 @@ export default function Dashboard() {
             onEnablePush={enablePush}
           />
         )}
-        {activeTab === 'calendario'  && <CalendarView />}
-        {activeTab === 'avisos'      && <AvisosTab announcements={announcements} loading={loadingAnns} isAdmin={isAdmin} />}
-        {activeTab === 'votaciones'  && <Votaciones userId={user?.uid} isAdmin={isAdmin} />}
-        {activeTab === 'perfil'      && <Profile />}
+        {activeTab === 'calendario'   && <CalendarView />}
+        {activeTab === 'avisos'       && <AvisosTab announcements={announcements} loading={loadingAnns} isAdmin={isAdmin} initialShowForm={openAvisosForm} />}
+        {activeTab === 'delegaciones' && <Delegaciones isAdmin={isAdmin} />}
+        {activeTab === 'votaciones'   && <Votaciones userId={user?.uid} isAdmin={isAdmin} />}
+        {activeTab === 'perfil'       && <Profile />}
       </main>
 
       <Navigation active={activeTab} onChange={handleTabChange} unreadAvisos={unreadCount} />
