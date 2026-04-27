@@ -879,13 +879,13 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
 }
 
 // ─── Admin event form (create & edit) ────────────────────────────────────────
-function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
+function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDelegacion = 'General' }) {
   const isEditing = !!editEvent
   const { fallero } = useAuth()
   const isPrivileged = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
   const [form, setForm] = useState(() => {
-    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', lugar: '', precio: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: 'General' }
+    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', lugar: '', precio: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: initialDelegacion }
     const d = editEvent.fecha?.toDate ? editEvent.fecha.toDate() : editEvent.fecha ? new Date(editEvent.fecha) : null
     const pad = n => String(n).padStart(2, '0')
     return {
