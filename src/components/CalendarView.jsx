@@ -72,7 +72,63 @@ function fmtTime(f) {
   return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
 }
 
-export default function CalendarView() {
+function DayPickerModal({ date, events, onSelect, onClose }) {
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.42)', zIndex: 88, backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)' }}
+      />
+      <div style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 89,
+        background: WHITE, borderRadius: '24px 24px 0 0',
+        padding: '12px 20px calc(32px + env(safe-area-inset-bottom))',
+        animation: 'falla-slideUp 0.25s ease-out',
+        maxHeight: '70dvh', overflowY: 'auto',
+      }}>
+        <div style={{ width: 36, height: 4, background: BORDER, borderRadius: 2, margin: '0 auto 14px' }} />
+        <p style={{ margin: '0 0 14px', fontSize: 12, fontWeight: 700, color: MUTED, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          {date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
+          {' · '}{events.length} actos
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {events.map(ev => {
+            const t = EVENT_TYPES[ev.tipo] ?? EVENT_TYPES.otro
+            return (
+              <button
+                key={ev.id}
+                onClick={() => onSelect(ev.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '12px 14px',
+                  background: BG, border: `1.5px solid ${BORDER}`,
+                  borderRadius: 14, cursor: 'pointer', minHeight: 'auto', textAlign: 'left', width: '100%',
+                  transition: 'border-color 0.12s',
+                }}
+                onTouchStart={e => e.currentTarget.style.borderColor = t.color}
+                onTouchEnd={e => e.currentTarget.style.borderColor = BORDER}
+              >
+                <div style={{ width: 40, height: 40, flexShrink: 0, background: `${t.color}14`, border: `1px solid ${t.color}22`, borderRadius: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+                  {t.emoji}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: TEXT, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                    {ev.titulo}
+                  </p>
+                  {fmtTime(ev.fecha) && (
+                    <p style={{ margin: '2px 0 0', fontSize: 11, color: TEXT2 }}>{fmtTime(ev.fecha)}</p>
+                  )}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </>
+  )
+}
+
+export default function CalendarView({ onDetailPress }) {
   const { user, fallero } = useAuth()
   const isAdmin = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
@@ -84,6 +140,7 @@ export default function CalendarView() {
     const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1)
   })
   const [selectedDay, setSelectedDay]     = useState(null)
+  const [dayPicker, setDayPicker]         = useState(null) // { date, events }
   const [activeFilters, setActiveFilters] = useState(new Set())
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [adminEvent, setAdminEvent]       = useState(null)
@@ -166,7 +223,16 @@ export default function CalendarView() {
   })
 
   const handleDayClick = (date) => {
-    setSelectedDay(prev => prev && toKey(prev) === toKey(date) ? null : date)
+    const key = toKey(date)
+    const evs = (filterTypes
+      ? (eventsByDay[key] ?? []).filter(ev => filterTypes.has(ev.tipo))
+      : (eventsByDay[key] ?? []))
+    setSelectedDay(prev => prev && toKey(prev) === key ? null : date)
+    if (evs.length === 1) {
+      onDetailPress?.(evs[0].id)
+    } else if (evs.length > 1) {
+      setDayPicker({ date, events: evs })
+    }
   }
 
   const handleRegistered = useCallback((eventId) => {
@@ -619,6 +685,14 @@ export default function CalendarView() {
           onConfirm={handleConfirmDelete}
           onCancel={() => !deletingEvt && setDeleteTarget(null)}
           deleting={deletingEvt}
+        />
+      )}
+      {dayPicker && (
+        <DayPickerModal
+          date={dayPicker.date}
+          events={dayPicker.events}
+          onSelect={(evId) => { setDayPicker(null); onDetailPress?.(evId) }}
+          onClose={() => setDayPicker(null)}
         />
       )}
     </div>

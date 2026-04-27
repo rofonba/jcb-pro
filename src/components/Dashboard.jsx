@@ -853,11 +853,14 @@ function HomeTab({
 
 // ─── Avisos Tab ───────────────────────────────────────────────────────────────
 
+const DELEGACION_OPTS = ['General','Baile','Deportes','Falla','Festejos','Infantiles','Perchero','Protocolo']
+
 function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false }) {
   const [showForm,   setShowForm]   = useState(initialShowForm)
   const [titulo,     setTitulo]     = useState('')
   const [cuerpo,     setCuerpo]     = useState('')
   const [esUrgente,  setEsUrgente]  = useState(false)
+  const [delegacion, setDelegacion] = useState('General')
   const [saving,     setSaving]     = useState(false)
   const [formError,  setFormError]  = useState('')
 
@@ -870,6 +873,7 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
         titulo:    titulo.trim(),
         cuerpo:    cuerpo.trim() || null,
         esUrgente,
+        delegacion,
         createdAt: serverTimestamp(),
       })
       if (esUrgente) {
@@ -878,7 +882,7 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
           cuerpo.trim() || 'Nuevo aviso urgente de la Falla.',
         ).catch(() => {})
       }
-      setTitulo(''); setCuerpo(''); setEsUrgente(false); setShowForm(false)
+      setTitulo(''); setCuerpo(''); setEsUrgente(false); setDelegacion('General'); setShowForm(false)
     } catch (err) {
       setFormError(err?.message || 'Error al publicar el aviso.')
     } finally { setSaving(false) }
@@ -927,10 +931,21 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
             value={cuerpo} onChange={e => setCuerpo(e.target.value)}
             placeholder="Mensaje (opcional)"
             rows={3}
-            style={{ ...inputStyle, resize: 'vertical', marginBottom: 14 }}
+            style={{ ...inputStyle, resize: 'vertical', marginBottom: 10 }}
             onFocus={e => e.target.style.borderColor = GOLD}
             onBlur={e => e.target.style.borderColor = BORDER}
           />
+          <div style={{ marginBottom: 14 }}>
+            <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: TEXT2 }}>Delegación</p>
+            <select
+              value={delegacion} onChange={e => setDelegacion(e.target.value)}
+              style={{ ...inputStyle, cursor: 'pointer' }}
+              onFocus={e => e.target.style.borderColor = GOLD}
+              onBlur={e => e.target.style.borderColor = BORDER}
+            >
+              {DELEGACION_OPTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
           {/* Urgency toggle */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: esUrgente ? 'rgba(206,17,38,0.04)' : BG, border: `1.5px solid ${esUrgente ? 'rgba(206,17,38,0.32)' : BORDER}`, borderRadius: 12, marginBottom: 16, transition: 'all 0.2s' }}>
             <div>
@@ -1121,7 +1136,7 @@ export default function Dashboard() {
             onEnablePush={enablePush}
           />
         )}
-        {activeTab === 'calendario'   && <CalendarView />}
+        {activeTab === 'calendario'   && <CalendarView onDetailPress={setDetailEventId} />}
         {activeTab === 'avisos'       && <AvisosTab announcements={announcements} loading={loadingAnns} isAdmin={isAdmin} initialShowForm={openAvisosForm} />}
         {activeTab === 'delegaciones' && <Delegaciones isAdmin={isAdmin} />}
         {activeTab === 'votaciones'   && <Votaciones userId={user?.uid} isAdmin={isAdmin} />}

@@ -885,7 +885,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
   const isPrivileged = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
   const [form, setForm] = useState(() => {
-    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', lugar: '', precio: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: '' }
+    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', lugar: '', precio: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: 'General' }
     const d = editEvent.fecha?.toDate ? editEvent.fecha.toDate() : editEvent.fecha ? new Date(editEvent.fecha) : null
     const pad = n => String(n).padStart(2, '0')
     return {
@@ -901,7 +901,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
       videoUrl:    editEvent.videoUrl ?? '',
       menu:        editEvent.menu ?? '',
       notificar:   editEvent.notificar ?? false,
-      delegacion:  editEvent.delegacion ?? '',
+      delegacion:  editEvent.delegacion ?? 'General',
     }
   })
   const [loading,       setLoading]       = useState(false)
@@ -946,7 +946,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
         menu:        (['comida', 'cena'].includes(form.tipo)) ? (form.menu.trim() || null) : null,
         notificar:   isPrivileged ? Boolean(form.notificar) : false,
         timestampNotificacion: isPrivileged && form.notificar ? serverTimestamp() : null,
-        delegacion:  form.delegacion || null,
+        delegacion:  form.delegacion,
       }
       if (isEditing) {
         await updateDoc(doc(db, 'eventos', editEvent.id), payload)
@@ -1001,7 +1001,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null }) {
           <div>
             <label style={sharedLabel}>Delegación</label>
             <select value={form.delegacion} onChange={e => set('delegacion', e.target.value)} style={{ ...sharedInput, cursor: 'pointer' }}>
-              <option value="" style={{ background: CARD }}>— General —</option>
+              <option value="General" style={{ background: CARD }}>General</option>
               {['Baile','Deportes','Falla','Festejos','Infantiles','Perchero','Protocolo'].map(d => (
                 <option key={d} value={d} style={{ background: CARD }}>{d}</option>
               ))}
