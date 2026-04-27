@@ -201,12 +201,12 @@ export default function DetalleEvento({ eventId, onClose, onRegistered, onCancel
       {/* Backdrop */}
       <div
         onClick={onClose}
-        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 90, backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
       />
 
       {/* Bottom sheet */}
       <div style={{
-        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 91,
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 301,
         background: WHITE, borderRadius: '24px 24px 0 0',
         maxHeight: '92dvh', display: 'flex', flexDirection: 'column',
         boxShadow: '0 -8px 40px rgba(0,0,0,0.18)',

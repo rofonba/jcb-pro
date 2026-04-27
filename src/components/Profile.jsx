@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   collection, query, orderBy, getDocs, where,
-  doc, updateDoc, arrayUnion, arrayRemove,
+  doc, updateDoc, arrayUnion, arrayRemove, onSnapshot,
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -754,12 +754,25 @@ function AdminPanel() {
   const [events, setEvents]          = useState([])
   const [loading, setLoading]        = useState(true)
   const [selectedEvent, setSelected] = useState(null)
+  const [inscCountMap, setInscCountMap] = useState({})
 
   useEffect(() => {
     getDocs(query(collection(db, 'eventos'), orderBy('fecha', 'asc')))
       .then(snap => setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
       .catch(() => {})
       .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'inscripciones'), snap => {
+      const map = {}
+      snap.forEach(d => {
+        const { eventId, totalPersonas = 1 } = d.data()
+        if (eventId) map[eventId] = (map[eventId] ?? 0) + totalPersonas
+      })
+      setInscCountMap(map)
+    })
+    return unsub
   }, [])
 
   return (
@@ -800,8 +813,9 @@ function AdminPanel() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: TEXT, marginBottom: 2 }}>{ev.titulo}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Users size={11} color={MUTED} />
-                  <span style={{ fontSize: 11, color: MUTED }}>Ver inscritos y exportar CSV</span>
+                  <Users size={11} color={GOLD} />
+                  <span style={{ fontSize: 11, color: GOLD, fontWeight: 600 }}>{inscCountMap[ev.id] ?? 0} inscritos</span>
+                  <span style={{ fontSize: 11, color: MUTED }}>· Ver lista y CSV</span>
                 </div>
               </div>
               <ChevronRight size={15} color={MUTED} />

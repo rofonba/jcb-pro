@@ -59,7 +59,7 @@ function fmtTime(f) {
 function Overlay({ children, onClose, scrollable = false }) {
   return (
     <div
-      style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 310, background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
       onClick={onClose}
     >
       <div
@@ -1152,7 +1152,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
 function CancelConfirmModal({ event, onConfirm, onCancel, deleting }) {
   return (
     <div
-      style={{ position: 'fixed', inset: 0, zIndex: 150, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 1.5rem' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 310, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 1.5rem' }}
       onClick={!deleting ? onCancel : undefined}
     >
       <div
@@ -1193,7 +1193,7 @@ function CancelConfirmModal({ event, onConfirm, onCancel, deleting }) {
 function DeleteEventModal({ event, onConfirm, onCancel, deleting }) {
   return (
     <div
-      style={{ position: 'fixed', inset: 0, zIndex: 150, background: 'rgba(0,0,0,0.80)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 1.5rem' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 310, background: 'rgba(0,0,0,0.80)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 1.5rem' }}
       onClick={!deleting ? onCancel : undefined}
     >
       <div
@@ -1242,7 +1242,7 @@ function SuccessToast({ message, onDismiss }) {
     return () => clearTimeout(id)
   }, [onDismiss])
   return (
-    <div style={{ position: 'fixed', top: '1rem', left: '50%', transform: 'translateX(-50%)', zIndex: 200, display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.7rem 1.25rem', background: 'rgba(16,185,129,0.14)', border: '1px solid rgba(16,185,129,0.38)', borderRadius: '50px', color: '#6ee7b7', fontSize: '0.85rem', fontWeight: '600', backdropFilter: 'blur(14px)', boxShadow: '0 4px 24px rgba(0,0,0,0.4)', animation: 'falla-slideDown 0.3s ease-out', whiteSpace: 'nowrap' }}>
+    <div style={{ position: 'fixed', top: '1rem', left: '50%', transform: 'translateX(-50%)', zIndex: 320, display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.7rem 1.25rem', background: 'rgba(16,185,129,0.14)', border: '1px solid rgba(16,185,129,0.38)', borderRadius: '50px', color: '#6ee7b7', fontSize: '0.85rem', fontWeight: '600', backdropFilter: 'blur(14px)', boxShadow: '0 4px 24px rgba(0,0,0,0.4)', animation: 'falla-slideDown 0.3s ease-out', whiteSpace: 'nowrap' }}>
       <Check size={15} />
       {message}
     </div>
