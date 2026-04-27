@@ -649,99 +649,147 @@ function AttendeesModal({ event, onClose }) {
   const [loading, setLoading]     = useState(true)
 
   useEffect(() => {
-    getDocs(query(
+    const q = query(
       collection(db, 'inscripciones'),
       where('eventId', '==', event.id),
       orderBy('createdAt', 'asc'),
-    ))
-      .then(snap => setAttendees(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    )
+    const unsub = onSnapshot(q, snap => {
+      setAttendees(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setLoading(false)
+    }, () => setLoading(false))
+    return unsub
   }, [event.id])
 
-  const totalPersonas = attendees.length
+  const totalPersonas = attendees.reduce((s, a) => s + (a.totalPersonas ?? 1), 0)
+
+  const formatFecha = ts => {
+    if (!ts) return ''
+    const d = ts.toDate ? ts.toDate() : new Date(ts)
+    return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  }
+
+  const acompNames = a => {
+    const adultos = (a.acompañantesAdultos ?? []).map(x => x.nombre).filter(Boolean)
+    const ninos   = (a.acompañantesNinos   ?? []).map(x => x.nombre).filter(Boolean)
+    return [...adultos, ...ninos].join(', ') || '—'
+  }
 
   const handleDownload = () => {
-    const rows = [
-      ['Nº Fallero', 'Nombre', 'Miembro', 'Nota'],
-      ...attendees.map(a => [a.numFallero, a.nombre, a.esHijo ? 'Hijo/a' : 'Fallero', a.nota || '']),
-    ]
-    const csv = rows.map(r => r.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const header = ['Nº Orden', 'Nombre', 'Acomp. adultos', 'Acomp. niños', 'Total personas', 'Nota', 'Alergias', 'Teléfono', 'Fecha inscripción', 'Delegación']
+    const rows = attendees.map(a => [
+      a.numeroOrden ?? '',
+      a.nombre ?? '',
+      (a.acompañantesAdultos ?? []).map(x => x.nombre).join(' | '),
+      (a.acompañantesNinos   ?? []).map(x => x.nombre).join(' | '),
+      a.totalPersonas ?? 1,
+      a.nota      ?? '',
+      a.alergias  ?? '',
+      a.telefono  ?? '',
+      formatFecha(a.createdAt),
+      event.delegacion ?? 'General',
+    ])
+    const csv = [header, ...rows].map(r => r.map(esc).join(';')).join('\r\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = `inscritos-${event.titulo.replace(/\s+/g, '-')}.csv`
-    a.click(); URL.revokeObjectURL(url)
+    a.href = url
+    a.download = `inscritos-${event.titulo.replace(/[^a-zA-Z0-9]/g, '-')}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
       onClick={onClose}
     >
       <div
-        style={{ width: '100%', maxWidth: '480px', background: WHITE, borderRadius: '24px 24px 0 0', padding: `1.5rem 1.5rem calc(1.5rem + env(safe-area-inset-bottom))`, animation: 'falla-slideUp 0.25s ease-out', maxHeight: '80dvh', display: 'flex', flexDirection: 'column', boxShadow: '0 -4px 40px rgba(0,0,0,0.15)' }}
+        style={{ width: '100%', maxWidth: '520px', background: WHITE, borderRadius: '24px 24px 0 0', padding: `1.25rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom))`, animation: 'falla-slideUp 0.25s ease-out', maxHeight: '88dvh', display: 'flex', flexDirection: 'column', boxShadow: '0 -4px 40px rgba(0,0,0,0.18)' }}
         onClick={e => e.stopPropagation()}
       >
-        <div style={{ width: 40, height: 4, background: BORDER, borderRadius: 2, margin: '0 auto 1.25rem' }} />
+        {/* Handle */}
+        <div style={{ width: 40, height: 4, background: BORDER, borderRadius: 2, margin: '0 auto 1rem' }} />
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem', flexShrink: 0 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem', flexShrink: 0 }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '800', color: TEXT }}>
-              Inscritos — {event.titulo}
-            </h3>
-            <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: TEXT2 }}>
-              {totalPersonas} {totalPersonas === 1 ? 'persona' : 'personas'}
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '800', color: TEXT }}>{event.titulo}</h3>
+            <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: TEXT2 }}>
+              {loading ? '…' : `${attendees.length} inscripción${attendees.length !== 1 ? 'es' : ''} · ${totalPersonas} persona${totalPersonas !== 1 ? 's' : ''} en total`}
             </p>
           </div>
-          <button onClick={onClose} style={{ background: BORDER, border: 'none', borderRadius: 10, padding: '0.5rem', color: MUTED, display: 'flex', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto' }}>
-            <X size={18} />
+          <button onClick={onClose} style={{ background: BG, border: `1.5px solid ${BORDER}`, borderRadius: 10, padding: '0.45rem', color: MUTED, display: 'flex', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
+            <X size={17} />
           </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', marginBottom: '1rem' }}>
+        {/* Table */}
+        <div style={{ flex: 1, overflowY: 'auto', marginBottom: '0.875rem', borderRadius: 14, border: `1.5px solid ${BORDER}`, overflow: 'hidden' }}>
           {loading ? (
-            <div style={{ textAlign: 'center', padding: '2rem 0' }}>
+            <div style={{ textAlign: 'center', padding: '2.5rem 0' }}>
               <Loader2 size={22} color={GOLD} style={{ animation: 'falla-spin 0.8s linear infinite', display: 'inline-block' }} />
             </div>
           ) : attendees.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '2rem 0', color: MUTED, fontSize: '0.85rem' }}>
+            <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: MUTED, fontSize: '0.85rem' }}>
               Nadie apuntado todavía
             </div>
           ) : (
-            attendees.map(a => (
-              <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 0', borderBottom: `1px solid ${BORDER}` }}>
-                <div style={{ width: 32, height: 32, background: `${GOLD}15`, border: `1px solid ${GOLD}30`, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 14 }}>
-                  {a.esHijo ? '👦' : '👤'}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '0.88rem', fontWeight: '600', color: TEXT }}>{a.nombre}</div>
-                  {a.nota && <div style={{ fontSize: '0.72rem', color: MUTED, marginTop: '0.1rem' }}>{a.nota}</div>}
-                </div>
-                <div style={{ flexShrink: 0 }}>
-                  <span style={{ fontSize: 10, fontWeight: 600, color: a.esHijo ? TEXT2 : GOLD }}>
-                    {a.esHijo ? 'Hijo/a' : `Nº ${String(a.numFallero).padStart(3,'0')}`}
-                  </span>
-                </div>
-              </div>
-            ))
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+              <thead>
+                <tr style={{ background: BG, borderBottom: `1.5px solid ${BORDER}` }}>
+                  {['Nº', 'Nombre', 'Acompañantes', 'Total'].map(h => (
+                    <th key={h} style={{ padding: '9px 10px', textAlign: 'left', fontWeight: 700, color: TEXT2, fontSize: '0.72rem', letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {attendees.map((a, i) => (
+                  <tr key={a.id} style={{ borderBottom: i < attendees.length - 1 ? `1px solid ${BORDER}` : 'none', background: i % 2 === 0 ? WHITE : BG }}>
+                    <td style={{ padding: '9px 10px', color: MUTED, fontWeight: 600, whiteSpace: 'nowrap' }}>{a.numeroOrden ?? i + 1}</td>
+                    <td style={{ padding: '9px 10px', fontWeight: 600, color: TEXT, minWidth: 100 }}>
+                      {a.nombre}
+                      {a.nota && <div style={{ fontSize: '0.68rem', color: MUTED, fontWeight: 400, marginTop: 1 }}>{a.nota}</div>}
+                    </td>
+                    <td style={{ padding: '9px 10px', color: TEXT2, maxWidth: 140, wordBreak: 'break-word' }}>
+                      {(a.acompañantes ?? 0) === 0 ? <span style={{ color: MUTED }}>—</span> : acompNames(a)}
+                    </td>
+                    <td style={{ padding: '9px 10px', whiteSpace: 'nowrap' }}>
+                      <span style={{ background: `${GOLD}18`, color: GOLD, fontWeight: 700, fontSize: '0.75rem', padding: '2px 8px', borderRadius: 20, border: `1px solid ${GOLD}30` }}>
+                        {a.totalPersonas ?? 1}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: `${GOLD}08`, borderTop: `1.5px solid ${BORDER}` }}>
+                  <td colSpan={3} style={{ padding: '8px 10px', fontWeight: 700, color: TEXT, fontSize: '0.78rem' }}>Total personas</td>
+                  <td style={{ padding: '8px 10px' }}>
+                    <span style={{ background: GOLD, color: WHITE, fontWeight: 700, fontSize: '0.78rem', padding: '2px 9px', borderRadius: 20 }}>{totalPersonas}</span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
           )}
         </div>
 
+        {/* CSV button */}
         {!loading && attendees.length > 0 && (
           <button
             onClick={handleDownload}
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-              width: '100%', minHeight: '50px',
+              width: '100%', minHeight: '50px', flexShrink: 0,
               background: `linear-gradient(135deg, ${GOLD}, #8a6f1a)`,
               border: 'none', borderRadius: '14px',
-              color: 'white', fontSize: '0.9rem', fontWeight: '700',
+              color: WHITE, fontSize: '0.9rem', fontWeight: '700',
               cursor: 'pointer', boxShadow: `0 4px 18px ${GOLD}40`,
             }}
           >
             <Download size={17} />
-            Descargar listado CSV
+            📥 Descargar CSV
           </button>
         )}
       </div>
