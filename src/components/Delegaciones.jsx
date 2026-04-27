@@ -30,6 +30,21 @@ const DELEGACIONES = [
 
 const DELEGACION_OPTS = ['General','Baile','Deportes','Falla','Festejos','Infantiles','Perchero','Protocolo']
 
+const DELEGACION_COLORS = {
+  Baile: '#E91E63', Deportes: '#2196F3', Falla: GOLD, Festejos: '#FF9800',
+  Infantiles: '#4CAF50', Perchero: '#9C27B0', Protocolo: '#607D8B', General: '#6B7280',
+}
+
+function renderTextWithLinks(text) {
+  if (!text) return null
+  const parts = text.split(/(https?:\/\/[^\s]+)/g)
+  return parts.map((part, i) =>
+    /^https?:\/\//.test(part)
+      ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" style={{ color: '#2563EB', textDecoration: 'underline', wordBreak: 'break-all' }}>{part}</a>
+      : part
+  )
+}
+
 const EVENT_TYPES = {
   comida:  { emoji: '🍽️', label: 'Comida',  color: GOLD      },
   cena:    { emoji: '🌙', label: 'Cena',    color: '#6366f1' },
@@ -118,6 +133,7 @@ function AvisoFormSheet({ initialDelegacion, onClose, onCreated }) {
   const [cuerpo,     setCuerpo]     = useState('')
   const [esUrgente,  setEsUrgente]  = useState(false)
   const [delegacion, setDelegacion] = useState(initialDelegacion)
+  const [enlace,     setEnlace]     = useState('')
   const [saving,     setSaving]     = useState(false)
   const [error,      setError]      = useState('')
 
@@ -131,6 +147,7 @@ function AvisoFormSheet({ initialDelegacion, onClose, onCreated }) {
         cuerpo:    cuerpo.trim() || null,
         esUrgente,
         delegacion,
+        enlace:    enlace.trim() || null,
         createdAt: serverTimestamp(),
       })
       onCreated()
@@ -176,16 +193,28 @@ function AvisoFormSheet({ initialDelegacion, onClose, onCreated }) {
             onFocus={e => e.target.style.borderColor = GOLD}
             onBlur={e => e.target.style.borderColor = BORDER}
           />
-          <div>
-            <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: TEXT2 }}>Delegación</p>
-            <select
-              value={delegacion} onChange={e => setDelegacion(e.target.value)}
-              style={{ ...inputStyle, cursor: 'pointer' }}
-              onFocus={e => e.target.style.borderColor = GOLD}
-              onBlur={e => e.target.style.borderColor = BORDER}
-            >
-              {DELEGACION_OPTS.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: TEXT2 }}>Delegación</p>
+              <select
+                value={delegacion} onChange={e => setDelegacion(e.target.value)}
+                style={{ ...inputStyle, cursor: 'pointer' }}
+                onFocus={e => e.target.style.borderColor = GOLD}
+                onBlur={e => e.target.style.borderColor = BORDER}
+              >
+                {DELEGACION_OPTS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            <div>
+              <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: TEXT2 }}>Enlace (opcional)</p>
+              <input
+                type="url" value={enlace} onChange={e => setEnlace(e.target.value)}
+                placeholder="https://…"
+                style={inputStyle}
+                onFocus={e => e.target.style.borderColor = GOLD}
+                onBlur={e => e.target.style.borderColor = BORDER}
+              />
+            </div>
           </div>
           {/* Urgency toggle */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: esUrgente ? 'rgba(206,17,38,0.04)' : BG, border: `1.5px solid ${esUrgente ? 'rgba(206,17,38,0.32)' : BORDER}`, borderRadius: 12, transition: 'all 0.2s' }}>
@@ -399,18 +428,38 @@ function DelegacionDetail({ delegacion, onBack, isAdmin }) {
                 const date = a.createdAt?.toDate?.()
                   ? a.createdAt.toDate().toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
                   : null
+                const delColor = DELEGACION_COLORS[a.delegacion] ?? '#6B7280'
                 return (
                   <div
                     key={a.id}
                     className={isUrgent ? 'jcb-urgent-pulse' : ''}
                     style={{ background: WHITE, borderRadius: 16, padding: '14px 16px', border: `1.5px solid ${isUrgent ? 'rgba(206,17,38,0.45)' : BORDER}`, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
                       <h3 style={{ fontSize: 14, fontWeight: 600, color: TEXT, margin: 0, flex: 1, lineHeight: 1.35 }}>{a.titulo}</h3>
                       {isUrgent && <span style={{ background: RED, color: WHITE, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 20, letterSpacing: '0.05em', flexShrink: 0 }}>URGENTE</span>}
                     </div>
-                    {a.cuerpo && <p style={{ fontSize: 12, color: TEXT2, margin: '0 0 6px', lineHeight: 1.5 }}>{a.cuerpo}</p>}
-                    {date && <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>{date}</p>}
+                    {a.cuerpo && (
+                      <p style={{ fontSize: 12, color: TEXT2, margin: '0 0 8px', lineHeight: 1.55 }}>
+                        {renderTextWithLinks(a.cuerpo)}
+                      </p>
+                    )}
+                    {a.enlace && (
+                      <a
+                        href={a.enlace} target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginBottom: 8, padding: '5px 13px', background: '#EFF6FF', border: '1px solid rgba(37,99,235,0.22)', borderRadius: 20, fontSize: 11, fontWeight: 600, color: '#2563EB', textDecoration: 'none' }}
+                      >
+                        🔗 Ver enlace
+                      </a>
+                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                      {date && <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>{date}</p>}
+                      {a.delegacion && (
+                        <span style={{ fontSize: 10, fontWeight: 600, color: delColor, background: `${delColor}12`, border: `1px solid ${delColor}28`, borderRadius: 20, padding: '2px 9px', fontStyle: 'italic' }}>
+                          {a.delegacion}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )
               })}

@@ -449,11 +449,27 @@ function ProximosEventos({ events, registeredIds, inscCountMap = {}, onPress, on
 
 // ─── Announcement card ────────────────────────────────────────────────────────
 
+function renderTextWithLinks(text) {
+  if (!text) return null
+  const parts = text.split(/(https?:\/\/[^\s]+)/g)
+  return parts.map((part, i) =>
+    /^https?:\/\//.test(part)
+      ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" style={{ color: '#2563EB', textDecoration: 'underline', wordBreak: 'break-all' }}>{part}</a>
+      : part
+  )
+}
+
+const DELEGACION_COLORS = {
+  Baile: '#E91E63', Deportes: '#2196F3', Falla: GOLD, Festejos: '#FF9800',
+  Infantiles: '#4CAF50', Perchero: '#9C27B0', Protocolo: '#607D8B', General: TEXT2,
+}
+
 function AnnCard({ ann, isAdmin = false, onDelete }) {
   const isUrgent = ann.esUrgente || ann.importante
   const date = ann.createdAt?.toDate?.()
     ? ann.createdAt.toDate().toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
     : null
+  const delColor = DELEGACION_COLORS[ann.delegacion] ?? TEXT2
   return (
     <div
       className={isUrgent ? 'jcb-urgent-pulse' : ''}
@@ -476,8 +492,27 @@ function AnnCard({ ann, isAdmin = false, onDelete }) {
           )}
         </div>
       </div>
-      {ann.cuerpo && <p style={{ fontSize: 13, color: TEXT2, margin: '0 0 8px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{ann.cuerpo}</p>}
-      {date && <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>{date}</p>}
+      {ann.cuerpo && (
+        <p style={{ fontSize: 13, color: TEXT2, margin: '0 0 8px', lineHeight: 1.55 }}>
+          {renderTextWithLinks(ann.cuerpo)}
+        </p>
+      )}
+      {ann.enlace && (
+        <a
+          href={ann.enlace} target="_blank" rel="noopener noreferrer"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginBottom: 8, padding: '5px 13px', background: '#EFF6FF', border: '1px solid rgba(37,99,235,0.22)', borderRadius: 20, fontSize: 12, fontWeight: 600, color: '#2563EB', textDecoration: 'none' }}
+        >
+          🔗 Ver enlace
+        </a>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+        {date && <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>{date}</p>}
+        {ann.delegacion && (
+          <span style={{ fontSize: 10, fontWeight: 600, color: delColor, background: `${delColor}12`, border: `1px solid ${delColor}28`, borderRadius: 20, padding: '2px 9px', fontStyle: 'italic' }}>
+            {ann.delegacion}
+          </span>
+        )}
+      </div>
     </div>
   )
 }
@@ -861,6 +896,7 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
   const [cuerpo,     setCuerpo]     = useState('')
   const [esUrgente,  setEsUrgente]  = useState(false)
   const [delegacion, setDelegacion] = useState('General')
+  const [enlace,     setEnlace]     = useState('')
   const [saving,     setSaving]     = useState(false)
   const [formError,  setFormError]  = useState('')
 
@@ -874,6 +910,7 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
         cuerpo:    cuerpo.trim() || null,
         esUrgente,
         delegacion,
+        enlace:    enlace.trim() || null,
         createdAt: serverTimestamp(),
       })
       if (esUrgente) {
@@ -882,7 +919,7 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
           cuerpo.trim() || 'Nuevo aviso urgente de la Falla.',
         ).catch(() => {})
       }
-      setTitulo(''); setCuerpo(''); setEsUrgente(false); setDelegacion('General'); setShowForm(false)
+      setTitulo(''); setCuerpo(''); setEsUrgente(false); setDelegacion('General'); setEnlace(''); setShowForm(false)
     } catch (err) {
       setFormError(err?.message || 'Error al publicar el aviso.')
     } finally { setSaving(false) }
@@ -935,16 +972,28 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
             onFocus={e => e.target.style.borderColor = GOLD}
             onBlur={e => e.target.style.borderColor = BORDER}
           />
-          <div style={{ marginBottom: 14 }}>
-            <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: TEXT2 }}>Delegación</p>
-            <select
-              value={delegacion} onChange={e => setDelegacion(e.target.value)}
-              style={{ ...inputStyle, cursor: 'pointer' }}
-              onFocus={e => e.target.style.borderColor = GOLD}
-              onBlur={e => e.target.style.borderColor = BORDER}
-            >
-              {DELEGACION_OPTS.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+            <div>
+              <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: TEXT2 }}>Delegación</p>
+              <select
+                value={delegacion} onChange={e => setDelegacion(e.target.value)}
+                style={{ ...inputStyle, cursor: 'pointer' }}
+                onFocus={e => e.target.style.borderColor = GOLD}
+                onBlur={e => e.target.style.borderColor = BORDER}
+              >
+                {DELEGACION_OPTS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            <div>
+              <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: TEXT2 }}>Enlace (opcional)</p>
+              <input
+                type="url" value={enlace} onChange={e => setEnlace(e.target.value)}
+                placeholder="https://…"
+                style={inputStyle}
+                onFocus={e => e.target.style.borderColor = GOLD}
+                onBlur={e => e.target.style.borderColor = BORDER}
+              />
+            </div>
           </div>
           {/* Urgency toggle */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: esUrgente ? 'rgba(206,17,38,0.04)' : BG, border: `1.5px solid ${esUrgente ? 'rgba(206,17,38,0.32)' : BORDER}`, borderRadius: 12, marginBottom: 16, transition: 'all 0.2s' }}>
