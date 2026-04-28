@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
   collection, query, orderBy, onSnapshot, where,
-  getDocs, deleteDoc, doc, addDoc, serverTimestamp,
+  getDocs, deleteDoc, doc, addDoc, updateDoc, serverTimestamp,
 } from 'firebase/firestore'
-import { db } from '../firebase'
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { db, storage } from '../firebase'
+import { getDirectImageUrl } from '../utils/imageUtils'
 import { useAuth } from '../contexts/AuthContext'
-import { ChevronLeft, Plus, X, Loader2 } from 'lucide-react'
+import { ChevronLeft, Plus, X, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { RegistrationModal, CancelConfirmModal, SuccessToast, EventFormModal } from './EventList'
 
 const GOLD   = '#D4AF37'
@@ -120,39 +122,54 @@ function ActionSheet({ delegacion, onCreateEvent, onCreateAviso, onClose }) {
   )
 }
 
-// ─── Aviso creation sheet ─────────────────────────────────────────────────────
+// ─── Aviso creation / edit sheet ─────────────────────────────────────────────
 
-function AvisoFormSheet({ initialDelegacion, onClose, onCreated }) {
+function AvisoFormSheet({ initialDelegacion, editData = null, onClose, onCreated }) {
   const inputStyle = {
     width: '100%', padding: '10px 12px',
     border: `1.5px solid ${BORDER}`, borderRadius: 12,
     fontSize: 14, fontFamily: 'inherit', color: TEXT,
     background: WHITE, boxSizing: 'border-box', outline: 'none',
   }
-  const [titulo,     setTitulo]     = useState('')
-  const [cuerpo,     setCuerpo]     = useState('')
-  const [esUrgente,  setEsUrgente]  = useState(false)
-  const [delegacion, setDelegacion] = useState(initialDelegacion)
-  const [enlace,     setEnlace]     = useState('')
-  const [saving,     setSaving]     = useState(false)
-  const [error,      setError]      = useState('')
+  const [titulo,       setTitulo]       = useState(editData?.titulo ?? '')
+  const [cuerpo,       setCuerpo]       = useState(editData?.cuerpo ?? '')
+  const [esUrgente,    setEsUrgente]    = useState(editData?.esUrgente ?? false)
+  const [delegacion,   setDelegacion]   = useState(editData?.delegacion ?? initialDelegacion)
+  const [enlace,       setEnlace]       = useState(editData?.enlace ?? '')
+  const [imageFile,    setImageFile]    = useState(null)
+  const [imagePreview, setImagePreview] = useState(editData?.imageUrl ?? null)
+  const [saving,       setSaving]       = useState(false)
+  const [error,        setError]        = useState('')
+
+  const handleImageChange = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setImageFile(file)
+    setImagePreview(URL.createObjectURL(file))
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!titulo.trim()) return
     setSaving(true); setError('')
     try {
-      await addDoc(collection(db, 'anuncios'), {
-        titulo:    titulo.trim(),
-        cuerpo:    cuerpo.trim() || null,
-        esUrgente,
-        delegacion,
-        enlace:    enlace.trim() || null,
-        createdAt: serverTimestamp(),
-      })
+      let imageUrl = editData?.imageUrl ?? null
+      if (imageFile) {
+        const snap = await uploadBytes(storageRef(storage, `avisos/${Date.now()}_${imageFile.name}`), imageFile)
+        imageUrl = await getDownloadURL(snap.ref)
+      }
+      const payload = {
+        titulo: titulo.trim(), cuerpo: cuerpo.trim() || null,
+        esUrgente, delegacion, enlace: enlace.trim() || null, imageUrl,
+      }
+      if (editData) {
+        await updateDoc(doc(db, 'anuncios', editData.id), payload)
+      } else {
+        await addDoc(collection(db, 'anuncios'), { ...payload, createdAt: serverTimestamp() })
+      }
       onCreated()
     } catch (err) {
-      setError(err?.message || 'Error al publicar el aviso.')
+      setError(err?.message || 'Error al guardar el aviso.')
       setSaving(false)
     }
   }
@@ -172,7 +189,7 @@ function AvisoFormSheet({ initialDelegacion, onClose, onCreated }) {
       }}>
         <div style={{ width: 36, height: 4, background: BORDER, borderRadius: 2, margin: '0 auto 14px' }} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: TEXT }}>📢 Nuevo aviso</h3>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: TEXT }}>{editData ? '✏️ Editar aviso' : '📢 Nuevo aviso'}</h3>
           <button onClick={onClose} style={{ background: BG, border: `1px solid ${BORDER}`, borderRadius: 8, padding: 6, cursor: 'pointer', display: 'flex', minHeight: 'auto', minWidth: 'auto' }}>
             <X size={16} color={MUTED} />
           </button>
@@ -193,6 +210,26 @@ function AvisoFormSheet({ initialDelegacion, onClose, onCreated }) {
             onFocus={e => e.target.style.borderColor = GOLD}
             onBlur={e => e.target.style.borderColor = BORDER}
           />
+          {/* Image picker */}
+          <div>
+            <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: TEXT2 }}>Imagen (opcional)</p>
+            {imagePreview && (
+              <div style={{ position: 'relative', marginBottom: 8 }}>
+                <img src={imagePreview} alt="" style={{ width: '100%', height: 150, objectFit: 'cover', borderRadius: 12, display: 'block' }} />
+                <button
+                  type="button"
+                  onClick={() => { setImageFile(null); setImagePreview(editData?.imageUrl ?? null) }}
+                  style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: 8, padding: '4px 6px', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', display: 'flex', alignItems: 'center' }}
+                >
+                  <X size={14} color="white" />
+                </button>
+              </div>
+            )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: BG, border: `1.5px dashed ${BORDER}`, borderRadius: 12, cursor: 'pointer', fontSize: 13, color: TEXT2 }}>
+              📷 {imageFile ? imageFile.name : (imagePreview ? 'Cambiar imagen' : 'Seleccionar imagen')}
+              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageChange} />
+            </label>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
               <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: TEXT2 }}>Delegación</p>
@@ -216,7 +253,6 @@ function AvisoFormSheet({ initialDelegacion, onClose, onCreated }) {
               />
             </div>
           </div>
-          {/* Urgency toggle */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: esUrgente ? 'rgba(206,17,38,0.04)' : BG, border: `1.5px solid ${esUrgente ? 'rgba(206,17,38,0.32)' : BORDER}`, borderRadius: 12, transition: 'all 0.2s' }}>
             <div>
               <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: TEXT }}>⚡ Marcar como urgente</p>
@@ -234,11 +270,80 @@ function AvisoFormSheet({ initialDelegacion, onClose, onCreated }) {
             type="submit" disabled={saving}
             style={{ width: '100%', minHeight: 48, background: saving ? `${GOLD}50` : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: 14, color: WHITE, fontSize: 15, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: saving ? 'none' : `0 4px 14px rgba(212,175,55,0.3)` }}
           >
-            {saving ? <Loader2 size={18} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : '📢 Publicar aviso'}
+            {saving ? <Loader2 size={18} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : (editData ? '💾 Guardar cambios' : '📢 Publicar aviso')}
           </button>
         </form>
       </div>
     </>
+  )
+}
+
+// ─── Aviso card ───────────────────────────────────────────────────────────────
+
+function AvisoCard({ a, isUrgent, date, delColor, imgUrl, isAdmin, onEdit, onDelete }) {
+  const [imgError, setImgError] = useState(false)
+  return (
+    <div
+      className={isUrgent ? 'jcb-urgent-pulse' : ''}
+      style={{ background: WHITE, borderRadius: 16, border: `1.5px solid ${isUrgent ? 'rgba(206,17,38,0.45)' : BORDER}`, boxShadow: '0 1px 4px rgba(0,0,0,0.04)', overflow: 'hidden' }}
+    >
+      {imgUrl && !imgError && (
+        <img
+          src={imgUrl} alt=""
+          onError={() => setImgError(true)}
+          style={{ width: '100%', height: 155, objectFit: 'cover', display: 'block' }}
+        />
+      )}
+      <div style={{ padding: '12px 16px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, color: TEXT, margin: 0, flex: 1, lineHeight: 1.35 }}>{a.titulo}</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+            {isUrgent && <span style={{ background: RED, color: WHITE, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 20, letterSpacing: '0.05em' }}>URGENTE</span>}
+            {isAdmin && (
+              <>
+                <button
+                  onClick={onEdit}
+                  style={{ background: 'transparent', border: `1px solid ${GOLD}40`, borderRadius: 7, padding: '3px 5px', color: `${GOLD}99`, cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', transition: 'all 0.15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = `${GOLD}14`; e.currentTarget.style.color = GOLD }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = `${GOLD}99` }}
+                >
+                  <Pencil size={12} />
+                </button>
+                <button
+                  onClick={onDelete}
+                  style={{ background: 'transparent', border: `1px solid rgba(206,17,38,0.22)`, borderRadius: 7, padding: '3px 5px', color: 'rgba(206,17,38,0.55)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', transition: 'all 0.15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(206,17,38,0.07)'; e.currentTarget.style.color = RED }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(206,17,38,0.55)' }}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        {a.cuerpo && (
+          <p style={{ fontSize: 12, color: TEXT2, margin: '0 0 8px', lineHeight: 1.55 }}>
+            {renderTextWithLinks(a.cuerpo)}
+          </p>
+        )}
+        {a.enlace && (
+          <a
+            href={a.enlace} target="_blank" rel="noopener noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginBottom: 8, padding: '5px 13px', background: '#EFF6FF', border: '1px solid rgba(37,99,235,0.22)', borderRadius: 20, fontSize: 11, fontWeight: 600, color: '#2563EB', textDecoration: 'none' }}
+          >
+            🔗 Ver enlace
+          </a>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+          {date && <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>{date}</p>}
+          {a.delegacion && (
+            <span style={{ fontSize: 10, fontWeight: 600, color: delColor, background: `${delColor}12`, border: `1px solid ${delColor}28`, borderRadius: 20, padding: '2px 9px', fontStyle: 'italic' }}>
+              {a.delegacion}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -258,6 +363,7 @@ function DelegacionDetail({ delegacion, onBack, isAdmin }) {
   const [showSheet,     setShowSheet]     = useState(false)
   const [showEventForm, setShowEventForm] = useState(false)
   const [showAvisoForm, setShowAvisoForm] = useState(false)
+  const [editingAviso,  setEditingAviso]  = useState(null)
 
   useEffect(() => {
     setLoading(true)
@@ -312,6 +418,15 @@ function DelegacionDetail({ delegacion, onBack, isAdmin }) {
       setCancelTarget(null)
       setToast(err?.message || 'Error al anular.')
     } finally { setDeleting(false) }
+  }
+
+  const handleDeleteAviso = async (annId) => {
+    if (!window.confirm('¿Quieres eliminar este aviso definitivamente?')) return
+    try {
+      await deleteDoc(doc(db, 'anuncios', annId))
+    } catch (err) {
+      setToast(err?.message || 'Error al eliminar el aviso.')
+    }
   }
 
   const upcomingEvents = useMemo(() => {
@@ -429,38 +544,15 @@ function DelegacionDetail({ delegacion, onBack, isAdmin }) {
                   ? a.createdAt.toDate().toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
                   : null
                 const delColor = DELEGACION_COLORS[a.delegacion] ?? '#6B7280'
+                const imgUrl = getDirectImageUrl(a.imageUrl)
                 return (
-                  <div
+                  <AvisoCard
                     key={a.id}
-                    className={isUrgent ? 'jcb-urgent-pulse' : ''}
-                    style={{ background: WHITE, borderRadius: 16, padding: '14px 16px', border: `1.5px solid ${isUrgent ? 'rgba(206,17,38,0.45)' : BORDER}`, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                      <h3 style={{ fontSize: 14, fontWeight: 600, color: TEXT, margin: 0, flex: 1, lineHeight: 1.35 }}>{a.titulo}</h3>
-                      {isUrgent && <span style={{ background: RED, color: WHITE, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 20, letterSpacing: '0.05em', flexShrink: 0 }}>URGENTE</span>}
-                    </div>
-                    {a.cuerpo && (
-                      <p style={{ fontSize: 12, color: TEXT2, margin: '0 0 8px', lineHeight: 1.55 }}>
-                        {renderTextWithLinks(a.cuerpo)}
-                      </p>
-                    )}
-                    {a.enlace && (
-                      <a
-                        href={a.enlace} target="_blank" rel="noopener noreferrer"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginBottom: 8, padding: '5px 13px', background: '#EFF6FF', border: '1px solid rgba(37,99,235,0.22)', borderRadius: 20, fontSize: 11, fontWeight: 600, color: '#2563EB', textDecoration: 'none' }}
-                      >
-                        🔗 Ver enlace
-                      </a>
-                    )}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                      {date && <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>{date}</p>}
-                      {a.delegacion && (
-                        <span style={{ fontSize: 10, fontWeight: 600, color: delColor, background: `${delColor}12`, border: `1px solid ${delColor}28`, borderRadius: 20, padding: '2px 9px', fontStyle: 'italic' }}>
-                          {a.delegacion}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                    a={a} isUrgent={isUrgent} date={date} delColor={delColor}
+                    imgUrl={imgUrl} isAdmin={isAdmin}
+                    onEdit={() => { setEditingAviso(a); setShowAvisoForm(true) }}
+                    onDelete={() => handleDeleteAviso(a.id)}
+                  />
                 )
               })}
             </div>
@@ -533,8 +625,12 @@ function DelegacionDetail({ delegacion, onBack, isAdmin }) {
       {showAvisoForm && (
         <AvisoFormSheet
           initialDelegacion={delegacion.key}
-          onClose={() => setShowAvisoForm(false)}
-          onCreated={() => { setShowAvisoForm(false); setToast(`Aviso publicado en ${delegacion.key} ✓`) }}
+          editData={editingAviso}
+          onClose={() => { setShowAvisoForm(false); setEditingAviso(null) }}
+          onCreated={() => {
+            setShowAvisoForm(false); setEditingAviso(null)
+            setToast(editingAviso ? 'Aviso actualizado ✓' : `Aviso publicado en ${delegacion.key} ✓`)
+          }}
         />
       )}
       {toast && <SuccessToast message={toast} onDismiss={() => setToast(null)} />}

@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   collection, query, orderBy, limit, onSnapshot,
-  getDocs, where, deleteDoc, addDoc, serverTimestamp, doc,
+  getDocs, where, deleteDoc, addDoc, updateDoc, serverTimestamp, doc,
 } from 'firebase/firestore'
-import { db } from '../firebase'
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { db, storage } from '../firebase'
+import { getDirectImageUrl } from '../utils/imageUtils'
 import { enviarNotificacionFCM } from '../services/fcmService'
 import { useAuth } from '../contexts/AuthContext'
 import CalendarView from './CalendarView'
@@ -14,7 +16,7 @@ import AdminMetrics from './AdminMetrics'
 import DetalleEvento from './DetalleEvento'
 import Delegaciones from './Delegaciones'
 import { RegistrationModal, SuccessToast, CancelConfirmModal } from './EventList'
-import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X, Loader2, Trash2 } from 'lucide-react'
+import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X, Loader2, Trash2, Pencil } from 'lucide-react'
 import logoFalla from '../assets/logo-falla.png'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 
@@ -464,54 +466,76 @@ const DELEGACION_COLORS = {
   Infantiles: '#4CAF50', Perchero: '#9C27B0', Protocolo: '#607D8B', General: TEXT2,
 }
 
-function AnnCard({ ann, isAdmin = false, onDelete }) {
+function AnnCard({ ann, isAdmin = false, onDelete, onEdit }) {
+  const [imgError, setImgError] = useState(false)
   const isUrgent = ann.esUrgente || ann.importante
   const date = ann.createdAt?.toDate?.()
     ? ann.createdAt.toDate().toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
     : null
   const delColor = DELEGACION_COLORS[ann.delegacion] ?? TEXT2
+  const imgUrl = getDirectImageUrl(ann.imageUrl)
   return (
     <div
       className={isUrgent ? 'jcb-urgent-pulse' : ''}
-      style={{ background: WHITE, borderRadius: 20, padding: '16px 18px', border: `1.5px solid ${isUrgent ? 'rgba(206,17,38,0.45)' : BORDER}`, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}
+      style={{ background: WHITE, borderRadius: 20, border: `1.5px solid ${isUrgent ? 'rgba(206,17,38,0.45)' : BORDER}`, boxShadow: '0 1px 4px rgba(0,0,0,0.05)', overflow: 'hidden' }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
-        <h3 style={{ fontSize: 15, fontWeight: 600, color: TEXT, margin: 0, flex: 1, lineHeight: 1.35 }}>{ann.titulo}</h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-          {isUrgent && <span style={{ background: RED, color: WHITE, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 20, letterSpacing: '0.05em' }}>URGENTE</span>}
-          {isAdmin && (
-            <button
-              onClick={() => onDelete(ann.id)}
-              style={{ background: 'transparent', border: `1px solid rgba(206,17,38,0.22)`, borderRadius: 8, padding: '4px 6px', color: 'rgba(206,17,38,0.55)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'auto', minWidth: 'auto', transition: 'all 0.15s' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(206,17,38,0.07)'; e.currentTarget.style.color = RED }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(206,17,38,0.55)' }}
-              title="Eliminar aviso"
-            >
-              <Trash2 size={13} />
-            </button>
+      {imgUrl && !imgError && (
+        <img
+          src={imgUrl} alt=""
+          onError={() => setImgError(true)}
+          style={{ width: '100%', height: 170, objectFit: 'cover', display: 'block' }}
+        />
+      )}
+      <div style={{ padding: '14px 18px 16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, color: TEXT, margin: 0, flex: 1, lineHeight: 1.35 }}>{ann.titulo}</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+            {isUrgent && <span style={{ background: RED, color: WHITE, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 20, letterSpacing: '0.05em' }}>URGENTE</span>}
+            {isAdmin && (
+              <>
+                <button
+                  onClick={() => onEdit(ann)}
+                  style={{ background: 'transparent', border: `1px solid ${GOLD}40`, borderRadius: 8, padding: '4px 6px', color: `${GOLD}99`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'auto', minWidth: 'auto', transition: 'all 0.15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = `${GOLD}14`; e.currentTarget.style.color = GOLD }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = `${GOLD}99` }}
+                  title="Editar aviso"
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
+                  onClick={() => onDelete(ann.id)}
+                  style={{ background: 'transparent', border: `1px solid rgba(206,17,38,0.22)`, borderRadius: 8, padding: '4px 6px', color: 'rgba(206,17,38,0.55)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'auto', minWidth: 'auto', transition: 'all 0.15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(206,17,38,0.07)'; e.currentTarget.style.color = RED }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(206,17,38,0.55)' }}
+                  title="Eliminar aviso"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        {ann.cuerpo && (
+          <p style={{ fontSize: 13, color: TEXT2, margin: '0 0 8px', lineHeight: 1.55 }}>
+            {renderTextWithLinks(ann.cuerpo)}
+          </p>
+        )}
+        {ann.enlace && (
+          <a
+            href={ann.enlace} target="_blank" rel="noopener noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginBottom: 8, padding: '5px 13px', background: '#EFF6FF', border: '1px solid rgba(37,99,235,0.22)', borderRadius: 20, fontSize: 12, fontWeight: 600, color: '#2563EB', textDecoration: 'none' }}
+          >
+            🔗 Ver enlace
+          </a>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+          {date && <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>{date}</p>}
+          {ann.delegacion && (
+            <span style={{ fontSize: 10, fontWeight: 600, color: delColor, background: `${delColor}12`, border: `1px solid ${delColor}28`, borderRadius: 20, padding: '2px 9px', fontStyle: 'italic' }}>
+              {ann.delegacion}
+            </span>
           )}
         </div>
-      </div>
-      {ann.cuerpo && (
-        <p style={{ fontSize: 13, color: TEXT2, margin: '0 0 8px', lineHeight: 1.55 }}>
-          {renderTextWithLinks(ann.cuerpo)}
-        </p>
-      )}
-      {ann.enlace && (
-        <a
-          href={ann.enlace} target="_blank" rel="noopener noreferrer"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginBottom: 8, padding: '5px 13px', background: '#EFF6FF', border: '1px solid rgba(37,99,235,0.22)', borderRadius: 20, fontSize: 12, fontWeight: 600, color: '#2563EB', textDecoration: 'none' }}
-        >
-          🔗 Ver enlace
-        </a>
-      )}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-        {date && <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>{date}</p>}
-        {ann.delegacion && (
-          <span style={{ fontSize: 10, fontWeight: 600, color: delColor, background: `${delColor}12`, border: `1px solid ${delColor}28`, borderRadius: 20, padding: '2px 9px', fontStyle: 'italic' }}>
-            {ann.delegacion}
-          </span>
-        )}
       </div>
     </div>
   )
@@ -891,37 +915,70 @@ function HomeTab({
 const DELEGACION_OPTS = ['General','Baile','Deportes','Falla','Festejos','Infantiles','Perchero','Protocolo']
 
 function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false }) {
-  const [showForm,   setShowForm]   = useState(initialShowForm)
-  const [titulo,     setTitulo]     = useState('')
-  const [cuerpo,     setCuerpo]     = useState('')
-  const [esUrgente,  setEsUrgente]  = useState(false)
-  const [delegacion, setDelegacion] = useState('General')
-  const [enlace,     setEnlace]     = useState('')
-  const [saving,     setSaving]     = useState(false)
-  const [formError,  setFormError]  = useState('')
+  const [showForm,      setShowForm]      = useState(initialShowForm)
+  const [editTarget,    setEditTarget]    = useState(null)
+  const [titulo,        setTitulo]        = useState('')
+  const [cuerpo,        setCuerpo]        = useState('')
+  const [esUrgente,     setEsUrgente]     = useState(false)
+  const [delegacion,    setDelegacion]    = useState('General')
+  const [enlace,        setEnlace]        = useState('')
+  const [imageFile,     setImageFile]     = useState(null)
+  const [imagePreview,  setImagePreview]  = useState(null)
+  const [saving,        setSaving]        = useState(false)
+  const [formError,     setFormError]     = useState('')
 
-  const handleCreate = async (e) => {
+  const resetForm = () => {
+    setTitulo(''); setCuerpo(''); setEsUrgente(false); setDelegacion('General')
+    setEnlace(''); setImageFile(null); setImagePreview(null); setEditTarget(null); setFormError('')
+  }
+
+  const openEdit = (ann) => {
+    setEditTarget(ann)
+    setTitulo(ann.titulo ?? '')
+    setCuerpo(ann.cuerpo ?? '')
+    setEsUrgente(ann.esUrgente ?? false)
+    setDelegacion(ann.delegacion ?? 'General')
+    setEnlace(ann.enlace ?? '')
+    setImageFile(null)
+    setImagePreview(ann.imageUrl ?? null)
+    setFormError('')
+    setShowForm(true)
+  }
+
+  const handleCancel = () => { resetForm(); setShowForm(false) }
+
+  const handleImageChange = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setImageFile(file)
+    setImagePreview(URL.createObjectURL(file))
+  }
+
+  const handleSave = async (e) => {
     e.preventDefault()
     if (!titulo.trim()) return
     setSaving(true); setFormError('')
     try {
-      await addDoc(collection(db, 'anuncios'), {
-        titulo:    titulo.trim(),
-        cuerpo:    cuerpo.trim() || null,
-        esUrgente,
-        delegacion,
-        enlace:    enlace.trim() || null,
-        createdAt: serverTimestamp(),
-      })
-      if (esUrgente) {
-        enviarNotificacionFCM(
-          `⚡ ${titulo.trim()}`,
-          cuerpo.trim() || 'Nuevo aviso urgente de la Falla.',
-        ).catch(() => {})
+      let imageUrl = editTarget?.imageUrl ?? null
+      if (imageFile) {
+        const snap = await uploadBytes(storageRef(storage, `avisos/${Date.now()}_${imageFile.name}`), imageFile)
+        imageUrl = await getDownloadURL(snap.ref)
       }
-      setTitulo(''); setCuerpo(''); setEsUrgente(false); setDelegacion('General'); setEnlace(''); setShowForm(false)
+      const payload = {
+        titulo: titulo.trim(), cuerpo: cuerpo.trim() || null,
+        esUrgente, delegacion, enlace: enlace.trim() || null, imageUrl,
+      }
+      if (editTarget) {
+        await updateDoc(doc(db, 'anuncios', editTarget.id), payload)
+      } else {
+        await addDoc(collection(db, 'anuncios'), { ...payload, createdAt: serverTimestamp() })
+        if (esUrgente) {
+          enviarNotificacionFCM(`⚡ ${titulo.trim()}`, cuerpo.trim() || 'Nuevo aviso urgente de la Falla.').catch(() => {})
+        }
+      }
+      resetForm(); setShowForm(false)
     } catch (err) {
-      setFormError(err?.message || 'Error al publicar el aviso.')
+      setFormError(err?.message || 'Error al guardar el aviso.')
     } finally { setSaving(false) }
   }
 
@@ -942,7 +999,7 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
         <h2 style={{ fontSize: 26, fontWeight: 700, color: TEXT, margin: 0, letterSpacing: '-0.02em' }}>Avisos</h2>
         {isAdmin && (
           <button
-            onClick={() => { setShowForm(v => !v); setFormError('') }}
+            onClick={() => showForm ? handleCancel() : (resetForm(), setShowForm(true))}
             style={{ background: showForm ? `${GOLD}14` : BG, border: `1.5px solid ${showForm ? GOLD : BORDER}`, borderRadius: 10, padding: '7px 13px', fontSize: 12, fontWeight: 700, color: showForm ? GOLD : TEXT2, cursor: 'pointer', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: 5, transition: 'all 0.15s' }}
           >
             {showForm ? '✕ Cancelar' : '✏️ Nuevo aviso'}
@@ -951,11 +1008,10 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
       </div>
       <p style={{ fontSize: 13, color: TEXT2, margin: '0 0 20px' }}>Comunicaciones de la Falla</p>
 
-      {/* Admin creation form */}
       {isAdmin && showForm && (
-        <form onSubmit={handleCreate} style={{ background: WHITE, border: `1.5px solid ${GOLD}30`, borderRadius: 20, padding: '18px 18px 16px', marginBottom: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 5 }}>
-            ✏️ Nuevo aviso
+        <form onSubmit={handleSave} style={{ background: WHITE, border: `1.5px solid ${GOLD}30`, borderRadius: 20, padding: '18px 18px 16px', marginBottom: 20, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>
+            {editTarget ? '✏️ Editar aviso' : '✏️ Nuevo aviso'}
           </p>
           <input
             required value={titulo} onChange={e => setTitulo(e.target.value)}
@@ -972,6 +1028,26 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
             onFocus={e => e.target.style.borderColor = GOLD}
             onBlur={e => e.target.style.borderColor = BORDER}
           />
+          {/* Image picker */}
+          <div style={{ marginBottom: 10 }}>
+            <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: TEXT2 }}>Imagen (opcional)</p>
+            {imagePreview && (
+              <div style={{ position: 'relative', marginBottom: 8 }}>
+                <img src={imagePreview} alt="" style={{ width: '100%', height: 160, objectFit: 'cover', borderRadius: 12, display: 'block' }} />
+                <button
+                  type="button"
+                  onClick={() => { setImageFile(null); setImagePreview(editTarget?.imageUrl ?? null) }}
+                  style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: 8, padding: '4px 6px', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', display: 'flex', alignItems: 'center' }}
+                >
+                  <X size={14} color="white" />
+                </button>
+              </div>
+            )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: BG, border: `1.5px dashed ${BORDER}`, borderRadius: 12, cursor: 'pointer', fontSize: 13, color: TEXT2 }}>
+              📷 {imageFile ? imageFile.name : (imagePreview ? 'Cambiar imagen' : 'Seleccionar imagen')}
+              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageChange} />
+            </label>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
             <div>
               <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: TEXT2 }}>Delegación</p>
@@ -995,7 +1071,6 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
               />
             </div>
           </div>
-          {/* Urgency toggle */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: esUrgente ? 'rgba(206,17,38,0.04)' : BG, border: `1.5px solid ${esUrgente ? 'rgba(206,17,38,0.32)' : BORDER}`, borderRadius: 12, marginBottom: 16, transition: 'all 0.2s' }}>
             <div>
               <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: TEXT }}>⚡ Marcar como urgente</p>
@@ -1014,7 +1089,7 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
             type="submit" disabled={saving}
             style={{ width: '100%', minHeight: 46, background: saving ? `${GOLD}50` : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: 12, color: WHITE, fontSize: 14, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, boxShadow: saving ? 'none' : `0 4px 14px rgba(212,175,55,0.3)` }}
           >
-            {saving ? <Loader2 size={16} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : '📢 Publicar aviso'}
+            {saving ? <Loader2 size={16} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : (editTarget ? '💾 Guardar cambios' : '📢 Publicar aviso')}
           </button>
         </form>
       )}
@@ -1023,7 +1098,7 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
         ? <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{[1,2,3].map(i => <SkeletonCard key={i} />)}</div>
         : announcements.length === 0
           ? <div style={{ textAlign: 'center', padding: '52px 24px' }}><div style={{ fontSize: 40, marginBottom: 12 }}>📭</div><p style={{ color: MUTED, fontSize: 14, margin: 0 }}>Sin avisos recientes</p></div>
-          : <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{announcements.map(a => <AnnCard key={a.id} ann={a} isAdmin={isAdmin} onDelete={handleDeleteAnnouncement} />)}</div>
+          : <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{announcements.map(a => <AnnCard key={a.id} ann={a} isAdmin={isAdmin} onEdit={openEdit} onDelete={handleDeleteAnnouncement} />)}</div>
       }
     </div>
   )

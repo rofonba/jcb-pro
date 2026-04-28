@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app'
 import { getFirestore } from 'firebase/firestore'
 import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth'
+import { getStorage } from 'firebase/storage'
 import { getMessaging } from 'firebase/messaging'
 
 const firebaseConfig = {
@@ -21,9 +22,10 @@ if (missing.length) {
   )
 }
 
-export const app  = initializeApp(firebaseConfig)
-export const db   = getFirestore(app)
-export const auth = getAuth(app)
+export const app     = initializeApp(firebaseConfig)
+export const db      = getFirestore(app)
+export const auth    = getAuth(app)
+export const storage = getStorage(app)
 
 // Force localStorage persistence so the auth session survives iPhone PWA restarts.
 // Firebase defaults to IndexedDB which iOS evicts aggressively for home-screen apps,
