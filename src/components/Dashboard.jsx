@@ -795,10 +795,25 @@ function HomeTab({
   const [showMyCitas, setShowMyCitas] = useState(false)
   const [showEvents,  setShowEvents]  = useState(false)
 
-  const featuredAnn = useMemo(
-    () => announcements.find(a => a.esUrgente || a.importante) || announcements[0] || null,
-    [announcements],
-  )
+  const homeAnns = useMemo(() => {
+    const cutoff = Date.now() - 48 * 3600 * 1000
+    const pool = announcements.filter(a => {
+      if (!a.createdAt) return true
+      const d = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt)
+      return d.getTime() >= cutoff
+    })
+    const base = pool.length >= 2 ? pool : announcements.slice(0, 5)
+    return [...base]
+      .sort((a, b) => {
+        const au = (a.esUrgente || a.importante) ? 1 : 0
+        const bu = (b.esUrgente || b.importante) ? 1 : 0
+        if (au !== bu) return bu - au
+        const da = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt ?? 0)
+        const db2 = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt ?? 0)
+        return db2 - da
+      })
+      .slice(0, 5)
+  }, [announcements])
 
   const nextRegistered = useMemo(() => {
     const now = Date.now()
@@ -887,15 +902,48 @@ function HomeTab({
         {/* Countdown */}
         {nextRegistered && <NextEventCountdown event={nextRegistered} />}
 
-        {/* Featured announcement */}
+        {/* Announcements carousel */}
         {loadingAnns
           ? <SkeletonCard height={88} />
-          : featuredAnn && (
+          : homeAnns.length > 0 && (
             <div>
-              <p style={{ fontSize: 10, fontWeight: 700, color: GOLD, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 8px', paddingLeft: 2 }}>
-                {(featuredAnn.esUrgente || featuredAnn.importante) ? '⚡ Aviso urgente' : '📌 Aviso del día'}
-              </p>
-              <AnnCard ann={featuredAnn} />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, paddingLeft: 2 }}>
+                <p style={{ fontSize: 10, fontWeight: 700, color: GOLD, letterSpacing: '0.14em', textTransform: 'uppercase', margin: 0 }}>
+                  📢 Avisos recientes
+                </p>
+                {homeAnns.length > 1 && (
+                  <p style={{ fontSize: 10, color: MUTED, margin: 0 }}>
+                    {homeAnns.length} avisos · desliza →
+                  </p>
+                )}
+              </div>
+              {homeAnns.length === 1
+                ? <AnnCard ann={homeAnns[0]} isAdmin={false} />
+                : (
+                  <div
+                    style={{
+                      display: 'flex', gap: 12,
+                      overflowX: 'auto',
+                      scrollSnapType: 'x mandatory',
+                      WebkitOverflowScrolling: 'touch',
+                      scrollbarWidth: 'none',
+                      margin: '0 -20px',
+                      paddingLeft: 20, paddingRight: 20, paddingBottom: 6,
+                    }}
+                  >
+                    {homeAnns.map(a => (
+                      <div
+                        key={a.id}
+                        style={{ flexShrink: 0, width: 'min(82vw, 310px)', scrollSnapAlign: 'start' }}
+                      >
+                        <AnnCard ann={a} isAdmin={false} />
+                      </div>
+                    ))}
+                    {/* Trailing spacer so last card snaps with right padding */}
+                    <div style={{ flexShrink: 0, width: 4 }} />
+                  </div>
+                )
+              }
             </div>
           )
         }
