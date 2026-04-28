@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   collection, query, orderBy, onSnapshot,
   addDoc, setDoc, deleteDoc, serverTimestamp, getDocs, where, doc, updateDoc,
@@ -37,6 +37,15 @@ const sharedLabel = {
   display: 'block', color: 'rgba(255,255,255,0.45)',
   fontSize: '0.7rem', fontWeight: '700',
   letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.4rem',
+}
+
+function normalizeName(str) {
+  return (str ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
@@ -380,6 +389,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
   const [saving,     setSaving]     = useState(false)
 
   const [inscritosCount, setInscritosCount] = useState(null)
+  const [takenNames,   setTakenNames]   = useState(new Set())
   const [myIns,       setMyIns]     = useState(null)
   const [loadingMine, setLoadingMine] = useState(isRegistered)
   const [cancelling,  setCancelling] = useState(false)
@@ -403,6 +413,14 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
     const q = query(collection(db, 'inscripciones'), where('eventId', '==', event.id))
     return onSnapshot(q, snap => {
       setInscritosCount(snap.docs.reduce((s, d) => s + (d.data().totalPersonas ?? 1), 0))
+      const names = new Set()
+      snap.forEach(d => {
+        const data = d.data()
+        if (data.nombre) names.add(normalizeName(data.nombre))
+        ;(data.acompañantesAdultos ?? []).forEach(a => { if (a.nombre) names.add(normalizeName(a.nombre)) })
+        ;(data.acompañantesNinos   ?? []).forEach(a => { if (a.nombre) names.add(normalizeName(a.nombre)) })
+      })
+      setTakenNames(names)
     })
   }, [event.id])
 
@@ -428,9 +446,36 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
   const t             = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
   const totalCost     = event.precio != null ? event.precio * totalPersonas : null
 
+  const adultoErrors = useMemo(() => {
+    const seen = new Set()
+    return adultos.map(a => {
+      const key = normalizeName(a.nombre)
+      if (!key) return ''
+      if (seen.has(key)) return 'Nombre repetido en el formulario'
+      seen.add(key)
+      if (takenNames.has(key)) return 'Ya inscrito en este evento'
+      return ''
+    })
+  }, [adultos, takenNames])
+
+  const ninoErrors = useMemo(() => {
+    const seenAdultos = new Set(adultos.map(a => normalizeName(a.nombre)).filter(Boolean))
+    const seen = new Set()
+    return ninos.map(n => {
+      const key = normalizeName(n.nombre)
+      if (!key) return ''
+      if (seen.has(key) || seenAdultos.has(key)) return 'Nombre repetido en el formulario'
+      seen.add(key)
+      if (takenNames.has(key)) return 'Ya inscrito en este evento'
+      return ''
+    })
+  }, [ninos, adultos, takenNames])
+
+  const hasCompanionErrors = adultoErrors.some(Boolean) || ninoErrors.some(Boolean)
+
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (saving || wouldExceed || isAforoFull) return
+    if (saving || wouldExceed || isAforoFull || hasCompanionErrors) return
     setSaving(true)
     setSaveError('')
     try {
@@ -439,6 +484,34 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
         const live = snap.docs.reduce((s, d) => s + (d.data().totalPersonas ?? 1), 0)
         if (live + totalPersonas > plazasTotal) { setInscritosCount(live); setSaving(false); return }
       }
+
+      // UID duplicate guard (race-condition safety)
+      if (snap.docs.some(d => d.data().uid === user.uid && !d.data().esManual)) {
+        setSaveError('Ya estás inscrito en este evento.')
+        setSaving(false)
+        return
+      }
+
+      // Companion name collision (live re-check against fresh snapshot)
+      const liveNames = new Set()
+      snap.forEach(d => {
+        const data = d.data()
+        if (data.nombre) liveNames.add(normalizeName(data.nombre))
+        ;(data.acompañantesAdultos ?? []).forEach(a => { if (a.nombre) liveNames.add(normalizeName(a.nombre)) })
+        ;(data.acompañantesNinos   ?? []).forEach(a => { if (a.nombre) liveNames.add(normalizeName(a.nombre)) })
+      })
+      const allCompanions = [
+        ...adultos.map(a => a.nombre.trim() || 'Adulto'),
+        ...ninos.map(n => n.nombre.trim() || 'Niño/a'),
+      ]
+      for (const nombre of allCompanions) {
+        if (liveNames.has(normalizeName(nombre))) {
+          setSaveError(`El acompañante "${nombre}" ya ha sido inscrito por otra persona.`)
+          setSaving(false)
+          return
+        }
+      }
+
       const numeroOrden = snap.docs.length + 1
       const payload = {
         eventId:      event.id,
@@ -683,19 +756,30 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
               {/* ── Adult companions ───────────────────────────── */}
               <label style={{ ...sharedLabel, marginBottom: '0.5rem' }}>👤 Acompañantes adultos</label>
               {adultos.map((a, i) => (
-                <div key={i} style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.4rem' }}>
-                  <input
-                    value={a.nombre}
-                    onChange={e => { const next = [...adultos]; next[i] = { nombre: e.target.value }; setAdultos(next) }}
-                    placeholder={`Nombre adulto ${i + 1}`}
-                    style={{ ...sharedInput, flex: 1 }}
-                    onFocus={e => e.target.style.borderColor = GOLD}
-                    onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
-                  />
-                  <button type="button" onClick={() => setAdultos(adultos.filter((_, j) => j !== i))}
-                    style={{ background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.2)', borderRadius: '8px', padding: '0 0.55rem', color: 'rgba(220,38,38,0.7)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
-                    <X size={14} />
-                  </button>
+                <div key={i} style={{ marginBottom: adultoErrors[i] ? '0.15rem' : '0.4rem' }}>
+                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <input
+                      value={a.nombre}
+                      onChange={e => { const next = [...adultos]; next[i] = { nombre: e.target.value }; setAdultos(next) }}
+                      placeholder={`Nombre adulto ${i + 1}`}
+                      style={{
+                        ...sharedInput, flex: 1,
+                        borderColor: adultoErrors[i] ? 'rgba(206,17,38,0.75)' : 'rgba(255,255,255,0.1)',
+                        boxShadow: adultoErrors[i] ? '0 0 0 2px rgba(206,17,38,0.18)' : 'none',
+                      }}
+                      onFocus={e => { if (!adultoErrors[i]) e.target.style.borderColor = GOLD }}
+                      onBlur={e => { e.target.style.borderColor = adultoErrors[i] ? 'rgba(206,17,38,0.75)' : 'rgba(255,255,255,0.1)' }}
+                    />
+                    <button type="button" onClick={() => setAdultos(adultos.filter((_, j) => j !== i))}
+                      style={{ background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.2)', borderRadius: '8px', padding: '0 0.55rem', color: 'rgba(220,38,38,0.7)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
+                      <X size={14} />
+                    </button>
+                  </div>
+                  {adultoErrors[i] && (
+                    <p style={{ margin: '3px 0 5px', fontSize: '0.68rem', color: RED, paddingLeft: 2 }}>
+                      ⚠️ {adultoErrors[i]}
+                    </p>
+                  )}
                 </div>
               ))}
               <button type="button" onClick={() => setAdultos([...adultos, { nombre: '' }])}
@@ -706,19 +790,30 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
               {/* ── Child companions ────────────────────────────── */}
               <label style={{ ...sharedLabel, marginBottom: '0.5rem' }}>🧒 Acompañantes niños/as</label>
               {ninos.map((n, i) => (
-                <div key={i} style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.4rem' }}>
-                  <input
-                    value={n.nombre}
-                    onChange={e => { const next = [...ninos]; next[i] = { nombre: e.target.value }; setNinos(next) }}
-                    placeholder={`Nombre niño/a ${i + 1}`}
-                    style={{ ...sharedInput, flex: 1 }}
-                    onFocus={e => e.target.style.borderColor = '#f97316'}
-                    onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
-                  />
-                  <button type="button" onClick={() => setNinos(ninos.filter((_, j) => j !== i))}
-                    style={{ background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.2)', borderRadius: '8px', padding: '0 0.55rem', color: 'rgba(220,38,38,0.7)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
-                    <X size={14} />
-                  </button>
+                <div key={i} style={{ marginBottom: ninoErrors[i] ? '0.15rem' : '0.4rem' }}>
+                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <input
+                      value={n.nombre}
+                      onChange={e => { const next = [...ninos]; next[i] = { nombre: e.target.value }; setNinos(next) }}
+                      placeholder={`Nombre niño/a ${i + 1}`}
+                      style={{
+                        ...sharedInput, flex: 1,
+                        borderColor: ninoErrors[i] ? 'rgba(206,17,38,0.75)' : 'rgba(255,255,255,0.1)',
+                        boxShadow: ninoErrors[i] ? '0 0 0 2px rgba(206,17,38,0.18)' : 'none',
+                      }}
+                      onFocus={e => { if (!ninoErrors[i]) e.target.style.borderColor = '#f97316' }}
+                      onBlur={e => { e.target.style.borderColor = ninoErrors[i] ? 'rgba(206,17,38,0.75)' : 'rgba(255,255,255,0.1)' }}
+                    />
+                    <button type="button" onClick={() => setNinos(ninos.filter((_, j) => j !== i))}
+                      style={{ background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.2)', borderRadius: '8px', padding: '0 0.55rem', color: 'rgba(220,38,38,0.7)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
+                      <X size={14} />
+                    </button>
+                  </div>
+                  {ninoErrors[i] && (
+                    <p style={{ margin: '3px 0 5px', fontSize: '0.68rem', color: RED, paddingLeft: 2 }}>
+                      ⚠️ {ninoErrors[i]}
+                    </p>
+                  )}
                 </div>
               ))}
               <button type="button" onClick={() => setNinos([...ninos, { nombre: '' }])}
@@ -790,14 +885,14 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
                   <span style={{ color: '#ff8080', fontSize: '0.8rem', lineHeight: 1.4 }}>{saveError}</span>
                 </div>
               )}
-              <button type="submit" disabled={saving || wouldExceed}
-                className={saving || wouldExceed ? '' : 'btn-shimmer'}
+              <button type="submit" disabled={saving || wouldExceed || hasCompanionErrors}
+                className={saving || wouldExceed || hasCompanionErrors ? '' : 'btn-shimmer'}
                 style={{
                   width: '100%', minHeight: '52px',
-                  background: saving || wouldExceed ? 'rgba(206,17,38,0.35)' : `linear-gradient(135deg, ${RED}, #a00d1e)`,
+                  background: saving || wouldExceed || hasCompanionErrors ? 'rgba(206,17,38,0.35)' : `linear-gradient(135deg, ${RED}, #a00d1e)`,
                   border: 'none', borderRadius: '14px', color: 'white', fontSize: '1rem', fontWeight: '800',
-                  cursor: saving || wouldExceed ? 'not-allowed' : 'pointer',
-                  boxShadow: saving || wouldExceed ? 'none' : `0 6px 24px rgba(206,17,38,0.35)`,
+                  cursor: saving || wouldExceed || hasCompanionErrors ? 'not-allowed' : 'pointer',
+                  boxShadow: saving || wouldExceed || hasCompanionErrors ? 'none' : `0 6px 24px rgba(206,17,38,0.35)`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
                 }}>
                 {saving
