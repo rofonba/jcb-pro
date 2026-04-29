@@ -44,8 +44,7 @@ function normalizeName(str) {
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim()
+    .replace(/\s+/g, '')
 }
 
 const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
@@ -373,6 +372,104 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
   )
 }
 
+// ─── Companion picker (Census + Manual) ──────────────────────────────────────
+function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, placeholder }) {
+  const [search, setSearch] = useState('')
+  const [open,   setOpen]   = useState(false)
+
+  const filtered = useMemo(() => {
+    const key = normalizeName(search)
+    const pool = key
+      ? fallerosList.filter(f => normalizeName(`${f.nombre}${f.apellidos ?? ''}`).includes(key))
+      : fallerosList
+    return pool.slice(0, 25)
+  }, [fallerosList, search])
+
+  if (value.type === 'censo_app') {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 0.9rem', background: 'rgba(16,185,129,0.08)', border: '1.5px solid rgba(16,185,129,0.3)', borderRadius: '12px' }}>
+        <span style={{ flex: 1, fontSize: '0.87rem', fontWeight: '700', color: 'white' }}>{value.nombre}</span>
+        <span style={{ fontSize: '0.58rem', fontWeight: '800', letterSpacing: '0.08em', color: GREEN, background: 'rgba(16,185,129,0.15)', borderRadius: '4px', padding: '2px 6px', flexShrink: 0 }}>📋 CENSO</span>
+        <button type="button" onClick={() => onChange({ type: null, nombre: '', falleroId: null, uid: null })}
+          style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '6px', padding: '3px 5px', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
+          <X size={12} />
+        </button>
+      </div>
+    )
+  }
+
+  if (value.type === 'manual') {
+    return (
+      <div style={{ position: 'relative' }}>
+        <input
+          value={value.nombre}
+          onChange={e => onChange({ ...value, nombre: e.target.value })}
+          placeholder="Nombre completo"
+          autoFocus
+          style={{
+            ...sharedInput, paddingRight: '5.5rem',
+            borderColor: error ? 'rgba(206,17,38,0.75)' : 'rgba(249,115,22,0.45)',
+            boxShadow: error ? '0 0 0 2px rgba(206,17,38,0.18)' : '0 0 0 1px rgba(249,115,22,0.12)',
+          }}
+          onFocus={e => { if (!error) e.target.style.borderColor = '#f97316' }}
+          onBlur={e => { e.target.style.borderColor = error ? 'rgba(206,17,38,0.75)' : 'rgba(249,115,22,0.45)' }}
+        />
+        <span style={{ position: 'absolute', right: '2.6rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.58rem', fontWeight: '800', letterSpacing: '0.06em', color: '#f97316', background: 'rgba(249,115,22,0.12)', borderRadius: '4px', padding: '2px 5px', pointerEvents: 'none' }}>✍️ MANUAL</span>
+        <button type="button" onClick={() => onChange({ type: null, nombre: '', falleroId: null, uid: null })}
+          style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.2)', borderRadius: '6px', padding: '3px 5px', color: 'rgba(220,38,38,0.7)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto' }}>
+          <X size={12} />
+        </button>
+      </div>
+    )
+  }
+
+  // type === null → searchable input
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        value={search}
+        onChange={e => { setSearch(e.target.value); setOpen(true) }}
+        placeholder={placeholder}
+        style={{
+          ...sharedInput,
+          borderColor: error ? 'rgba(206,17,38,0.75)' : 'rgba(255,255,255,0.1)',
+          boxShadow: error ? '0 0 0 2px rgba(206,17,38,0.18)' : 'none',
+        }}
+        onFocus={e => { setOpen(true); if (!error) e.target.style.borderColor = GOLD }}
+        onBlur={e => { e.target.style.borderColor = error ? 'rgba(206,17,38,0.75)' : 'rgba(255,255,255,0.1)'; setTimeout(() => setOpen(false), 150) }}
+      />
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '12px', zIndex: 360, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+          {filtered.map(f => {
+            const fullName = `${f.nombre} ${f.apellidos ?? ''}`.trim()
+            const isOccupied = occupiedUids.has(f.id)
+            return (
+              <button key={f.id} type="button" disabled={isOccupied}
+                onMouseDown={() => {
+                  onChange({ type: 'censo_app', nombre: fullName, falleroId: f.id, uid: f.id })
+                  setSearch('')
+                  setOpen(false)
+                }}
+                style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '0.6rem 1rem', color: isOccupied ? 'rgba(255,255,255,0.25)' : 'white', fontSize: '0.83rem', cursor: isOccupied ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', fontFamily: 'inherit' }}>
+                <span>{fullName}</span>
+                {isOccupied && <span style={{ fontSize: '0.62rem', color: RED, flexShrink: 0 }}>Ya inscrito</span>}
+              </button>
+            )
+          })}
+          <button type="button"
+            onMouseDown={() => {
+              onChange({ type: 'manual', nombre: search, falleroId: null, uid: null })
+              setOpen(false)
+            }}
+            style={{ width: '100%', textAlign: 'left', background: 'rgba(249,115,22,0.06)', border: 'none', borderTop: '1px solid rgba(255,255,255,0.07)', padding: '0.6rem 1rem', color: 'rgba(249,115,22,0.85)', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            ✍️ Añadir manualmente
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Registration / Cancellation modal ───────────────────────────────────────
 function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelled }) {
   const { user, fallero } = useAuth()
@@ -381,15 +478,17 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
     ? `${fallero.nombre} ${fallero.apellidos ?? ''}`.trim()
     : (user?.email?.split('@')[0] ?? 'Yo')
 
-  const [adultos,    setAdultos]    = useState([]) // [{nombre:''}]
-  const [ninos,      setNinos]      = useState([]) // [{nombre:''}]
+  const [adultos,    setAdultos]    = useState([]) // [{type, nombre, falleroId, uid}]
+  const [ninos,      setNinos]      = useState([]) // [{type, nombre, falleroId, uid}]
   const [nota,       setNota]       = useState('')
   const [alergias,   setAlergias]   = useState('')
   const [status,     setStatus]     = useState(isRegistered ? 'duplicate' : 'clean')
   const [saving,     setSaving]     = useState(false)
 
+  const [fallerosList,   setFallerosList]   = useState([])
   const [inscritosCount, setInscritosCount] = useState(null)
-  const [takenNames,   setTakenNames]   = useState(new Set())
+  const [takenNames,     setTakenNames]     = useState(new Set())
+  const [takenUids,      setTakenUids]      = useState(new Set())
   const [myIns,       setMyIns]     = useState(null)
   const [loadingMine, setLoadingMine] = useState(isRegistered)
   const [cancelling,  setCancelling] = useState(false)
@@ -410,17 +509,32 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
   const [extDone,   setExtDone]   = useState(false)
 
   useEffect(() => {
+    getDocs(collection(db, 'falleros')).then(snap => {
+      setFallerosList(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    })
+  }, [])
+
+  useEffect(() => {
     const q = query(collection(db, 'inscripciones'), where('eventId', '==', event.id))
     return onSnapshot(q, snap => {
       setInscritosCount(snap.docs.reduce((s, d) => s + (d.data().totalPersonas ?? 1), 0))
       const names = new Set()
+      const uids  = new Set()
       snap.forEach(d => {
         const data = d.data()
         if (data.nombre) names.add(normalizeName(data.nombre))
-        ;(data.acompañantesAdultos ?? []).forEach(a => { if (a.nombre) names.add(normalizeName(a.nombre)) })
-        ;(data.acompañantesNinos   ?? []).forEach(a => { if (a.nombre) names.add(normalizeName(a.nombre)) })
+        if (data.uid && data.uid !== 'manual') uids.add(data.uid)
+        ;(data.acompañantesAdultos ?? []).forEach(a => {
+          if (a.nombre) names.add(normalizeName(a.nombre))
+          if (a.uid)    uids.add(a.uid)
+        })
+        ;(data.acompañantesNinos ?? []).forEach(a => {
+          if (a.nombre) names.add(normalizeName(a.nombre))
+          if (a.uid)    uids.add(a.uid)
+        })
       })
       setTakenNames(names)
+      setTakenUids(uids)
     })
   }, [event.id])
 
@@ -438,9 +552,18 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
     }).finally(() => setLoadingMine(false))
   }, [event.id, user?.uid, isRegistered])
 
+  const validAdultos = adultos.filter(a => a.type !== null)
+  const validNinos   = ninos.filter(n => n.type !== null)
+
+  const occupiedUids = useMemo(() => {
+    const set = new Set(takenUids)
+    for (const a of [...adultos, ...ninos]) { if (a.uid) set.add(a.uid) }
+    return set
+  }, [takenUids, adultos, ninos])
+
   const plazasTotal   = event.plazasTotal ?? null
   const disponibles   = plazasTotal != null ? Math.max(0, plazasTotal - (inscritosCount ?? 0)) : Infinity
-  const totalPersonas = 1 + adultos.length + ninos.length
+  const totalPersonas = 1 + validAdultos.length + validNinos.length
   const wouldExceed   = plazasTotal != null && totalPersonas > disponibles
   const isAforoFull   = plazasTotal != null && disponibles <= 0
   const t             = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
@@ -449,29 +572,38 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
   const adultoErrors = useMemo(() => {
     const seen = new Set()
     return adultos.map(a => {
+      if (a.type === null) return ''
+      if (a.type === 'manual' && !a.nombre.trim()) return 'Escribe el nombre del acompañante'
       const key = normalizeName(a.nombre)
       if (!key) return ''
       if (seen.has(key)) return 'Nombre repetido en el formulario'
       seen.add(key)
-      if (takenNames.has(key)) return 'Ya inscrito en este evento'
+      if (a.type === 'censo_app' && takenUids.has(a.uid)) return 'Esta persona ya figura en la lista. Revisa si un familiar ya la ha apuntado.'
+      if (takenNames.has(key)) return 'Esta persona ya figura en la lista. Revisa si un familiar ya la ha apuntado.'
       return ''
     })
-  }, [adultos, takenNames])
+  }, [adultos, takenNames, takenUids])
 
   const ninoErrors = useMemo(() => {
-    const seenAdultos = new Set(adultos.map(a => normalizeName(a.nombre)).filter(Boolean))
+    const seenAdultos = new Set(
+      adultos.filter(a => a.type !== null).map(a => normalizeName(a.nombre)).filter(Boolean)
+    )
     const seen = new Set()
     return ninos.map(n => {
+      if (n.type === null) return ''
+      if (n.type === 'manual' && !n.nombre.trim()) return 'Escribe el nombre del acompañante'
       const key = normalizeName(n.nombre)
       if (!key) return ''
       if (seen.has(key) || seenAdultos.has(key)) return 'Nombre repetido en el formulario'
       seen.add(key)
-      if (takenNames.has(key)) return 'Ya inscrito en este evento'
+      if (n.type === 'censo_app' && takenUids.has(n.uid)) return 'Esta persona ya figura en la lista. Revisa si un familiar ya la ha apuntado.'
+      if (takenNames.has(key)) return 'Esta persona ya figura en la lista. Revisa si un familiar ya la ha apuntado.'
       return ''
     })
-  }, [ninos, adultos, takenNames])
+  }, [ninos, adultos, takenNames, takenUids])
 
-  const hasCompanionErrors = adultoErrors.some(Boolean) || ninoErrors.some(Boolean)
+  const hasPendingEntries  = [...adultos, ...ninos].some(e => e.type === null)
+  const hasCompanionErrors = adultoErrors.some(Boolean) || ninoErrors.some(Boolean) || hasPendingEntries
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -494,17 +626,28 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
 
       // Companion name collision (live re-check against fresh snapshot)
       const liveNames = new Set()
+      const liveUids  = new Set()
       snap.forEach(d => {
         const data = d.data()
         if (data.nombre) liveNames.add(normalizeName(data.nombre))
-        ;(data.acompañantesAdultos ?? []).forEach(a => { if (a.nombre) liveNames.add(normalizeName(a.nombre)) })
-        ;(data.acompañantesNinos   ?? []).forEach(a => { if (a.nombre) liveNames.add(normalizeName(a.nombre)) })
+        if (data.uid && data.uid !== 'manual') liveUids.add(data.uid)
+        ;(data.acompañantesAdultos ?? []).forEach(a => {
+          if (a.nombre) liveNames.add(normalizeName(a.nombre))
+          if (a.uid)    liveUids.add(a.uid)
+        })
+        ;(data.acompañantesNinos ?? []).forEach(a => {
+          if (a.nombre) liveNames.add(normalizeName(a.nombre))
+          if (a.uid)    liveUids.add(a.uid)
+        })
       })
-      const allCompanions = [
-        ...adultos.map(a => a.nombre.trim() || 'Adulto'),
-        ...ninos.map(n => n.nombre.trim() || 'Niño/a'),
-      ]
-      for (const nombre of allCompanions) {
+      const allCompanions = [...validAdultos, ...validNinos]
+      for (const c of allCompanions) {
+        const nombre = c.nombre.trim() || (c.type === 'manual' ? 'Acompañante' : c.nombre)
+        if (c.uid && liveUids.has(c.uid)) {
+          setSaveError(`El acompañante "${nombre}" ya ha sido inscrito por otra persona.`)
+          setSaving(false)
+          return
+        }
         if (liveNames.has(normalizeName(nombre))) {
           setSaveError(`El acompañante "${nombre}" ya ha sido inscrito por otra persona.`)
           setSaving(false)
@@ -521,9 +664,19 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
         numFallero:   fallero?.numero ?? null,
         esHijo:       false,
         esManual:     false,
-        acompañantesAdultos: adultos.map(a => ({ nombre: a.nombre.trim() || 'Adulto' })),
-        acompañantesNinos:   ninos.map(n => ({ nombre: n.nombre.trim() || 'Niño/a' })),
-        acompañantes:  adultos.length + ninos.length,
+        acompañantesAdultos: validAdultos.map(a => ({
+          nombre:       a.nombre.trim() || 'Adulto',
+          tipoRegistro: a.type,
+          falleroId:    a.falleroId ?? null,
+          uid:          a.uid ?? null,
+        })),
+        acompañantesNinos: validNinos.map(n => ({
+          nombre:       n.nombre.trim() || 'Niño/a',
+          tipoRegistro: n.type,
+          falleroId:    n.falleroId ?? null,
+          uid:          n.uid ?? null,
+        })),
+        acompañantes:  validAdultos.length + validNinos.length,
         totalPersonas,
         nota:          nota.trim() || null,
         alergias:      (['comida', 'cena'].includes(event.tipo)) ? (alergias.trim() || null) : null,
@@ -755,88 +908,92 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
 
               {/* ── Adult companions ───────────────────────────── */}
               <label style={{ ...sharedLabel, marginBottom: '0.5rem' }}>👤 Acompañantes adultos</label>
-              {adultos.map((a, i) => (
-                <div key={i} style={{ marginBottom: adultoErrors[i] ? '0.15rem' : '0.4rem' }}>
-                  <div style={{ display: 'flex', gap: '0.4rem' }}>
-                    <input
-                      value={a.nombre}
-                      onChange={e => { const next = [...adultos]; next[i] = { nombre: e.target.value }; setAdultos(next) }}
-                      placeholder={`Nombre adulto ${i + 1}`}
-                      style={{
-                        ...sharedInput, flex: 1,
-                        borderColor: adultoErrors[i] ? 'rgba(206,17,38,0.75)' : 'rgba(255,255,255,0.1)',
-                        boxShadow: adultoErrors[i] ? '0 0 0 2px rgba(206,17,38,0.18)' : 'none',
-                      }}
-                      onFocus={e => { if (!adultoErrors[i]) e.target.style.borderColor = GOLD }}
-                      onBlur={e => { e.target.style.borderColor = adultoErrors[i] ? 'rgba(206,17,38,0.75)' : 'rgba(255,255,255,0.1)' }}
-                    />
-                    <button type="button" onClick={() => setAdultos(adultos.filter((_, j) => j !== i))}
-                      style={{ background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.2)', borderRadius: '8px', padding: '0 0.55rem', color: 'rgba(220,38,38,0.7)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
-                      <X size={14} />
-                    </button>
+              {adultos.map((a, i) => {
+                const pickerOccupied = new Set(occupiedUids)
+                if (a.uid) pickerOccupied.delete(a.uid)
+                return (
+                  <div key={i} style={{ marginBottom: adultoErrors[i] ? '0.15rem' : '0.4rem' }}>
+                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1 }}>
+                        <CompanionPicker
+                          value={a}
+                          onChange={val => { const next = [...adultos]; next[i] = val; setAdultos(next) }}
+                          fallerosList={fallerosList}
+                          occupiedUids={pickerOccupied}
+                          error={adultoErrors[i]}
+                          placeholder={`Buscar adulto ${i + 1}…`}
+                        />
+                      </div>
+                      <button type="button" onClick={() => setAdultos(adultos.filter((_, j) => j !== i))}
+                        style={{ background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.2)', borderRadius: '8px', padding: '0.65rem 0.55rem', color: 'rgba(220,38,38,0.7)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                    {adultoErrors[i] && (
+                      <p style={{ margin: '3px 0 5px', fontSize: '0.68rem', color: RED, paddingLeft: 2 }}>
+                        ⚠️ {adultoErrors[i]}
+                      </p>
+                    )}
                   </div>
-                  {adultoErrors[i] && (
-                    <p style={{ margin: '3px 0 5px', fontSize: '0.68rem', color: RED, paddingLeft: 2 }}>
-                      ⚠️ {adultoErrors[i]}
-                    </p>
-                  )}
-                </div>
-              ))}
-              <button type="button" onClick={() => setAdultos([...adultos, { nombre: '' }])}
+                )
+              })}
+              <button type="button" onClick={() => setAdultos([...adultos, { type: null, nombre: '', falleroId: null, uid: null }])}
                 style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px dashed rgba(255,255,255,0.14)', borderRadius: '10px', padding: '0.45rem', color: 'rgba(255,255,255,0.4)', fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', minHeight: 'auto', marginBottom: '1rem' }}>
                 + Añadir adulto
               </button>
 
               {/* ── Child companions ────────────────────────────── */}
               <label style={{ ...sharedLabel, marginBottom: '0.5rem' }}>🧒 Acompañantes niños/as</label>
-              {ninos.map((n, i) => (
-                <div key={i} style={{ marginBottom: ninoErrors[i] ? '0.15rem' : '0.4rem' }}>
-                  <div style={{ display: 'flex', gap: '0.4rem' }}>
-                    <input
-                      value={n.nombre}
-                      onChange={e => { const next = [...ninos]; next[i] = { nombre: e.target.value }; setNinos(next) }}
-                      placeholder={`Nombre niño/a ${i + 1}`}
-                      style={{
-                        ...sharedInput, flex: 1,
-                        borderColor: ninoErrors[i] ? 'rgba(206,17,38,0.75)' : 'rgba(255,255,255,0.1)',
-                        boxShadow: ninoErrors[i] ? '0 0 0 2px rgba(206,17,38,0.18)' : 'none',
-                      }}
-                      onFocus={e => { if (!ninoErrors[i]) e.target.style.borderColor = '#f97316' }}
-                      onBlur={e => { e.target.style.borderColor = ninoErrors[i] ? 'rgba(206,17,38,0.75)' : 'rgba(255,255,255,0.1)' }}
-                    />
-                    <button type="button" onClick={() => setNinos(ninos.filter((_, j) => j !== i))}
-                      style={{ background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.2)', borderRadius: '8px', padding: '0 0.55rem', color: 'rgba(220,38,38,0.7)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
-                      <X size={14} />
-                    </button>
+              {ninos.map((n, i) => {
+                const pickerOccupied = new Set(occupiedUids)
+                if (n.uid) pickerOccupied.delete(n.uid)
+                return (
+                  <div key={i} style={{ marginBottom: ninoErrors[i] ? '0.15rem' : '0.4rem' }}>
+                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1 }}>
+                        <CompanionPicker
+                          value={n}
+                          onChange={val => { const next = [...ninos]; next[i] = val; setNinos(next) }}
+                          fallerosList={fallerosList}
+                          occupiedUids={pickerOccupied}
+                          error={ninoErrors[i]}
+                          placeholder={`Buscar niño/a ${i + 1}…`}
+                        />
+                      </div>
+                      <button type="button" onClick={() => setNinos(ninos.filter((_, j) => j !== i))}
+                        style={{ background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.2)', borderRadius: '8px', padding: '0.65rem 0.55rem', color: 'rgba(220,38,38,0.7)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                    {ninoErrors[i] && (
+                      <p style={{ margin: '3px 0 5px', fontSize: '0.68rem', color: RED, paddingLeft: 2 }}>
+                        ⚠️ {ninoErrors[i]}
+                      </p>
+                    )}
                   </div>
-                  {ninoErrors[i] && (
-                    <p style={{ margin: '3px 0 5px', fontSize: '0.68rem', color: RED, paddingLeft: 2 }}>
-                      ⚠️ {ninoErrors[i]}
-                    </p>
-                  )}
-                </div>
-              ))}
-              <button type="button" onClick={() => setNinos([...ninos, { nombre: '' }])}
+                )
+              })}
+              <button type="button" onClick={() => setNinos([...ninos, { type: null, nombre: '', falleroId: null, uid: null }])}
                 style={{ width: '100%', background: 'rgba(249,115,22,0.05)', border: '1px dashed rgba(249,115,22,0.22)', borderRadius: '10px', padding: '0.45rem', color: 'rgba(249,115,22,0.6)', fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', minHeight: 'auto', marginBottom: '1rem' }}>
                 + Añadir niño/a
               </button>
 
               {/* ── Breakdown summary ───────────────────────────── */}
-              {(adultos.length > 0 || ninos.length > 0) && (
+              {(validAdultos.length > 0 || validNinos.length > 0) && (
                 <div style={{ padding: '0.85rem 1rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', marginBottom: '1rem' }}>
                   <p style={{ margin: '0 0 0.5rem', fontSize: '0.65rem', fontWeight: '700', color: 'rgba(255,255,255,0.35)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Resumen</p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.28rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: 'rgba(255,255,255,0.6)' }}>
                       <span>👤</span><span style={{ flex: 1 }}>Tú (Adulto)</span><span style={{ fontWeight: '800', color: GOLD }}>1</span>
                     </div>
-                    {adultos.length > 0 && (
+                    {validAdultos.length > 0 && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: 'rgba(255,255,255,0.6)' }}>
-                        <span>👤</span><span style={{ flex: 1 }}>Adultos extra</span><span style={{ fontWeight: '800', color: '#3b82f6' }}>{adultos.length}</span>
+                        <span>👤</span><span style={{ flex: 1 }}>Adultos extra</span><span style={{ fontWeight: '800', color: '#3b82f6' }}>{validAdultos.length}</span>
                       </div>
                     )}
-                    {ninos.length > 0 && (
+                    {validNinos.length > 0 && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: 'rgba(255,255,255,0.6)' }}>
-                        <span>🧒</span><span style={{ flex: 1 }}>Niños/as</span><span style={{ fontWeight: '800', color: '#f97316' }}>{ninos.length}</span>
+                        <span>🧒</span><span style={{ flex: 1 }}>Niños/as</span><span style={{ fontWeight: '800', color: '#f97316' }}>{validNinos.length}</span>
                       </div>
                     )}
                     <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: '0.35rem', marginTop: '0.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.88rem', fontWeight: '800', color: 'white' }}>

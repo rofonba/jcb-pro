@@ -28,13 +28,14 @@ const DELEGACIONES = [
   { key: 'Infantiles', emoji: '🧒', color: '#4CAF50' },
   { key: 'Perchero',   emoji: '👗', color: '#9C27B0' },
   { key: 'Protocolo',  emoji: '📋', color: '#607D8B' },
+  { key: 'Redes',      emoji: '📱', color: '#7C3AED' },
 ]
 
-const DELEGACION_OPTS = ['General','Baile','Deportes','Falla','Festejos','Infantiles','Perchero','Protocolo']
+const DELEGACION_OPTS = ['General','Baile','Deportes','Falla','Festejos','Infantiles','Perchero','Protocolo','Redes']
 
 const DELEGACION_COLORS = {
   Baile: '#E91E63', Deportes: '#2196F3', Falla: GOLD, Festejos: '#FF9800',
-  Infantiles: '#4CAF50', Perchero: '#9C27B0', Protocolo: '#607D8B', General: '#6B7280',
+  Infantiles: '#4CAF50', Perchero: '#9C27B0', Protocolo: '#607D8B', Redes: '#7C3AED', General: '#6B7280',
 }
 
 function renderTextWithLinks(text) {

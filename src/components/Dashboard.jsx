@@ -463,7 +463,7 @@ function renderTextWithLinks(text) {
 
 const DELEGACION_COLORS = {
   Baile: '#E91E63', Deportes: '#2196F3', Falla: GOLD, Festejos: '#FF9800',
-  Infantiles: '#4CAF50', Perchero: '#9C27B0', Protocolo: '#607D8B', General: TEXT2,
+  Infantiles: '#4CAF50', Perchero: '#9C27B0', Protocolo: '#607D8B', Redes: '#7C3AED', General: TEXT2,
 }
 
 function AnnCard({ ann, isAdmin = false, onDelete, onEdit }) {
@@ -960,7 +960,7 @@ function HomeTab({
 
 // ─── Avisos Tab ───────────────────────────────────────────────────────────────
 
-const DELEGACION_OPTS = ['General','Baile','Deportes','Falla','Festejos','Infantiles','Perchero','Protocolo']
+const DELEGACION_OPTS = ['General','Baile','Deportes','Falla','Festejos','Infantiles','Perchero','Protocolo','Redes']
 
 function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false }) {
   const [showForm,      setShowForm]      = useState(initialShowForm)

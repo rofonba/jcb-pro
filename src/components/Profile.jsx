@@ -681,8 +681,8 @@ function AttendeesModal({ event, onClose }) {
     const rows = attendees.map(a => [
       a.numeroOrden ?? '',
       a.nombre ?? '',
-      (a.acompañantesAdultos ?? []).map(x => x.nombre).join(' | '),
-      (a.acompañantesNinos   ?? []).map(x => x.nombre).join(' | '),
+      (a.acompañantesAdultos ?? []).map(x => x.tipoRegistro ? `${x.nombre} [${x.tipoRegistro}]` : x.nombre).join(' | '),
+      (a.acompañantesNinos   ?? []).map(x => x.tipoRegistro ? `${x.nombre} [${x.tipoRegistro}]` : x.nombre).join(' | '),
       a.totalPersonas ?? 1,
       a.nota      ?? '',
       a.alergias  ?? '',
