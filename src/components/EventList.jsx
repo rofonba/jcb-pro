@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   collection, query, orderBy, onSnapshot,
-  addDoc, setDoc, deleteDoc, serverTimestamp, getDocs, where, doc, updateDoc,
+  addDoc, setDoc, deleteDoc, serverTimestamp, getDocs, getDoc, where, doc, updateDoc,
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { enviarNotificacionFCM } from '../services/fcmService'
@@ -485,7 +485,12 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
   const [status,     setStatus]     = useState(isRegistered ? 'duplicate' : 'clean')
   const [saving,     setSaving]     = useState(false)
 
-  const [fallerosList,   setFallerosList]   = useState([])
+  const familiaUids = fallero?.familiaUids ?? []
+  const hijosNormalized = (fallero?.hijos ?? []).map(h => typeof h === 'string' ? { nombre: h, fechaNacimiento: null } : h)
+
+  const [fallerosList,        setFallerosList]        = useState([])
+  const [familiaFalleros,     setFamiliaFalleros]     = useState({}) // uid → nombre
+  const [familyInscribedByUid, setFamilyInscribedByUid] = useState(new Map()) // normalizedName → uid
   const [inscritosCount, setInscritosCount] = useState(null)
   const [takenNames,     setTakenNames]     = useState(new Set())
   const [takenUids,      setTakenUids]      = useState(new Set())
@@ -515,28 +520,41 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
   }, [])
 
   useEffect(() => {
+    if (familiaUids.length === 0) return
+    Promise.all(familiaUids.map(uid => getDoc(doc(db, 'falleros', uid))))
+      .then(docs => {
+        const map = {}
+        docs.forEach(d => { if (d.exists()) map[d.id] = `${d.data().nombre} ${d.data().apellidos ?? ''}`.trim() })
+        setFamiliaFalleros(map)
+      })
+  }, [familiaUids.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     const q = query(collection(db, 'inscripciones'), where('eventId', '==', event.id))
     return onSnapshot(q, snap => {
       setInscritosCount(snap.docs.reduce((s, d) => s + (d.data().totalPersonas ?? 1), 0))
       const names = new Set()
       const uids  = new Set()
+      const fimByUid = new Map() // normalizedName → inscriber uid (family member)
       snap.forEach(d => {
         const data = d.data()
+        const isFamilyMember = familiaUids.includes(data.uid)
         if (data.nombre) names.add(normalizeName(data.nombre))
         if (data.uid && data.uid !== 'manual') uids.add(data.uid)
         ;(data.acompañantesAdultos ?? []).forEach(a => {
-          if (a.nombre) names.add(normalizeName(a.nombre))
+          if (a.nombre) { names.add(normalizeName(a.nombre)); if (isFamilyMember) fimByUid.set(normalizeName(a.nombre), data.uid) }
           if (a.uid)    uids.add(a.uid)
         })
         ;(data.acompañantesNinos ?? []).forEach(a => {
-          if (a.nombre) names.add(normalizeName(a.nombre))
+          if (a.nombre) { names.add(normalizeName(a.nombre)); if (isFamilyMember) fimByUid.set(normalizeName(a.nombre), data.uid) }
           if (a.uid)    uids.add(a.uid)
         })
       })
       setTakenNames(names)
       setTakenUids(uids)
+      setFamilyInscribedByUid(fimByUid)
     })
-  }, [event.id])
+  }, [event.id, familiaUids.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isRegistered || !user?.uid) return
@@ -561,6 +579,15 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
     return set
   }, [takenUids, adultos, ninos])
 
+  // Map normalizedName → "nombre del familiar que ya inscribió"
+  const familyInscribedMap = useMemo(() => {
+    const m = new Map()
+    for (const [name, uid] of familyInscribedByUid) {
+      m.set(name, familiaFalleros[uid] || 'tu familiar')
+    }
+    return m
+  }, [familyInscribedByUid, familiaFalleros])
+
   const plazasTotal   = event.plazasTotal ?? null
   const disponibles   = plazasTotal != null ? Math.max(0, plazasTotal - (inscritosCount ?? 0)) : Infinity
   const totalPersonas = 1 + validAdultos.length + validNinos.length
@@ -578,11 +605,15 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
       if (!key) return ''
       if (seen.has(key)) return 'Nombre repetido en el formulario'
       seen.add(key)
-      if (a.type === 'censo_app' && takenUids.has(a.uid)) return 'Esta persona ya figura en la lista. Revisa si un familiar ya la ha apuntado.'
+      if (a.type === 'censo_app' && takenUids.has(a.uid)) {
+        const por = familyInscribedMap.get(key)
+        return por ? `Ya inscrito por ${por}` : 'Esta persona ya figura en la lista.'
+      }
+      if (familyInscribedMap.has(key)) return `Ya inscrito por ${familyInscribedMap.get(key)}`
       if (takenNames.has(key)) return 'Esta persona ya figura en la lista. Revisa si un familiar ya la ha apuntado.'
       return ''
     })
-  }, [adultos, takenNames, takenUids])
+  }, [adultos, takenNames, takenUids, familyInscribedMap])
 
   const ninoErrors = useMemo(() => {
     const seenAdultos = new Set(
@@ -596,11 +627,15 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
       if (!key) return ''
       if (seen.has(key) || seenAdultos.has(key)) return 'Nombre repetido en el formulario'
       seen.add(key)
-      if (n.type === 'censo_app' && takenUids.has(n.uid)) return 'Esta persona ya figura en la lista. Revisa si un familiar ya la ha apuntado.'
+      if (n.type === 'censo_app' && takenUids.has(n.uid)) {
+        const por = familyInscribedMap.get(key)
+        return por ? `Ya inscrito por ${por}` : 'Esta persona ya figura en la lista.'
+      }
+      if (familyInscribedMap.has(key)) return `Ya inscrito por ${familyInscribedMap.get(key)}`
       if (takenNames.has(key)) return 'Esta persona ya figura en la lista. Revisa si un familiar ya la ha apuntado.'
       return ''
     })
-  }, [ninos, adultos, takenNames, takenUids])
+  }, [ninos, adultos, takenNames, takenUids, familyInscribedMap])
 
   const hasPendingEntries  = [...adultos, ...ninos].some(e => e.type === null)
   const hasCompanionErrors = adultoErrors.some(Boolean) || ninoErrors.some(Boolean) || hasPendingEntries
@@ -974,9 +1009,35 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
                 )
               })}
               <button type="button" onClick={() => setNinos([...ninos, { type: null, nombre: '', falleroId: null, uid: null }])}
-                style={{ width: '100%', background: 'rgba(249,115,22,0.05)', border: '1px dashed rgba(249,115,22,0.22)', borderRadius: '10px', padding: '0.45rem', color: 'rgba(249,115,22,0.6)', fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', minHeight: 'auto', marginBottom: '1rem' }}>
+                style={{ width: '100%', background: 'rgba(249,115,22,0.05)', border: '1px dashed rgba(249,115,22,0.22)', borderRadius: '10px', padding: '0.45rem', color: 'rgba(249,115,22,0.6)', fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', minHeight: 'auto', marginBottom: hijosNormalized.length > 0 ? '0.5rem' : '1rem' }}>
                 + Añadir niño/a
               </button>
+
+              {/* ── Tus hijos registrados ─── */}
+              {hijosNormalized.length > 0 && (
+                <div style={{ marginBottom: '1rem' }}>
+                  <p style={{ fontSize: '0.6rem', fontWeight: '700', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.1em', textTransform: 'uppercase', margin: '0 0 0.35rem' }}>Tus hijos registrados</p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                    {hijosNormalized.map((h, i) => {
+                      const key = normalizeName(h.nombre)
+                      const alreadyAdded  = ninos.some(n => n.nombre && normalizeName(n.nombre) === key)
+                      const familyInscribed = familyInscribedMap.get(key)
+                      const selfInscribed   = !familyInscribed && takenNames.has(key)
+                      const isBlocked = alreadyAdded || !!familyInscribed || selfInscribed
+                      return (
+                        <button key={i} type="button" disabled={isBlocked}
+                          onClick={() => { if (!isBlocked) setNinos(prev => [...prev, { type: 'manual', nombre: h.nombre, falleroId: null, uid: null }]) }}
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '4px 10px', background: isBlocked ? 'rgba(255,255,255,0.03)' : 'rgba(249,115,22,0.1)', border: `1px solid ${isBlocked ? 'rgba(255,255,255,0.08)' : 'rgba(249,115,22,0.35)'}`, borderRadius: '8px', color: isBlocked ? 'rgba(255,255,255,0.2)' : 'rgba(249,115,22,0.9)', fontSize: '0.75rem', fontWeight: '600', cursor: isBlocked ? 'not-allowed' : 'pointer', minHeight: 'auto' }}>
+                          🧒 {h.nombre}
+                          {familyInscribed && <span style={{ fontSize: '0.6rem', color: 'rgba(255,165,0,0.5)' }}>· {familyInscribed}</span>}
+                          {selfInscribed  && <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.2)' }}>· ya inscrito</span>}
+                          {alreadyAdded   && <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.2)' }}>· añadido</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* ── Breakdown summary ───────────────────────────── */}
               {(validAdultos.length > 0 || validNinos.length > 0) && (
