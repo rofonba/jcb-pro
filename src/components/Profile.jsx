@@ -67,6 +67,8 @@ function EditableRow({ label, displayValue, editValue, onEditStart, onSave, onCa
   const handleSave = async () => { await onSave(val); setEditing(false) }
   const handleCancel = () => { setEditing(false); onCancel?.() }
 
+  const { style: extraStyle, ...restInputProps } = inputProps ?? {}
+
   return (
     <div style={{
       paddingBottom: last ? 0 : '0.65rem', marginBottom: last ? 0 : '0.65rem',
@@ -89,8 +91,8 @@ function EditableRow({ label, displayValue, editValue, onEditStart, onSave, onCa
             <input
               autoFocus value={val} onChange={e => setVal(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') handleCancel() }}
-              style={{ padding: '6px 10px', background: BG, border: `1.5px solid ${GOLD}50`, borderRadius: 10, fontSize: 13, color: TEXT, outline: 'none', fontFamily: 'inherit', width: 120 }}
-              {...inputProps}
+              style={{ padding: '6px 10px', background: BG, border: `1.5px solid ${GOLD}50`, borderRadius: 10, fontSize: 13, color: TEXT, outline: 'none', fontFamily: 'inherit', width: 120, ...extraStyle }}
+              {...restInputProps}
             />
             <button onClick={handleSave} disabled={saving} style={{ background: GOLD, border: 'none', borderRadius: 8, padding: '6px 8px', cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', minHeight: 'auto' }}>
               {saving ? <Loader2 size={13} color="white" style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : <Check size={13} color="white" strokeWidth={2.5} />}
@@ -105,9 +107,18 @@ function EditableRow({ label, displayValue, editValue, onEditStart, onSave, onCa
   )
 }
 
+function fmtBirthDisplay(fecha) {
+  if (!fecha) return null
+  const d = new Date(fecha + 'T00:00:00')
+  const fmt = d.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
+  const age = calcAge(fecha)
+  return age != null ? `${fmt} · ${age} años` : fmt
+}
+
 function ContactSection({ fallero, userId, onUpdate }) {
   const [savingPhone,  setSavingPhone]  = useState(false)
   const [savingNumero, setSavingNumero] = useState(false)
+  const [savingBirth,  setSavingBirth]  = useState(false)
 
   const numFallero = fallero?.numeroFallero ?? fallero?.memberNumber ?? fallero?.numero ?? null
 
@@ -129,10 +140,16 @@ function ContactSection({ fallero, userId, onUpdate }) {
     } finally { setSavingNumero(false) }
   }
 
-  const age = calcAge(fallero?.fechaNacimiento)
-  const fmtBirth = fallero?.fechaNacimiento
-    ? new Date(fallero.fechaNacimiento).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
-    : null
+  const saveBirth = async (val) => {
+    if (!val) return
+    setSavingBirth(true)
+    try {
+      await updateDoc(doc(db, 'falleros', userId), { fechaNacimiento: val })
+      onUpdate({ fechaNacimiento: val })
+    } finally { setSavingBirth(false) }
+  }
+
+  const birthDisplay = fmtBirthDisplay(fallero?.fechaNacimiento)
 
   return (
     <Card>
@@ -165,15 +182,16 @@ function ContactSection({ fallero, userId, onUpdate }) {
         inputProps={{ type: 'tel', placeholder: '6XX XXX XXX', style: { width: 130 } }}
       />
 
-      {/* Birthdate (read-only) */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: 13, color: TEXT2 }}>Fecha de nacimiento</span>
-        <span style={{ fontSize: 13, color: TEXT, fontWeight: 600 }}>
-          {fmtBirth
-            ? `${fmtBirth}${age != null ? ` · ${age} años` : ''}`
-            : '—'}
-        </span>
-      </div>
+      {/* Fecha de nacimiento (editable) */}
+      <EditableRow
+        label="Fecha de nacimiento"
+        displayValue={birthDisplay ?? <span style={{ color: MUTED }}>Sin registrar</span>}
+        editValue={fallero?.fechaNacimiento ?? ''}
+        onSave={saveBirth}
+        saving={savingBirth}
+        inputProps={{ type: 'date', style: { width: 150 } }}
+        last
+      />
     </Card>
   )
 }
@@ -381,7 +399,11 @@ function HijosSection({ fallero, userId, onUpdate }) {
                   </div>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 500, color: TEXT }}>{h.nombre}</div>
-                    {h.fechaNacimiento && <div style={{ fontSize: 11, color: MUTED }}>{age !== null ? `${age} años` : h.fechaNacimiento}</div>}
+                    {h.fechaNacimiento && (
+                      <div style={{ fontSize: 11, color: MUTED }}>
+                        {fmtBirthDisplay(h.fechaNacimiento) ?? h.fechaNacimiento}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>

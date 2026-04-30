@@ -41,6 +41,19 @@ const DELEGACION_COLORS = {
   Perchero: '#9C27B0', Protocolo: '#607D8B', Redes: '#7C3AED', General: '#6B7280',
 }
 
+const DELEGACION_RESPONSABLES = {
+  Baile:      'Ana Vivó',
+  Deportes:   'Roberto Font',
+  Falla:      'Carmina y Mario',
+  Festejos:   'Nando',
+  Infantiles: 'Vir',
+  Juveniles:  'Carlos Mora y Fernando',
+  'Lotería':  'María Jesús Pastor',
+  Perchero:   'Memen y Patricia Pérez',
+  Protocolo:  'Pali',
+  Redes:      'Ferran Romero y Borja Carreres',
+}
+
 function renderTextWithLinks(text) {
   if (!text) return null
   const parts = text.split(/(https?:\/\/[^\s]+)/g)
@@ -460,7 +473,13 @@ function DelegacionDetail({ delegacion, onBack, isAdmin }) {
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: TEXT, letterSpacing: '-0.01em' }}>
               {delegacion.key}
             </h2>
-            <p style={{ margin: 0, fontSize: 11, color: TEXT2 }}>Delegación</p>
+            {DELEGACION_RESPONSABLES[delegacion.key] ? (
+              <p style={{ margin: 0, fontSize: 11, color: delegacion.color, fontWeight: 600 }}>
+                Responsable: {DELEGACION_RESPONSABLES[delegacion.key]}
+              </p>
+            ) : (
+              <p style={{ margin: 0, fontSize: 11, color: TEXT2 }}>Delegación</p>
+            )}
           </div>
         </div>
       </div>
@@ -697,7 +716,9 @@ export default function Delegaciones({ isAdmin = false }) {
             </div>
             <div style={{ flex: 1 }}>
               <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: TEXT }}>{d.key}</p>
-              <p style={{ margin: '3px 0 0', fontSize: 12, color: TEXT2 }}>Eventos y avisos</p>
+              <p style={{ margin: '3px 0 0', fontSize: 12, color: DELEGACION_RESPONSABLES[d.key] ? d.color : TEXT2, fontWeight: DELEGACION_RESPONSABLES[d.key] ? 600 : 400 }}>
+                {DELEGACION_RESPONSABLES[d.key] ? DELEGACION_RESPONSABLES[d.key] : 'Eventos y avisos'}
+              </p>
             </div>
             <ChevronLeft size={18} color={MUTED} style={{ transform: 'rotate(180deg)', flexShrink: 0 }} />
           </button>
