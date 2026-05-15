@@ -91,6 +91,14 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
   if (imgSrc) console.log('Cargando imagen de:', imgSrc)
   const hasBanner = Boolean(imgSrc)
 
+  // Fecha límite: cerrado si la hora actual ha pasado del fin del día límite
+  const isClosed = event.fechaLimite
+    ? Date.now() > new Date(`${event.fechaLimite}T23:59:59`).getTime()
+    : false
+  const fmtLimite = event.fechaLimite
+    ? new Date(`${event.fechaLimite}T00:00:00`).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })
+    : null
+
   const metaRows = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.28rem', marginBottom: '0.65rem' }}>
       {event.fecha && (
@@ -123,6 +131,14 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
           <Users size={12} color="rgba(255,255,255,0.28)" />
           <span style={{ fontSize: '0.77rem', color: 'rgba(255,255,255,0.45)' }}>{ocupadas} / {event.plazasTotal} plazas</span>
+        </div>
+      )}
+      {fmtLimite && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+          <span style={{ fontSize: 12 }}>{isClosed ? '🔒' : '⏰'}</span>
+          <span style={{ fontSize: '0.77rem', color: isClosed ? 'rgba(206,17,38,0.78)' : 'rgba(212,175,55,0.78)', fontWeight: 600 }}>
+            {isClosed ? `Plazo cerrado el ${fmtLimite}` : `Plazo hasta el ${fmtLimite}`}
+          </span>
         </div>
       )}
     </div>
@@ -251,6 +267,10 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
                     style={{ padding: '7px 14px', background: 'rgba(206,17,38,0.65)', backdropFilter: 'blur(6px)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '9px', fontSize: '0.75rem', fontWeight: 700, color: 'white', cursor: 'pointer', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
                     <X size={12} /> Anular
                   </button>
+                ) : isClosed ? (
+                  <span style={{ padding: '7px 14px', background: 'rgba(60,60,60,0.7)', borderRadius: '9px', fontSize: '0.72rem', fontWeight: 700, color: 'rgba(255,255,255,0.55)' }}>
+                    🔒 Inscripciones cerradas
+                  </span>
                 ) : isFull ? (
                   <span style={{ padding: '7px 14px', background: 'rgba(206,17,38,0.6)', borderRadius: '9px', fontSize: '0.75rem', fontWeight: 700, color: 'white' }}>
                     Aforo completo
@@ -353,6 +373,10 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
               >
                 <X size={12} /> Anular inscripción
               </button>
+            ) : isClosed ? (
+              <span style={{ padding: '0.38rem 0.9rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', fontSize: '0.72rem', fontWeight: '700', color: 'rgba(255,255,255,0.45)' }}>
+                🔒 Inscripciones cerradas
+              </span>
             ) : isFull ? (
               <span style={{ padding: '0.38rem 0.9rem', background: 'rgba(206,17,38,0.1)', border: '1px solid rgba(206,17,38,0.25)', borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: 'rgba(206,17,38,0.7)' }}>
                 Aforo completo
@@ -643,6 +667,10 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (saving || wouldExceed || isAforoFull || hasCompanionErrors) return
+    if (event.fechaLimite && Date.now() > new Date(`${event.fechaLimite}T23:59:59`).getTime()) {
+      setSaveError('Las inscripciones están cerradas para este evento.')
+      return
+    }
     setSaving(true)
     setSaveError('')
     try {
@@ -1198,23 +1226,25 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
   const isPrivileged = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
   const [form, setForm] = useState(() => {
-    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', lugar: '', precio: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: initialDelegacion }
+    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', fechaLimite: '', notificarFechaLimite: false, lugar: '', precio: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: initialDelegacion }
     const d = editEvent.fecha?.toDate ? editEvent.fecha.toDate() : editEvent.fecha ? new Date(editEvent.fecha) : null
     const pad = n => String(n).padStart(2, '0')
     return {
-      titulo:      editEvent.titulo ?? '',
-      tipo:        editEvent.tipo ?? 'comida',
-      fecha:       d ? `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}` : '',
-      hora:        d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '',
-      lugar:       editEvent.lugar ?? '',
-      precio:      editEvent.precio != null ? String(editEvent.precio) : '',
-      plazasTotal: editEvent.plazasTotal != null ? String(editEvent.plazasTotal) : '',
-      descripcion: editEvent.descripcion ?? '',
-      imagenUrl:   editEvent.imagenUrl ?? '',
-      videoUrl:    editEvent.videoUrl ?? '',
-      menu:        editEvent.menu ?? '',
-      notificar:   editEvent.notificar ?? false,
-      delegacion:  editEvent.delegacion ?? 'General',
+      titulo:               editEvent.titulo ?? '',
+      tipo:                 editEvent.tipo ?? 'comida',
+      fecha:                d ? `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}` : '',
+      hora:                 d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '',
+      fechaLimite:          editEvent.fechaLimite ?? '',
+      notificarFechaLimite: editEvent.notificarFechaLimite ?? false,
+      lugar:                editEvent.lugar ?? '',
+      precio:               editEvent.precio != null ? String(editEvent.precio) : '',
+      plazasTotal:          editEvent.plazasTotal != null ? String(editEvent.plazasTotal) : '',
+      descripcion:          editEvent.descripcion ?? '',
+      imagenUrl:            editEvent.imagenUrl ?? '',
+      videoUrl:             editEvent.videoUrl ?? '',
+      menu:                 editEvent.menu ?? '',
+      notificar:            editEvent.notificar ?? false,
+      delegacion:           editEvent.delegacion ?? 'General',
     }
   })
   const [loading,       setLoading]       = useState(false)
@@ -1247,19 +1277,21 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
         ? new Date(`${form.fecha}T${form.hora}`)
         : form.fecha ? new Date(`${form.fecha}T00:00`) : null
       const payload = {
-        titulo:      form.titulo.trim(),
-        tipo:        form.tipo,
-        fecha:       fechaDate,
-        lugar:       form.lugar.trim() || null,
-        precio:      form.precio !== '' ? parseFloat(form.precio) : null,
-        plazasTotal: form.plazasTotal !== '' ? parseInt(form.plazasTotal) : null,
-        descripcion: form.descripcion.trim() || null,
-        imagenUrl:   form.imagenUrl.trim() || null,
-        videoUrl:    form.videoUrl.trim() || null,
-        menu:        (['comida', 'cena'].includes(form.tipo)) ? (form.menu.trim() || null) : null,
-        notificar:   isPrivileged ? Boolean(form.notificar) : false,
+        titulo:               form.titulo.trim(),
+        tipo:                 form.tipo,
+        fecha:                fechaDate,
+        fechaLimite:          form.fechaLimite || null,
+        notificarFechaLimite: Boolean(form.notificarFechaLimite),
+        lugar:                form.lugar.trim() || null,
+        precio:               form.precio !== '' ? parseFloat(form.precio) : null,
+        plazasTotal:          form.plazasTotal !== '' ? parseInt(form.plazasTotal) : null,
+        descripcion:          form.descripcion.trim() || null,
+        imagenUrl:            form.imagenUrl.trim() || null,
+        videoUrl:             form.videoUrl.trim() || null,
+        menu:                 (['comida', 'cena'].includes(form.tipo)) ? (form.menu.trim() || null) : null,
+        notificar:            isPrivileged ? Boolean(form.notificar) : false,
         timestampNotificacion: isPrivileged && form.notificar ? serverTimestamp() : null,
-        delegacion:  form.delegacion,
+        delegacion:           form.delegacion,
       }
       if (isEditing) {
         await updateDoc(doc(db, 'eventos', editEvent.id), payload)
@@ -1315,7 +1347,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
             <label style={sharedLabel}>Delegación</label>
             <select value={form.delegacion} onChange={e => set('delegacion', e.target.value)} style={{ ...sharedInput, cursor: 'pointer' }}>
               <option value="General" style={{ background: CARD }}>General</option>
-              {['Baile','Deportes','Falla','Festejos','Infantiles','Perchero','Protocolo'].map(d => (
+              {['Baile','Deportes','Falla','Falla (Monumento)','Festejos','Infantiles','Juveniles','Lotería','Perchero','Protocolo','Redes'].map(d => (
                 <option key={d} value={d} style={{ background: CARD }}>{d}</option>
               ))}
             </select>
@@ -1333,6 +1365,41 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
               {TIME_OPTIONS.map(t => <option key={t} value={t} style={{ background: CARD }}>{t}</option>)}
             </select>
           </div>
+        </div>
+        <div>
+          <label style={sharedLabel}>📅 Fecha límite de inscripción *</label>
+          <input required type="date" style={sharedInput} value={form.fechaLimite} onChange={e => set('fechaLimite', e.target.value)} onFocus={fg} onBlur={fb} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1rem', background: form.notificarFechaLimite ? 'rgba(212,175,55,0.07)' : 'rgba(255,255,255,0.03)', border: `1.5px solid ${form.notificarFechaLimite ? 'rgba(212,175,55,0.38)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '14px', transition: 'all 0.2s' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <span style={{ fontSize: '1.1rem' }}>🔔</span>
+            <div>
+              <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: '700', color: 'white', lineHeight: 1.2 }}>Notificar 24h antes del cierre</p>
+              <p style={{ margin: '2px 0 0', fontSize: '0.67rem', color: 'rgba(255,255,255,0.35)' }}>Genera un aviso automático un día antes</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => set('notificarFechaLimite', !form.notificarFechaLimite)}
+            style={{
+              width: '46px', height: '26px', flexShrink: 0,
+              background: form.notificarFechaLimite ? GOLD : 'rgba(255,255,255,0.18)',
+              border: 'none', borderRadius: '13px',
+              position: 'relative', cursor: 'pointer',
+              transition: 'background 0.22s', minHeight: 'auto', minWidth: 'auto',
+            }}
+            aria-checked={form.notificarFechaLimite}
+            role="switch"
+          >
+            <div style={{
+              position: 'absolute', top: '3px',
+              left: form.notificarFechaLimite ? '23px' : '3px',
+              width: '20px', height: '20px',
+              background: 'white', borderRadius: '50%',
+              transition: 'left 0.22s',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.35)',
+            }} />
+          </button>
         </div>
         <div>
           <label style={sharedLabel}>Lugar</label>
@@ -1604,6 +1671,36 @@ export default function EventList() {
       setInscCountMap(map)
     })
   }, [])
+
+  // Auto-aviso: genera un aviso 24h antes del cierre de inscripción.
+  // Usa un ID determinista para idempotencia. Solo admins, para respetar reglas Firestore.
+  useEffect(() => {
+    if (!isAdmin || !events.length) return
+    const now = Date.now()
+    events.forEach(async (ev) => {
+      if (!ev.notificarFechaLimite || !ev.fechaLimite) return
+      const limitMs = new Date(`${ev.fechaLimite}T23:59:59`).getTime()
+      const diff = limitMs - now
+      if (diff <= 0 || diff > 24 * 60 * 60 * 1000) return // sólo en las últimas 24h previas
+      const avisoId = `auto_${ev.id}_fechaLimite24h`
+      try {
+        const existing = await getDoc(doc(db, 'avisos', avisoId))
+        if (existing.exists()) return
+        const dateStr = new Date(`${ev.fechaLimite}T00:00:00`).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })
+        await setDoc(doc(db, 'avisos', avisoId), {
+          titulo:       `⏰ Última oportunidad: ${ev.titulo}`,
+          contenido:    `Las inscripciones para "${ev.titulo}" cierran el ${dateStr}. ¡Apúntate antes de que sea tarde!`,
+          delegacion:   ev.delegacion ?? 'General',
+          esUrgente:    true,
+          importante:   true,
+          autoGenerado: true,
+          tipoAuto:     'fechaLimite24h',
+          eventoId:     ev.id,
+          createdAt:    serverTimestamp(),
+        })
+      } catch { /* silenciar permisos/red */ }
+    })
+  }, [events, isAdmin])
 
   const handleRegistered = useCallback((eventId) => {
     setSelectedEvent(null)

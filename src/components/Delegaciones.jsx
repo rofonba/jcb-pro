@@ -21,37 +21,39 @@ const RED    = '#CE1126'
 const GREEN  = '#10b981'
 
 const DELEGACIONES = [
-  { key: 'Baile',      emoji: '💃', color: '#E91E63' },
-  { key: 'Deportes',   emoji: '⚽', color: '#2196F3' },
-  { key: 'Falla',      emoji: '🔥', color: GOLD      },
-  { key: 'Festejos',   emoji: '🎉', color: '#FF9800' },
-  { key: 'Infantiles', emoji: '🧒', color: '#4CAF50' },
-  { key: 'Juveniles',  emoji: '🏃', color: '#F97316' },
-  { key: 'Lotería',    emoji: '🎟️', color: '#059669' },
-  { key: 'Perchero',   emoji: '👗', color: '#9C27B0' },
-  { key: 'Protocolo',  emoji: '📋', color: '#607D8B' },
-  { key: 'Redes',      emoji: '📱', color: '#7C3AED' },
+  { key: 'Baile',             emoji: '💃', color: '#E91E63' },
+  { key: 'Deportes',          emoji: '⚽', color: '#2196F3' },
+  { key: 'Falla',             emoji: '🔥', color: GOLD      },
+  { key: 'Falla (Monumento)', emoji: '🗿', color: '#A16207' },
+  { key: 'Festejos',          emoji: '🎉', color: '#FF9800' },
+  { key: 'Infantiles',        emoji: '🧒', color: '#4CAF50' },
+  { key: 'Juveniles',         emoji: '🏃', color: '#F97316' },
+  { key: 'Lotería',           emoji: '🎟️', color: '#059669' },
+  { key: 'Perchero',          emoji: '👗', color: '#9C27B0' },
+  { key: 'Protocolo',         emoji: '📋', color: '#607D8B' },
+  { key: 'Redes',             emoji: '📱', color: '#7C3AED' },
 ]
 
-const DELEGACION_OPTS = ['General','Baile','Deportes','Falla','Festejos','Infantiles','Juveniles','Lotería','Perchero','Protocolo','Redes']
+const DELEGACION_OPTS = ['General','Baile','Deportes','Falla','Falla (Monumento)','Festejos','Infantiles','Juveniles','Lotería','Perchero','Protocolo','Redes']
 
 const DELEGACION_COLORS = {
-  Baile: '#E91E63', Deportes: '#2196F3', Falla: GOLD, Festejos: '#FF9800',
-  Infantiles: '#4CAF50', Juveniles: '#F97316', Lotería: '#059669',
+  Baile: '#E91E63', Deportes: '#2196F3', Falla: GOLD, 'Falla (Monumento)': '#A16207',
+  Festejos: '#FF9800', Infantiles: '#4CAF50', Juveniles: '#F97316', Lotería: '#059669',
   Perchero: '#9C27B0', Protocolo: '#607D8B', Redes: '#7C3AED', General: '#6B7280',
 }
 
 const DELEGACION_RESPONSABLES = {
-  Baile:      'Ana Vivó',
-  Deportes:   'Roberto Font',
-  Falla:      'Carmina y Mario',
-  Festejos:   'Nando',
-  Infantiles: 'Vir',
-  Juveniles:  'Carlos Mora y Fernando',
-  'Lotería':  'María Jesús Pastor',
-  Perchero:   'Memen y Patricia Pérez',
-  Protocolo:  'Pali',
-  Redes:      'Ferran Romero y Borja Carreres',
+  Baile:                'Ana Vivó',
+  Deportes:             'Roberto Font',
+  Falla:                'Carmina y Mario',
+  'Falla (Monumento)':  'Albert',
+  Festejos:             'Nando',
+  Infantiles:           'Vir',
+  Juveniles:            'Carlos Mora y Fernando',
+  'Lotería':            'María Jesús Pastor',
+  Perchero:             'Memen y Patricia Pérez',
+  Protocolo:            'Pali',
+  Redes:                'Ferran Romero y Borja Carreres',
 }
 
 function renderTextWithLinks(text) {
