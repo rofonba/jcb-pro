@@ -15,6 +15,19 @@ const GREEN  = '#10b981'
 
 const MEDALS = ['🥇', '🥈', '🥉']
 
+// Ciclo fallero: 1 de abril → 31 de marzo. Reset automático cada 1 de abril.
+function getFalleroYearStart(now = new Date()) {
+  const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
+  return new Date(year, 3, 1) // April 1 (month index 3)
+}
+
+function tsToDate(ts) {
+  if (!ts) return null
+  if (ts.toDate) return ts.toDate()
+  const d = new Date(ts)
+  return isNaN(d.getTime()) ? null : d
+}
+
 // ─── Data fetcher ─────────────────────────────────────────────────────────────
 
 async function fetchMetrics() {
@@ -26,11 +39,15 @@ async function fetchMetrics() {
   const inscriptions = insSnap.docs.map(d => ({ id: d.id, ...d.data() }))
   const fallerosList = fallerosSnap.docs.map(d => d.data())
 
-  // 1. Top 10 falleros — non-manual only, group by uid
+  // 1. Top 10 falleros — ranking del ciclo fallero en curso (1-abr → 1-abr)
+  const yearStart  = getFalleroYearStart()
+  const yearStartMs = yearStart.getTime()
   const countByUid = {}
   const nameByUid  = {}
   for (const ins of inscriptions) {
     if (ins.esManual || ins.uid === 'manual') continue
+    const created = tsToDate(ins.createdAt)
+    if (!created || created.getTime() < yearStartMs) continue
     countByUid[ins.uid] = (countByUid[ins.uid] || 0) + 1
     if (!nameByUid[ins.uid]) nameByUid[ins.uid] = ins.nombre || '—'
   }
@@ -39,7 +56,8 @@ async function fetchMetrics() {
     .sort((a, b) => b.count - a.count)
     .slice(0, 10)
 
-  // 2. Event volume — all inscriptions including manual
+  // 2. Event volume — usa totalPersonas para reflejar el aforo real
+  //    (titular + acompañantes censo_app + censo_hijo + manuales validados).
   const volByEvent    = {}
   const titleByEvent  = {}
   const adultsByEvent = {}
@@ -47,10 +65,16 @@ async function fetchMetrics() {
   for (const ins of inscriptions) {
     const eid = ins.eventId
     if (!eid) continue
-    volByEvent[eid]    = (volByEvent[eid] || 0) + 1
-    titleByEvent[eid]  = ins.eventoTitulo || eid
-    if (ins.esHijo) ninosByEvent[eid]  = (ninosByEvent[eid]  || 0) + 1
-    else            adultsByEvent[eid] = (adultsByEvent[eid] || 0) + 1
+    const acompAdultos = Array.isArray(ins.acompañantesAdultos) ? ins.acompañantesAdultos.length : 0
+    const acompNinos   = Array.isArray(ins.acompañantesNinos)   ? ins.acompañantesNinos.length   : 0
+    // Total real: prefiere totalPersonas si existe, si no lo deriva
+    const totalReal = ins.totalPersonas != null
+      ? ins.totalPersonas
+      : 1 + acompAdultos + acompNinos
+    volByEvent[eid]   = (volByEvent[eid]   || 0) + totalReal
+    titleByEvent[eid] = ins.eventoTitulo || eid
+    adultsByEvent[eid] = (adultsByEvent[eid] || 0) + (ins.esHijo ? 0 : 1) + acompAdultos
+    ninosByEvent[eid]  = (ninosByEvent[eid]  || 0) + (ins.esHijo ? 1 : 0) + acompNinos
   }
   const eventVolume = Object.entries(volByEvent)
     .map(([id, total]) => ({
@@ -67,7 +91,7 @@ async function fetchMetrics() {
   const totalNinos    = fallerosList.reduce((sum, f) => sum + (Array.isArray(f.hijos) ? f.hijos.length : 0), 0)
   const totalPersonas = totalAdultos + totalNinos
 
-  return { topFalleros, eventVolume, demographics: { totalAdultos, totalNinos, totalPersonas } }
+  return { topFalleros, eventVolume, demographics: { totalAdultos, totalNinos, totalPersonas }, yearStart }
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -390,8 +414,11 @@ export default function AdminMetrics({ onClose }) {
               icon={<TrendingUp size={16} color={GOLD} />}
               title="Ranking de Participación"
             >
+              <p style={{ fontSize: 11, color: MUTED, margin: '0 0 6px', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 600 }}>
+                Ejercicio fallero {data.yearStart ? data.yearStart.getFullYear() : '—'} – {data.yearStart ? (data.yearStart.getFullYear() + 1) : '—'} · desde el 1 de abril
+              </p>
               {data.topFalleros.length > 0 && (
-                <p style={{ fontSize: 11, color: MUTED, margin: '0 0 12px', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 600 }}>
+                <p style={{ fontSize: 11, color: MUTED, margin: '0 0 12px' }}>
                   Top {data.topFalleros.length} falleros más activos · inscripciones vía App
                 </p>
               )}

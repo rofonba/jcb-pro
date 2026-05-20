@@ -47,6 +47,19 @@ function normalizeName(str) {
     .replace(/\s+/g, '')
 }
 
+const CHILD_AGE_LIMIT = 14
+
+function calcAgeFromDate(fechaNacimiento) {
+  if (!fechaNacimiento) return null
+  const birth = new Date(fechaNacimiento)
+  if (isNaN(birth.getTime())) return null
+  const today = new Date()
+  let age = today.getFullYear() - birth.getFullYear()
+  const m = today.getMonth() - birth.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
+  return age
+}
+
 const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
   const h = Math.floor(i / 2)
   return `${String(h).padStart(2, '0')}:${i % 2 === 0 ? '00' : '30'}`
@@ -404,16 +417,23 @@ function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, p
   const filtered = useMemo(() => {
     const key = normalizeName(search)
     const pool = key
-      ? fallerosList.filter(f => normalizeName(`${f.nombre}${f.apellidos ?? ''}`).includes(key))
+      ? fallerosList.filter(f => normalizeName(`${f.nombre}${f.parentNombre ?? ''}`).includes(key))
       : fallerosList
-    return pool.slice(0, 25)
+    return pool.slice(0, 40)
   }, [fallerosList, search])
 
-  if (value.type === 'censo_app') {
+  if (value.type === 'censo_app' || value.type === 'censo_hijo') {
+    const isHijo = value.type === 'censo_hijo'
+    const bgChip = isHijo ? 'rgba(99,102,241,0.08)'  : 'rgba(16,185,129,0.08)'
+    const brChip = isHijo ? 'rgba(99,102,241,0.3)'   : 'rgba(16,185,129,0.3)'
+    const tagBg  = isHijo ? 'rgba(99,102,241,0.18)'  : 'rgba(16,185,129,0.15)'
+    const tagCol = isHijo ? '#818cf8' : GREEN
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 0.9rem', background: 'rgba(16,185,129,0.08)', border: '1.5px solid rgba(16,185,129,0.3)', borderRadius: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 0.9rem', background: bgChip, border: `1.5px solid ${brChip}`, borderRadius: '12px' }}>
         <span style={{ flex: 1, fontSize: '0.87rem', fontWeight: '700', color: 'white' }}>{value.nombre}</span>
-        <span style={{ fontSize: '0.58rem', fontWeight: '800', letterSpacing: '0.08em', color: GREEN, background: 'rgba(16,185,129,0.15)', borderRadius: '4px', padding: '2px 6px', flexShrink: 0 }}>📋 CENSO</span>
+        <span style={{ fontSize: '0.58rem', fontWeight: '800', letterSpacing: '0.08em', color: tagCol, background: tagBg, borderRadius: '4px', padding: '2px 6px', flexShrink: 0 }}>
+          {isHijo ? '🧒 HIJO/A CENSO' : '📋 CENSO'}
+        </span>
         <button type="button" onClick={() => onChange({ type: null, nombre: '', falleroId: null, uid: null })}
           style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '6px', padding: '3px 5px', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
           <X size={12} />
@@ -463,19 +483,30 @@ function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, p
         onBlur={e => { e.target.style.borderColor = error ? 'rgba(206,17,38,0.75)' : 'rgba(255,255,255,0.1)'; setTimeout(() => setOpen(false), 150) }}
       />
       {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '12px', zIndex: 360, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '12px', zIndex: 360, maxHeight: '240px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
           {filtered.map(f => {
-            const fullName = `${f.nombre} ${f.apellidos ?? ''}`.trim()
+            const isHijo = f.kind === 'hijo'
             const isOccupied = occupiedUids.has(f.id)
+            const targetType = isHijo ? 'censo_hijo' : 'censo_app'
             return (
               <button key={f.id} type="button" disabled={isOccupied}
                 onMouseDown={() => {
-                  onChange({ type: 'censo_app', nombre: fullName, falleroId: f.id, uid: f.id })
+                  onChange({ type: targetType, nombre: f.nombre, falleroId: f.falleroId, uid: f.id })
                   setSearch('')
                   setOpen(false)
                 }}
-                style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '0.6rem 1rem', color: isOccupied ? 'rgba(255,255,255,0.25)' : 'white', fontSize: '0.83rem', cursor: isOccupied ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', fontFamily: 'inherit' }}>
-                <span>{fullName}</span>
+                style={{ width: '100%', textAlign: 'left', background: isHijo ? 'rgba(99,102,241,0.04)' : 'none', border: 'none', padding: '0.55rem 0.9rem', color: isOccupied ? 'rgba(255,255,255,0.25)' : 'white', fontSize: '0.83rem', cursor: isOccupied ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', fontFamily: 'inherit', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.nombre}</span>
+                    {isHijo && (
+                      <span style={{ fontSize: '0.54rem', fontWeight: 800, letterSpacing: '0.08em', color: '#818cf8', background: 'rgba(99,102,241,0.18)', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>🧒 HIJO/A</span>
+                    )}
+                  </span>
+                  {isHijo && f.parentNombre && (
+                    <span style={{ fontSize: '0.62rem', color: 'rgba(255,255,255,0.35)' }}>de {f.parentNombre}</span>
+                  )}
+                </div>
                 {isOccupied && <span style={{ fontSize: '0.62rem', color: RED, flexShrink: 0 }}>Ya inscrito</span>}
               </button>
             )
@@ -485,8 +516,9 @@ function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, p
               onChange({ type: 'manual', nombre: search, falleroId: null, uid: null })
               setOpen(false)
             }}
-            style={{ width: '100%', textAlign: 'left', background: 'rgba(249,115,22,0.06)', border: 'none', borderTop: '1px solid rgba(255,255,255,0.07)', padding: '0.6rem 1rem', color: 'rgba(249,115,22,0.85)', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            ✍️ Añadir manualmente
+            style={{ width: '100%', textAlign: 'left', background: 'rgba(249,115,22,0.06)', border: 'none', borderTop: '1px solid rgba(255,255,255,0.07)', padding: '0.6rem 1rem', color: 'rgba(249,115,22,0.85)', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.15rem' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>✍️ Añadir manualmente</span>
+            <span style={{ fontSize: '0.62rem', color: 'rgba(249,115,22,0.55)', fontWeight: 600 }}>Sólo para invitados externos a la falla</span>
           </button>
         </div>
       )}
@@ -597,6 +629,44 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
   const validAdultos = adultos.filter(a => a.type !== null)
   const validNinos   = ninos.filter(n => n.type !== null)
 
+  // Census list: falleros + their hijos (sub-objects). Used by CompanionPicker.
+  const censusList = useMemo(() => {
+    const list = []
+    for (const f of fallerosList) {
+      const fullName = `${f.nombre ?? ''} ${f.apellidos ?? ''}`.trim()
+      list.push({
+        id: f.id,
+        kind: 'adulto',
+        nombre: fullName,
+        fechaNacimiento: f.fechaNacimiento ?? null,
+        falleroId: f.id,
+        parentNombre: null,
+      })
+      const hijos = Array.isArray(f.hijos) ? f.hijos : []
+      hijos.forEach((h, i) => {
+        const nombre = typeof h === 'string' ? h : (h?.nombre ?? '')
+        if (!nombre) return
+        const fechaNacimiento = typeof h === 'object' ? (h?.fechaNacimiento ?? null) : null
+        list.push({
+          id: `${f.id}|h${i}`,
+          kind: 'hijo',
+          nombre,
+          fechaNacimiento,
+          falleroId: f.id,
+          parentNombre: fullName,
+        })
+      })
+    }
+    return list
+  }, [fallerosList])
+
+  // Lookup by uid (real or synthetic) → census entry — used for age/price logic.
+  const censusById = useMemo(() => {
+    const m = new Map()
+    for (const c of censusList) m.set(c.id, c)
+    return m
+  }, [censusList])
+
   const occupiedUids = useMemo(() => {
     const set = new Set(takenUids)
     for (const a of [...adultos, ...ninos]) { if (a.uid) set.add(a.uid) }
@@ -618,7 +688,49 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
   const wouldExceed   = plazasTotal != null && totalPersonas > disponibles
   const isAforoFull   = plazasTotal != null && disponibles <= 0
   const t             = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
-  const totalCost     = event.precio != null ? event.precio * totalPersonas : null
+
+  // Determina si un entry del formulario (adultos[]/ninos[]) cuenta como niño
+  // para el cálculo de precios — basado en edad del censo / hijo / sección.
+  const isChildEntry = useCallback((entry, sectionIsChild = false) => {
+    if (sectionIsChild) return true                  // sección "Niños/as": siempre tarifa infantil
+    if (entry.type === 'censo_hijo') return true     // hijo del censo → siempre niño
+    if (entry.type === 'censo_app') {
+      const c = censusById.get(entry.uid)
+      const age = calcAgeFromDate(c?.fechaNacimiento)
+      return age != null && age < CHILD_AGE_LIMIT
+    }
+    return false                                      // manual o type=null → adulto por defecto
+  }, [censusById])
+
+  // Cálculo de precios dinámico por edad (controla catering)
+  const priceBreakdown = useMemo(() => {
+    if (event.precio == null) return null
+    const precioAdulto = event.precio
+    const precioNino   = event.precioNino != null ? event.precioNino : event.precio
+
+    let nAdultos = 0, nNinos = 0
+
+    // Usuario principal (yo) — comprueba fecha de nacimiento si la hay
+    const myAge = calcAgeFromDate(fallero?.fechaNacimiento)
+    if (myAge != null && myAge < CHILD_AGE_LIMIT) nNinos++
+    else nAdultos++
+
+    // Sección "Acompañantes adultos" — detectar edad
+    for (const a of validAdultos) {
+      if (isChildEntry(a, false)) nNinos++
+      else nAdultos++
+    }
+    // Sección "Acompañantes niños/as" — siempre niño
+    for (const n of validNinos) {
+      if (isChildEntry(n, true)) nNinos++
+      else nAdultos++
+    }
+
+    const total = nAdultos * precioAdulto + nNinos * precioNino
+    return { total, nAdultos, nNinos, precioAdulto, precioNino, distinct: precioAdulto !== precioNino }
+  }, [event.precio, event.precioNino, fallero?.fechaNacimiento, validAdultos, validNinos, isChildEntry])
+
+  const totalCost = priceBreakdown?.total ?? null
 
   const adultoErrors = useMemo(() => {
     const seen = new Set()
@@ -629,7 +741,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
       if (!key) return ''
       if (seen.has(key)) return 'Nombre repetido en el formulario'
       seen.add(key)
-      if (a.type === 'censo_app' && takenUids.has(a.uid)) {
+      if ((a.type === 'censo_app' || a.type === 'censo_hijo') && takenUids.has(a.uid)) {
         const por = familyInscribedMap.get(key)
         return por ? `Ya inscrito por ${por}` : 'Esta persona ya figura en la lista.'
       }
@@ -651,7 +763,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
       if (!key) return ''
       if (seen.has(key) || seenAdultos.has(key)) return 'Nombre repetido en el formulario'
       seen.add(key)
-      if (n.type === 'censo_app' && takenUids.has(n.uid)) {
+      if ((n.type === 'censo_app' || n.type === 'censo_hijo') && takenUids.has(n.uid)) {
         const por = familyInscribedMap.get(key)
         return por ? `Ya inscrito por ${por}` : 'Esta persona ya figura en la lista.'
       }
@@ -981,7 +1093,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
                         <CompanionPicker
                           value={a}
                           onChange={val => { const next = [...adultos]; next[i] = val; setAdultos(next) }}
-                          fallerosList={fallerosList}
+                          fallerosList={censusList}
                           occupiedUids={pickerOccupied}
                           error={adultoErrors[i]}
                           placeholder={`Buscar adulto ${i + 1}…`}
@@ -1017,7 +1129,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
                         <CompanionPicker
                           value={n}
                           onChange={val => { const next = [...ninos]; next[i] = val; setNinos(next) }}
-                          fallerosList={fallerosList}
+                          fallerosList={censusList}
                           occupiedUids={pickerOccupied}
                           error={ninoErrors[i]}
                           placeholder={`Buscar niño/a ${i + 1}…`}
@@ -1118,10 +1230,33 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
               <label style={sharedLabel}>Nota (opcional)</label>
               <textarea value={nota} onChange={e => setNota(e.target.value)} placeholder="Menú infantil, silla de ruedas…" rows={2} style={{ ...sharedInput, resize: 'vertical', marginBottom: '1.25rem' }} onFocus={e => e.target.style.borderColor = GOLD} onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'} />
 
-              {totalCost !== null && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(212,175,55,0.07)', border: '1px solid rgba(212,175,55,0.18)', borderRadius: '12px', marginBottom: '1.25rem' }}>
-                  <span style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.4)' }}>{totalPersonas} × {event.precio} €</span>
-                  <span style={{ fontSize: '1.1rem', fontWeight: '800', color: GOLD }}>Total: {totalCost} €</span>
+              {totalCost !== null && priceBreakdown && (
+                <div style={{ padding: '0.75rem 1rem', background: 'rgba(212,175,55,0.07)', border: '1px solid rgba(212,175,55,0.18)', borderRadius: '12px', marginBottom: '1.25rem' }}>
+                  {priceBreakdown.distinct ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      {priceBreakdown.nAdultos > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)' }}>
+                          <span>👤 {priceBreakdown.nAdultos} × {priceBreakdown.precioAdulto} € (adulto)</span>
+                          <span style={{ fontWeight: 700, color: 'rgba(255,255,255,0.7)' }}>{priceBreakdown.nAdultos * priceBreakdown.precioAdulto} €</span>
+                        </div>
+                      )}
+                      {priceBreakdown.nNinos > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)' }}>
+                          <span>🧒 {priceBreakdown.nNinos} × {priceBreakdown.precioNino} € (niño/a)</span>
+                          <span style={{ fontWeight: 700, color: 'rgba(255,255,255,0.7)' }}>{priceBreakdown.nNinos * priceBreakdown.precioNino} €</span>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.35rem', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                        <span style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.5)' }}>Total</span>
+                        <span style={{ fontSize: '1.1rem', fontWeight: '800', color: GOLD }}>{totalCost} €</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.4)' }}>{totalPersonas} × {event.precio} €</span>
+                      <span style={{ fontSize: '1.1rem', fontWeight: '800', color: GOLD }}>Total: {totalCost} €</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1226,7 +1361,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
   const isPrivileged = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
   const [form, setForm] = useState(() => {
-    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', fechaLimite: '', notificarFechaLimite: false, lugar: '', precio: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: initialDelegacion }
+    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', fechaLimite: '', notificarFechaLimite: false, lugar: '', precio: '', precioNino: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: initialDelegacion }
     const d = editEvent.fecha?.toDate ? editEvent.fecha.toDate() : editEvent.fecha ? new Date(editEvent.fecha) : null
     const pad = n => String(n).padStart(2, '0')
     return {
@@ -1238,6 +1373,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
       notificarFechaLimite: editEvent.notificarFechaLimite ?? false,
       lugar:                editEvent.lugar ?? '',
       precio:               editEvent.precio != null ? String(editEvent.precio) : '',
+      precioNino:           editEvent.precioNino != null ? String(editEvent.precioNino) : '',
       plazasTotal:          editEvent.plazasTotal != null ? String(editEvent.plazasTotal) : '',
       descripcion:          editEvent.descripcion ?? '',
       imagenUrl:            editEvent.imagenUrl ?? '',
@@ -1284,6 +1420,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
         notificarFechaLimite: Boolean(form.notificarFechaLimite),
         lugar:                form.lugar.trim() || null,
         precio:               form.precio !== '' ? parseFloat(form.precio) : null,
+        precioNino:           form.precioNino !== '' ? parseFloat(form.precioNino) : null,
         plazasTotal:          form.plazasTotal !== '' ? parseInt(form.plazasTotal) : null,
         descripcion:          form.descripcion.trim() || null,
         imagenUrl:            form.imagenUrl.trim() || null,
@@ -1407,13 +1544,17 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
           <div>
-            <label style={sharedLabel}>Precio (€)</label>
+            <label style={sharedLabel}>Precio adulto (€)</label>
             <input type="number" min="0" step="0.5" style={sharedInput} value={form.precio} onChange={e => set('precio', e.target.value)} placeholder="Gratis" onFocus={fg} onBlur={fb} />
           </div>
           <div>
-            <label style={sharedLabel}>Plazas</label>
-            <input type="number" min="1" style={sharedInput} value={form.plazasTotal} onChange={e => set('plazasTotal', e.target.value)} placeholder="Ilimitado" onFocus={fg} onBlur={fb} />
+            <label style={sharedLabel}>Precio niño/a (€)</label>
+            <input type="number" min="0" step="0.5" style={sharedInput} value={form.precioNino} onChange={e => set('precioNino', e.target.value)} placeholder="Igual que adulto" onFocus={fg} onBlur={fb} />
           </div>
+        </div>
+        <div>
+          <label style={sharedLabel}>Plazas</label>
+          <input type="number" min="1" style={sharedInput} value={form.plazasTotal} onChange={e => set('plazasTotal', e.target.value)} placeholder="Ilimitado" onFocus={fg} onBlur={fb} />
         </div>
         <div>
           <label style={sharedLabel}>Descripción</label>
