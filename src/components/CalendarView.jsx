@@ -66,6 +66,13 @@ function fmtShort(f) {
   const d = f?.toDate ? f.toDate() : new Date(f)
   return d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })
 }
+
+function dateToYMD(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const da = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${da}`
+}
 function fmtTime(f) {
   if (!f) return ''
   const d = f?.toDate ? f.toDate() : new Date(f)
@@ -146,6 +153,7 @@ export default function CalendarView({ onDetailPress }) {
   const [adminEvent, setAdminEvent]       = useState(null)
   const [editEvent, setEditEvent]         = useState(null)
   const [showForm, setShowForm]           = useState(false)
+  const [formInitialFecha, setFormInitialFecha] = useState('')
   const [toast, setToast]                 = useState(null)
   const [cancelTarget, setCancelTarget]   = useState(null)
   const [deleting, setDeleting]           = useState(false)
@@ -355,19 +363,33 @@ export default function CalendarView({ onDetailPress }) {
               : isHoliday ? '#2563EB'
               : TEXT
 
+            const adminCanCreate = isAdmin && isCurrentMonth && !hasEvents
+            const clickable      = isCurrentMonth && (hasEvents || adminCanCreate)
             return (
               <button
                 key={i}
-                onClick={() => isCurrentMonth && hasEvents && handleDayClick(date)}
+                onClick={() => {
+                  if (!isCurrentMonth) return
+                  if (hasEvents) { handleDayClick(date); return }
+                  if (adminCanCreate) {
+                    setFormInitialFecha(dateToYMD(date))
+                    setShowForm(true)
+                  }
+                }}
+                onMouseEnter={e => { if (adminCanCreate) e.currentTarget.style.background = `${GOLD}0d` }}
+                onMouseLeave={e => { if (adminCanCreate) e.currentTarget.style.background = cellBg }}
+                title={adminCanCreate ? 'Crear evento en este día' : undefined}
                 style={{
                   background: cellBg,
-                  border: 'none', borderRadius: 10,
+                  border: adminCanCreate ? `1px dashed rgba(212,175,55,0.28)` : 'none',
+                  borderRadius: 10,
                   padding: '7px 2px',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
-                  cursor: isCurrentMonth && hasEvents ? 'pointer' : 'default',
+                  cursor: clickable ? 'pointer' : 'default',
                   minHeight: 'auto', minWidth: 'auto',
-                  transition: 'background 0.15s',
+                  transition: 'background 0.15s, box-shadow 0.15s',
                   opacity: isCurrentMonth ? 1 : 0.22,
+                  position: 'relative',
                 }}
               >
                 <span style={{
@@ -381,6 +403,9 @@ export default function CalendarView({ onDetailPress }) {
                   width: 4, height: 4, borderRadius: '50%',
                   background: hasEvents ? (isSelected ? WHITE : isReg ? GREEN : GOLD) : 'transparent',
                 }} />
+                {adminCanCreate && (
+                  <span style={{ position: 'absolute', top: 2, right: 3, fontSize: 9, color: 'rgba(212,175,55,0.55)', fontWeight: 800, lineHeight: 1 }}>+</span>
+                )}
               </button>
             )
           })}
@@ -659,8 +684,9 @@ export default function CalendarView({ onDetailPress }) {
       )}
       {showForm && (
         <EventFormModal
-          onClose={() => setShowForm(false)}
-          onCreated={() => { setShowForm(false); setToast('Evento creado 🔥') }}
+          initialFecha={formInitialFecha}
+          onClose={() => { setShowForm(false); setFormInitialFecha('') }}
+          onCreated={() => { setShowForm(false); setFormInitialFecha(''); setToast('Evento creado 🔥') }}
         />
       )}
       {editEvent && (

@@ -667,6 +667,17 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
     return m
   }, [censusList])
 
+  // Sub-lista del censo filtrada para el selector de "Acompañantes niños/as":
+  // sólo hijos virtuales (kind === 'hijo') o usuarios con edad estricta < 14.
+  // Ningún adulto/perfil sin fecha de nacimiento conocida aparecerá aquí.
+  const childCensusList = useMemo(() => {
+    return censusList.filter(c => {
+      if (c.kind === 'hijo') return true
+      const age = calcAgeFromDate(c.fechaNacimiento)
+      return age != null && age < CHILD_AGE_LIMIT
+    })
+  }, [censusList])
+
   const occupiedUids = useMemo(() => {
     const set = new Set(takenUids)
     for (const a of [...adultos, ...ninos]) { if (a.uid) set.add(a.uid) }
@@ -702,6 +713,13 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
     return false                                      // manual o type=null → adulto por defecto
   }, [censusById])
 
+  // Edad del usuario principal → determina su tarifa por defecto.
+  const myAge     = calcAgeFromDate(fallero?.fechaNacimiento)
+  const myIsChild = myAge != null && myAge < CHILD_AGE_LIMIT
+  const myDefaultPrice = event.precio == null
+    ? null
+    : (myIsChild ? (event.precioNino ?? event.precio) : event.precio)
+
   // Cálculo de precios dinámico por edad (controla catering)
   const priceBreakdown = useMemo(() => {
     if (event.precio == null) return null
@@ -710,9 +728,8 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
 
     let nAdultos = 0, nNinos = 0
 
-    // Usuario principal (yo) — comprueba fecha de nacimiento si la hay
-    const myAge = calcAgeFromDate(fallero?.fechaNacimiento)
-    if (myAge != null && myAge < CHILD_AGE_LIMIT) nNinos++
+    // Usuario principal (yo) — preselecciona tarifa por edad del perfil
+    if (myIsChild) nNinos++
     else nAdultos++
 
     // Sección "Acompañantes adultos" — detectar edad
@@ -728,7 +745,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
 
     const total = nAdultos * precioAdulto + nNinos * precioNino
     return { total, nAdultos, nNinos, precioAdulto, precioNino, distinct: precioAdulto !== precioNino }
-  }, [event.precio, event.precioNino, fallero?.fechaNacimiento, validAdultos, validNinos, isChildEntry])
+  }, [event.precio, event.precioNino, myIsChild, validAdultos, validNinos, isChildEntry])
 
   const totalCost = priceBreakdown?.total ?? null
 
@@ -1073,11 +1090,16 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
             <>
               {/* Fixed "yo" row */}
               <label style={{ ...sharedLabel, marginBottom: '0.6rem' }}>Tu inscripción</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', background: 'rgba(212,175,55,0.08)', border: '1.5px solid rgba(212,175,55,0.3)', borderRadius: '14px', marginBottom: '0.75rem' }}>
-                <span style={{ fontSize: '1.2rem' }}>👤</span>
-                <span style={{ flex: 1, fontSize: '0.9rem', fontWeight: '600', color: GOLD }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.75rem 1rem', background: 'rgba(212,175,55,0.08)', border: '1.5px solid rgba(212,175,55,0.3)', borderRadius: '14px', marginBottom: '0.75rem' }}>
+                <span style={{ fontSize: '1.2rem' }}>{myIsChild ? '🧒' : '👤'}</span>
+                <span style={{ flex: 1, fontSize: '0.9rem', fontWeight: '600', color: GOLD, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {myName} <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', fontWeight: 400 }}>· tú</span>
                 </span>
+                {myDefaultPrice != null && (
+                  <span style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.06em', color: myIsChild ? '#818cf8' : GOLD, background: myIsChild ? 'rgba(99,102,241,0.15)' : 'rgba(212,175,55,0.18)', border: `1px solid ${myIsChild ? 'rgba(99,102,241,0.3)' : 'rgba(212,175,55,0.35)'}`, borderRadius: 6, padding: '3px 7px', whiteSpace: 'nowrap' }}>
+                    {myIsChild ? 'NIÑO/A' : 'ADULTO'} · {myDefaultPrice} €
+                  </span>
+                )}
                 <Check size={14} color={GOLD} strokeWidth={3} />
               </div>
 
@@ -1129,7 +1151,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
                         <CompanionPicker
                           value={n}
                           onChange={val => { const next = [...ninos]; next[i] = val; setNinos(next) }}
-                          fallerosList={censusList}
+                          fallerosList={childCensusList}
                           occupiedUids={pickerOccupied}
                           error={ninoErrors[i]}
                           placeholder={`Buscar niño/a ${i + 1}…`}
@@ -1355,13 +1377,13 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
 }
 
 // ─── Admin event form (create & edit) ────────────────────────────────────────
-function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDelegacion = 'General' }) {
+function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDelegacion = 'General', initialFecha = '' }) {
   const isEditing = !!editEvent
   const { fallero } = useAuth()
   const isPrivileged = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
   const [form, setForm] = useState(() => {
-    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: '', hora: '', fechaLimite: '', notificarFechaLimite: false, lugar: '', precio: '', precioNino: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: initialDelegacion }
+    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: initialFecha, hora: '', fechaLimite: '', notificarFechaLimite: false, lugar: '', precio: '', precioNino: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: initialDelegacion }
     const d = editEvent.fecha?.toDate ? editEvent.fecha.toDate() : editEvent.fecha ? new Date(editEvent.fecha) : null
     const pad = n => String(n).padStart(2, '0')
     return {
