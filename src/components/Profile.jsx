@@ -451,13 +451,16 @@ function normalizeSearch(str) {
 
 function FamiliaSection({ fallero, userId, onUpdate }) {
   const familiaUids = fallero?.familiaUids ?? []
-  const [familiaData,  setFamiliaData]  = useState([])
-  const [loadingFam,   setLoadingFam]   = useState(false)
-  const [showSearch,   setShowSearch]   = useState(false)
-  const [fallerosList, setFallerosList] = useState([])
-  const [search,       setSearch]       = useState('')
-  const [linking,      setLinking]      = useState(false)
-  const [linkError,    setLinkError]    = useState('')
+  const [familiaData,    setFamiliaData]    = useState([])
+  const [loadingFam,     setLoadingFam]     = useState(false)
+  const [showSearch,     setShowSearch]     = useState(false)
+  const [fallerosList,   setFallerosList]   = useState([])
+  const [search,         setSearch]         = useState('')
+  const [linking,        setLinking]        = useState(false)
+  const [linkError,      setLinkError]      = useState('')
+  const [linkInfo,       setLinkInfo]       = useState('')  // mensaje verde post-vinculación
+  const [pendingInvites, setPendingInvites] = useState([])  // falleros que me tienen en su familiaUids pero yo no a ellos
+  const [accepting,      setAccepting]      = useState(null)
 
   const familiaKey = familiaUids.join(',')
   useEffect(() => {
@@ -468,11 +471,30 @@ function FamiliaSection({ fallero, userId, onUpdate }) {
       .finally(() => setLoadingFam(false))
   }, [familiaKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Invitaciones recibidas: cualquier fallero que tenga MI uid en su familiaUids,
+  // pero al que yo todavía no he añadido a la mía. Permite vínculo bidireccional
+  // sin que un usuario tenga que escribir en el documento del otro.
+  useEffect(() => {
+    if (!userId) return
+    const q = query(collection(db, 'falleros'), where('familiaUids', 'array-contains', userId))
+    const unsub = onSnapshot(q, snap => {
+      const list = snap.docs
+        .map(d => ({ uid: d.id, ...d.data() }))
+        .filter(f => f.uid !== userId && !familiaUids.includes(f.uid))
+      setPendingInvites(list)
+    }, () => { /* silenciamos errores de reglas */ })
+    return unsub
+  }, [userId, familiaKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const openSearch = async () => {
-    setShowSearch(true); setSearch(''); setLinkError('')
+    setShowSearch(true); setSearch(''); setLinkError(''); setLinkInfo('')
     if (fallerosList.length === 0) {
-      const snap = await getDocs(collection(db, 'falleros'))
-      setFallerosList(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      try {
+        const snap = await getDocs(collection(db, 'falleros'))
+        setFallerosList(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      } catch (err) {
+        setLinkError(err?.message || 'No se pudo cargar el censo.')
+      }
     }
   }
 
@@ -484,33 +506,70 @@ function FamiliaSection({ fallero, userId, onUpdate }) {
       .slice(0, 20)
   }, [fallerosList, search, userId, familiaKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Estrategia: escribir SIEMPRE primero el propio documento (operación permitida
+  // para cualquier usuario autenticado bajo reglas estándar "self-write").
+  // Después intentar reflejar el cambio en el documento del otro (puede fallar
+  // si las reglas no permiten escritura cruzada — en ese caso, el otro usuario
+  // verá una invitación recibida en su propio perfil y podrá aceptarla).
   const linkFamiliar = async (targetId, targetData) => {
     const targetFamily = targetData.familiaUids ?? []
     if (targetFamily.length > 0 && !targetFamily.includes(userId)) {
       setLinkError(`${targetData.nombre} ya pertenece a otro núcleo familiar.`)
       return
     }
-    setLinking(true); setLinkError('')
+    setLinking(true); setLinkError(''); setLinkInfo('')
+
+    // Paso 1 — actualizar mi propio documento (garantizado bajo reglas self-write)
     try {
-      const batch = writeBatch(db)
-      batch.update(doc(db, 'falleros', userId),   { familiaUids: arrayUnion(targetId) })
-      batch.update(doc(db, 'falleros', targetId), { familiaUids: arrayUnion(userId) })
-      await batch.commit()
+      await updateDoc(doc(db, 'falleros', userId), { familiaUids: arrayUnion(targetId) })
       onUpdate({ familiaUids: [...familiaUids, targetId] })
-      setShowSearch(false)
     } catch (err) {
-      setLinkError(err?.message || 'Error al vincular.')
-    } finally { setLinking(false) }
+      setLinkError('No se pudo guardar en tu perfil. ' + (err?.message ?? ''))
+      setLinking(false)
+      return
+    }
+
+    // Paso 2 — intento "best-effort" de espejar en el doc del otro.
+    let mirrored = false
+    try {
+      await updateDoc(doc(db, 'falleros', targetId), { familiaUids: arrayUnion(userId) })
+      mirrored = true
+    } catch { /* probable rechazo de reglas: se queda como invitación pendiente para el otro */ }
+
+    if (mirrored) {
+      setLinkInfo(`Vinculado con ${targetData.nombre}.`)
+    } else {
+      setLinkInfo(`Vínculo guardado en tu perfil. ${targetData.nombre} recibirá una invitación en su perfil y deberá aceptarla para completarlo.`)
+    }
+    setShowSearch(false)
+    setLinking(false)
+  }
+
+  const acceptInvite = async (sender) => {
+    setAccepting(sender.uid)
+    try {
+      await updateDoc(doc(db, 'falleros', userId), { familiaUids: arrayUnion(sender.uid) })
+      onUpdate({ familiaUids: [...familiaUids, sender.uid] })
+    } catch (err) {
+      setLinkError(err?.message || 'No se pudo aceptar la invitación.')
+    } finally { setAccepting(null) }
+  }
+
+  const dismissInvite = async (sender) => {
+    // No tenemos permiso para borrar el campo en el doc del otro;
+    // como gesto, simplemente ocultamos localmente.
+    setPendingInvites(prev => prev.filter(p => p.uid !== sender.uid))
   }
 
   const unlinkFamiliar = async (targetId) => {
+    // Mismo patrón: primero el propio doc, luego best-effort en el del otro.
     try {
-      const batch = writeBatch(db)
-      batch.update(doc(db, 'falleros', userId),   { familiaUids: arrayRemove(targetId) })
-      batch.update(doc(db, 'falleros', targetId), { familiaUids: arrayRemove(userId) })
-      await batch.commit()
+      await updateDoc(doc(db, 'falleros', userId), { familiaUids: arrayRemove(targetId) })
       onUpdate({ familiaUids: familiaUids.filter(uid => uid !== targetId) })
-    } catch {}
+    } catch { /* no debería fallar bajo self-write */ }
+    try {
+      await updateDoc(doc(db, 'falleros', targetId), { familiaUids: arrayRemove(userId) })
+    } catch { /* el otro tendrá que desvincularse desde su perfil si las reglas lo impiden */ }
   }
 
   return (
@@ -534,22 +593,67 @@ function FamiliaSection({ fallero, userId, onUpdate }) {
 
       {loadingFam && <p style={{ fontSize: 12, color: MUTED, margin: 0 }}>Cargando…</p>}
 
-      {familiaData.map(m => (
-        <div key={m.uid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderTop: `1px solid ${BORDER}` }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 32, height: 32, background: 'rgba(99,102,241,0.1)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>👫</div>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: TEXT }}>{m.nombre} {m.apellidos ?? ''}</div>
-              {m.numero && <div style={{ fontSize: 11, color: MUTED }}>Nº {m.numero}</div>}
-            </div>
-          </div>
-          <button onClick={() => unlinkFamiliar(m.uid)} style={{ background: 'rgba(239,68,68,0.08)', color: '#EF4444', border: '1.5px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '6px', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', display: 'flex', alignItems: 'center' }}>
-            <UserMinus size={13} />
-          </button>
-        </div>
-      ))}
+      {linkInfo && !showSearch && (
+        <p style={{ fontSize: 12, color: GREEN, margin: '0 0 10px', fontWeight: 600, padding: '8px 10px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 10 }}>
+          ✅ {linkInfo}
+        </p>
+      )}
 
-      {familiaData.length === 0 && !showSearch && !loadingFam && (
+      {/* Invitaciones recibidas (alguien que me ha añadido y yo aún no a él) */}
+      {pendingInvites.length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: GOLD, margin: '0 0 6px', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            Invitaciones recibidas · {pendingInvites.length}
+          </p>
+          {pendingInvites.map(p => (
+            <div key={p.uid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '9px 11px', background: `${GOLD}0d`, border: `1.5px solid ${GOLD}40`, borderRadius: 12, marginBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                <span style={{ fontSize: 18 }}>📨</span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: TEXT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {p.nombre} {p.apellidos ?? ''}
+                  </div>
+                  <div style={{ fontSize: 11, color: TEXT2 }}>te ha vinculado como familiar</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                <button onClick={() => acceptInvite(p)} disabled={accepting === p.uid}
+                  style={{ background: GOLD, color: WHITE, border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 700, cursor: accepting === p.uid ? 'not-allowed' : 'pointer', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {accepting === p.uid ? <Loader2 size={12} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : <Check size={12} strokeWidth={3} />}
+                  Aceptar
+                </button>
+                <button onClick={() => dismissInvite(p)} title="Ocultar"
+                  style={{ background: BORDER, color: MUTED, border: 'none', borderRadius: 8, padding: '6px 8px', cursor: 'pointer', minHeight: 'auto', display: 'flex', alignItems: 'center' }}>
+                  <X size={12} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {familiaData.map(m => {
+        const isMutual = (m.familiaUids ?? []).includes(userId)
+        return (
+          <div key={m.uid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderTop: `1px solid ${BORDER}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 32, height: 32, background: 'rgba(99,102,241,0.1)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>👫</div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: TEXT }}>{m.nombre} {m.apellidos ?? ''}</div>
+                <div style={{ fontSize: 11, color: isMutual ? GREEN : MUTED, fontWeight: isMutual ? 600 : 400 }}>
+                  {isMutual ? '✅ Vínculo confirmado' : '⏳ Pendiente de aceptación por su parte'}
+                  {m.numero && ` · Nº ${m.numero}`}
+                </div>
+              </div>
+            </div>
+            <button onClick={() => unlinkFamiliar(m.uid)} style={{ background: 'rgba(239,68,68,0.08)', color: '#EF4444', border: '1.5px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '6px', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', display: 'flex', alignItems: 'center' }}>
+              <UserMinus size={13} />
+            </button>
+          </div>
+        )
+      })}
+
+      {familiaData.length === 0 && pendingInvites.length === 0 && !showSearch && !loadingFam && (
         <p style={{ fontSize: 13, color: MUTED, margin: '8px 0 0' }}>
           Vincula a tu pareja u otros adultos de tu familia para gestionar inscripciones juntos.
         </p>
