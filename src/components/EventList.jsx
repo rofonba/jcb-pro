@@ -94,7 +94,7 @@ function Overlay({ children, onClose, scrollable = false }) {
 }
 
 // ─── Event card ───────────────────────────────────────────────────────────────
-function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEditPress, onCancelPress, onDeletePress, index = 0, liveCount = 0 }) {
+function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEditPress, onCancelPress, onDeletePress, index = 0, liveCount = 0, inscribedByOther = null }) {
   const [imgError, setImgError] = useState(false)
   const t        = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
   const ocupadas = liveCount > 0 ? liveCount : (event.plazasOcupadas ?? 0)
@@ -280,6 +280,10 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
                     style={{ padding: '7px 14px', background: 'rgba(206,17,38,0.65)', backdropFilter: 'blur(6px)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '9px', fontSize: '0.75rem', fontWeight: 700, color: 'white', cursor: 'pointer', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
                     <X size={12} /> Anular
                   </button>
+                ) : inscribedByOther ? (
+                  <span style={{ padding: '7px 12px', background: 'rgba(99,102,241,0.78)', backdropFilter: 'blur(6px)', borderRadius: '9px', fontSize: '0.7rem', fontWeight: 700, color: 'white', lineHeight: 1.3, maxWidth: '70%', textAlign: 'right' }}>
+                    🔒 {inscribedByOther.byName} te ha apuntado{inscribedByOther.byDate ? ` el ${inscribedByOther.byDate}` : ''}
+                  </span>
                 ) : isClosed ? (
                   <span style={{ padding: '7px 14px', background: 'rgba(60,60,60,0.7)', borderRadius: '9px', fontSize: '0.72rem', fontWeight: 700, color: 'rgba(255,255,255,0.55)' }}>
                     🔒 Inscripciones cerradas
@@ -386,6 +390,10 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
               >
                 <X size={12} /> Anular inscripción
               </button>
+            ) : inscribedByOther ? (
+              <span style={{ padding: '0.4rem 0.7rem', background: 'rgba(99,102,241,0.1)', border: '1.5px solid rgba(99,102,241,0.35)', borderRadius: '8px', fontSize: '0.7rem', fontWeight: '700', color: '#818cf8', lineHeight: 1.35, maxWidth: '75%', textAlign: 'right' }}>
+                🔒 {inscribedByOther.byName} te ha apuntado{inscribedByOther.byDate ? ` el ${inscribedByOther.byDate}` : ''}
+              </span>
             ) : isClosed ? (
               <span style={{ padding: '0.38rem 0.9rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', fontSize: '0.72rem', fontWeight: '700', color: 'rgba(255,255,255,0.45)' }}>
                 🔒 Inscripciones cerradas
@@ -527,7 +535,7 @@ function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, p
 }
 
 // ─── Registration / Cancellation modal ───────────────────────────────────────
-function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelled }) {
+function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClose, onSuccess, onCancelled }) {
   const { user, fallero } = useAuth()
   const isAdmin = fallero?.rol === 'admin'
   const myName  = fallero
@@ -816,6 +824,30 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
         return
       }
 
+      // Defensa cross-device: ¿alguien ya me ha apuntado como acompañante?
+      // Compruebo por uid (más fiable) y por nombre normalizado contra el snapshot fresco.
+      {
+        const myNorm = normalizeName(myName)
+        for (const d of snap.docs) {
+          const data = d.data()
+          if (data.uid === user.uid && !data.esManual) continue
+          const comps = [
+            ...(Array.isArray(data.acompañantesAdultos) ? data.acompañantesAdultos : []),
+            ...(Array.isArray(data.acompañantesNinos)   ? data.acompañantesNinos   : []),
+          ]
+          const matchUid  = comps.some(c => c?.uid === user.uid)
+          const matchName = myNorm && comps.some(c => c?.nombre && normalizeName(c.nombre) === myNorm)
+          if (matchUid || matchName) {
+            const firstName = (data.nombre ?? '').split(' ')[0] || 'Otro fallero'
+            const created = data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : null)
+            const fechaTxt = created ? created.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }) : null
+            setSaveError(`${firstName} ya te ha apuntado a este evento${fechaTxt ? ` el ${fechaTxt}` : ''}. No puedes inscribirte de nuevo.`)
+            setSaving(false)
+            return
+          }
+        }
+      }
+
       // Companion name collision (live re-check against fresh snapshot)
       const liveNames = new Set()
       const liveUids  = new Set()
@@ -958,6 +990,30 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
         </button>
       </div>
 
+      {/* ── Bloqueado: otro fallero ya me apuntó como acompañante ─── */}
+      {inscribedByOther && !isRegistered && status === 'clean' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '1.5rem 1rem 0.5rem', gap: '0.85rem' }}>
+          <div style={{ width: '58px', height: '58px', background: 'rgba(99,102,241,0.15)', border: '1.5px solid rgba(99,102,241,0.35)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.6rem' }}>
+            🔒
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <p style={{ margin: 0, fontWeight: 800, fontSize: '0.95rem', color: 'white' }}>
+              Ya te han apuntado a este evento
+            </p>
+            <p style={{ margin: '0.45rem 0 0', fontSize: '0.83rem', color: 'rgba(255,255,255,0.55)', lineHeight: 1.45 }}>
+              <strong style={{ color: '#a5b4fc', fontWeight: 700 }}>{inscribedByOther.byName}</strong> te ha apuntado a este evento{inscribedByOther.byDate ? <> el <strong style={{ color: 'white', fontWeight: 700 }}>{inscribedByOther.byDate}</strong></> : null}.
+            </p>
+            <p style={{ margin: '0.6rem 0 0', fontSize: '0.72rem', color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
+              Si necesitas anular tu plaza, pídele que lo haga desde su perfil.
+            </p>
+          </div>
+          <button type="button" onClick={onClose}
+            style={{ marginTop: '0.4rem', minWidth: 140, minHeight: 44, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', color: 'rgba(255,255,255,0.6)', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer' }}>
+            Entendido
+          </button>
+        </div>
+      )}
+
       {/* ── Duplicate: my inscription + modify / cancel ─── */}
       {status === 'duplicate' && (
         <div>
@@ -1061,7 +1117,7 @@ function RegistrationModal({ event, isRegistered, onClose, onSuccess, onCancelle
       )}
 
       {/* ── Form (clean) ─── */}
-      {status === 'clean' && (
+      {status === 'clean' && !inscribedByOther && (
         <form onSubmit={handleSubmit}>
           {plazasTotal && inscritosCount !== null && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: isAforoFull ? 'rgba(206,17,38,0.1)' : 'rgba(255,255,255,0.04)', border: `1px solid ${isAforoFull ? 'rgba(206,17,38,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '10px', marginBottom: '1rem' }}>
@@ -1801,6 +1857,7 @@ export default function EventList() {
   const [loading, setLoading]             = useState(true)
   const [registeredIds, setRegisteredIds] = useState(new Set())
   const [inscCountMap, setInscCountMap]   = useState({})
+  const [inscribedByOtherMap, setInscribedByOtherMap] = useState({}) // eventId → { byName, byDate }
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [adminEvent, setAdminEvent]       = useState(null)
   const [showForm, setShowForm]           = useState(false)
@@ -1823,17 +1880,55 @@ export default function EventList() {
       .catch(() => {})
   }, [user?.uid])
 
-  // Real-time inscription counts for all events
+  // Real-time inscription counts + "already-inscribed-by-someone-else" detector.
+  // Cuando otro usuario me ha añadido como acompañante (por uid o por nombre),
+  // calculamos un mapa eventId → { byName, byDate } para poder bloquear el botón
+  // de Apuntarse en mi tarjeta del evento, mostrando un mensaje personalizado.
   useEffect(() => {
+    const myUid      = user?.uid ?? null
+    const myFullName = fallero ? `${fallero.nombre ?? ''} ${fallero.apellidos ?? ''}`.trim() : ''
+    const myNorm     = myFullName ? normalizeName(myFullName) : null
+
     return onSnapshot(collection(db, 'inscripciones'), snap => {
       const map = {}
+      const inscByOther = {}
+
       for (const d of snap.docs) {
-        const { eventId, totalPersonas } = d.data()
+        const data = d.data()
+        const { eventId, totalPersonas } = data
         if (eventId) map[eventId] = (map[eventId] ?? 0) + (totalPersonas ?? 1)
+        if (!eventId) continue
+
+        // Si la inscripción principal soy YO mismo, no es un caso de "me han apuntado"
+        if (myUid && data.uid === myUid && !data.esManual) continue
+
+        // ¿Estoy yo entre sus acompañantes? Comprobamos por uid (más fiable) y por
+        // nombre normalizado (cuando alguien me añadió como manual antes del censo).
+        const allComps = [
+          ...(Array.isArray(data.acompañantesAdultos) ? data.acompañantesAdultos : []),
+          ...(Array.isArray(data.acompañantesNinos)   ? data.acompañantesNinos   : []),
+        ]
+        const matchByUid  = myUid  && allComps.some(c => c?.uid === myUid)
+        const matchByName = myNorm && allComps.some(c => c?.nombre && normalizeName(c.nombre) === myNorm)
+        if (!matchByUid && !matchByName) continue
+
+        const firstName = (data.nombre ?? '').split(' ')[0] || 'Alguien'
+        const createdRaw = data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : null)
+        const byDate = createdRaw
+          ? createdRaw.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })
+          : null
+
+        // Si ya hay una entrada para este evento, conserva la más antigua (la 1ª que me apuntó)
+        const existing = inscByOther[eventId]
+        if (!existing || (createdRaw && existing._rawDate && createdRaw < existing._rawDate)) {
+          inscByOther[eventId] = { byName: firstName, byDate, _rawDate: createdRaw }
+        }
       }
+
       setInscCountMap(map)
+      setInscribedByOtherMap(inscByOther)
     })
-  }, [])
+  }, [user?.uid, fallero?.nombre, fallero?.apellidos])
 
   // Auto-aviso: genera un aviso 24h antes del cierre de inscripción.
   // Usa un ID determinista para idempotencia. Solo admins, para respetar reglas Firestore.
@@ -1939,6 +2034,7 @@ export default function EventList() {
             isRegistered={registeredIds.has(ev.id)}
             isAdmin={isAdmin}
             liveCount={inscCountMap[ev.id] ?? 0}
+            inscribedByOther={inscribedByOtherMap[ev.id] ?? null}
             onPress={setSelectedEvent}
             onAdminPress={setAdminEvent}
             onEditPress={setEditEvent}
@@ -1959,6 +2055,7 @@ export default function EventList() {
         <RegistrationModal
           event={selectedEvent}
           isRegistered={registeredIds.has(selectedEvent.id)}
+          inscribedByOther={inscribedByOtherMap[selectedEvent.id] ?? null}
           onClose={() => setSelectedEvent(null)}
           onSuccess={() => handleRegistered(selectedEvent.id)}
           onCancelled={handleCancelled}
