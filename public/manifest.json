@@ -1,0 +1,26 @@
+{
+  "name": "Falla Joaquín Costa · Burriana",
+  "short_name": "JCB Falla",
+  "description": "App oficial de la Falla Joaquín Costa de Burriana",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d0d0d",
+  "theme_color": "#0d0d0d",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "/logo-falla.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo-falla.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
