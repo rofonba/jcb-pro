@@ -1,3 +1,18 @@
+// ⚠️  CÓDIGO LEGADO — NO USADO EN PRODUCCIÓN ⚠️
+//
+// Esta Cloud Function (`sendPushToAll`) era el envío de notificaciones
+// inicial, pero ya NO se invoca desde la app. El frontend usa el endpoint
+// serverless `/api/sendPush.js` (Vercel), que lee los tokens del campo
+// `fcmToken` dentro de cada documento `falleros/{uid}`.
+//
+// Esta función, en cambio, lee de una colección separada `fcm_tokens` que
+// no se rellena por ninguna parte del frontend actual — así que invocarla
+// no enviaría a nadie. Se conserva sólo por compatibilidad de despliegue.
+//
+// Si en el futuro quieres migrar el envío a una Cloud Function (en lugar
+// del endpoint Vercel), unifica las dos rutas y borra la otra para evitar
+// posibles dobles envíos.
+
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');

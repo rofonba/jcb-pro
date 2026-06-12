@@ -60,16 +60,29 @@ export default async function handler(req, res) {
       return true
     })
 
+    // Tag determinista por envío: si por cualquier motivo el navegador
+    // recibiese dos veces el mismo push (retransmisión de FCM, reintento del
+    // proveedor de SW…), un tag común hace que el segundo display REEMPLACE
+    // al primero en lugar de aparecer encolado debajo. Combinado con eliminar
+    // el `onBackgroundMessage` manual del SW, esto garantiza un único toast.
+    const sendTag = `jcb_${Date.now()}`
+
     // Single multicast call — never inside a loop.
     const result = await getMessaging(app).sendEachForMulticast({
       tokens: tokenDocs.map(d => d.token),
       notification: { title, body: body ?? '' },
       webpush: {
         headers:      { Urgency: 'high' },
-        notification: { icon: '/icons.svg', badge: '/icons.svg', vibrate: [200, 100, 200] },
+        notification: {
+          icon: '/logo-falla.png',
+          badge: '/logo-falla.png',
+          vibrate: [200, 100, 200],
+          tag: sendTag,
+          renotify: false,
+        },
       },
       apns: {
-        headers: { 'apns-priority': '10' },
+        headers: { 'apns-priority': '10', 'apns-collapse-id': sendTag.slice(0, 64) },
         payload: { aps: { sound: 'default', badge: 1 } },
       },
     })

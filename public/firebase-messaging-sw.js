@@ -15,24 +15,26 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 
-const messaging = firebase.messaging();
-
-// Handle background messages
-messaging.onBackgroundMessage((payload) => {
-  const { title, body } = payload.notification || {};
-
-  const notificationOptions = {
-    body,
-    icon: '/icons.svg',
-    badge: '/icons.svg',
-    vibrate: [200, 100, 200],
-    tag: 'jcb-notif',
-    renotify: true,
-    data: payload.data || {},
-  };
-
-  self.registration.showNotification(title || 'JCB', notificationOptions);
-});
+// IMPORTANT: NO `onBackgroundMessage` handler.
+//
+// El bug "notificaciones duplicadas" venía de aquí: si registramos un handler
+// y además el mensaje incluye un campo `notification` (lo que hace nuestro
+// endpoint /api/sendPush), en Chrome/Edge/Android el navegador muestra la
+// notificación automáticamente A LA VEZ que nuestro handler llamaba a
+// `showNotification` manualmente → 2 toasts idénticos en el mismo segundo.
+//
+// Al no registrar handler, el FCM SDK del SW se encarga de mostrar la
+// notificación una sola vez, usando los overrides de `webpush.notification`
+// (icon, badge, vibrate, tag) que viajan en el payload del send.
+//
+// Para procesar datos extra en el futuro, usa SIEMPRE un `tag` único por
+// mensaje en el sender y, si registras `onBackgroundMessage`, ELIMINA el
+// campo `notification` del payload (envía sólo `data`) para evitar la
+// doble vía de display.
+//
+// La inicialización de messaging sigue siendo necesaria para que el SDK
+// del SW registre su propio listener `push`.
+firebase.messaging();
 
 // Open the app when a notification is clicked
 self.addEventListener('notificationclick', (event) => {
