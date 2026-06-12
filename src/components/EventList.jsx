@@ -13,6 +13,15 @@ import {
 import AdminEventControl from './AdminEventControl'
 import { getDirectImageUrl } from '../utils/imageUtils'
 import logoFalla from '../assets/logo-falla.png'
+import { loadStripe } from '@stripe/stripe-js'
+import {
+  Elements, useStripe, useElements,
+  CardElement, PaymentRequestButtonElement,
+} from '@stripe/react-stripe-js'
+
+// Singleton Stripe — se carga una sola vez fuera de cualquier render.
+// La publishable key viaja al cliente; nunca la secret.
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
 const GOLD  = '#D4AF37'
 const RED   = '#CE1126'
@@ -566,8 +575,279 @@ function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, p
   )
 }
 
+// ─── Stripe payment section ──────────────────────────────────────────────────
+// Renderizada dentro del modal cuando el evento tiene precio > 0.
+// Pide al backend un PaymentIntent (cuyo importe se calcula server-side a partir
+// de los precios reales del evento) y muestra:
+//   · Desglose (Subtotal · Gastos de Gestión · Total)
+//   · Apple Pay / Google Pay si el dispositivo lo soporta (PaymentRequest API)
+//   · Fallback CardElement para todo lo demás (WhatsApp/Instagram in-app browsers,
+//     Firefox, equipos sin Apple/Google Pay configurado, etc.)
+function EventPaymentSection({ event, user, fallero, adultCount, childCount, isReady, onPaymentSuccess, onValidationError }) {
+  const stripe   = useStripe()
+  const elements = useElements()
+
+  const [loading,          setLoading]          = useState(false)
+  const [error,            setError]            = useState('')
+  const [clientSecret,     setClientSecret]     = useState(null)
+  const [intentTotals,     setIntentTotals]     = useState(null)  // {total, neto, gastos} en céntimos
+  const [paymentRequest,   setPaymentRequest]   = useState(null)
+  const [canPay,           setCanPay]           = useState(false)
+  const [processing,       setProcessing]       = useState(false)
+  const [showCard,         setShowCard]         = useState(false)
+  const [paymentSucceeded, setPaymentSucceeded] = useState(false)
+
+  // 1) Crea / refresca el PaymentIntent siempre que cambien las cantidades.
+  //    El backend recalcula y devuelve los importes "reales" — el frontend
+  //    sólo los muestra. Si la cuenta cambia mientras está en vuelo,
+  //    cancellamos el setState anterior con el flag `cancelled`.
+  useEffect(() => {
+    if (!isReady || paymentSucceeded || (adultCount + childCount) === 0) return
+    let cancelled = false
+    setLoading(true); setError('')
+
+    ;(async () => {
+      try {
+        const idToken = await user.getIdToken()
+        const res = await fetch('/api/createPaymentIntent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+          body: JSON.stringify({ eventId: event.id, adultCount, childCount }),
+        })
+        const data = await res.json()
+        if (cancelled) return
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+        setClientSecret(data.clientSecret)
+        setIntentTotals({
+          total:  data.totalConComision,
+          neto:   data.totalNeto,
+          gastos: data.gastosGestion,
+        })
+      } catch (err) {
+        if (!cancelled) setError(err.message || 'Error preparando el pago.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [event.id, adultCount, childCount, isReady, user, paymentSucceeded])
+
+  // 2) Cuando llegan stripe + clientSecret + total, prepara PaymentRequest
+  //    (Apple Pay / Google Pay). Si canMakePayment devuelve nada, queda canPay=false
+  //    y caemos al CardElement.
+  useEffect(() => {
+    if (!stripe || !intentTotals || !clientSecret) return
+    let cancelled = false
+
+    const pr = stripe.paymentRequest({
+      country:  'ES',
+      currency: 'eur',
+      total: { label: event.titulo || 'Inscripción', amount: intentTotals.total },
+      displayItems: [
+        { label: 'Subtotal inscripción',    amount: intentTotals.neto },
+        { label: 'Gastos de gestión',       amount: intentTotals.gastos },
+      ],
+      requestPayerName:  true,
+      requestPayerEmail: false,
+    })
+
+    pr.canMakePayment().then(result => {
+      if (cancelled) return
+      if (result) { setPaymentRequest(pr); setCanPay(true) }
+      else        { setPaymentRequest(null); setCanPay(false) }
+    })
+
+    pr.on('paymentmethod', async (ev) => {
+      try {
+        const { paymentIntent, error: confirmErr } = await stripe.confirmCardPayment(
+          clientSecret,
+          { payment_method: ev.paymentMethod.id },
+          { handleActions: false },
+        )
+
+        if (confirmErr) {
+          ev.complete('fail')
+          setError(confirmErr.message || 'Pago rechazado.')
+          return
+        }
+
+        // Cierra el modal nativo del OS inmediatamente — el cobro está autorizado.
+        ev.complete('success')
+
+        // Si el banco pide 3DS, dispara la acción adicional ahora (ya con el sheet cerrado).
+        let finalIntent = paymentIntent
+        if (finalIntent.status === 'requires_action' || finalIntent.status === 'requires_confirmation') {
+          const { paymentIntent: pi2, error: actErr } = await stripe.confirmCardPayment(clientSecret)
+          if (actErr) { setError(actErr.message || 'Autenticación bancaria fallida.'); return }
+          finalIntent = pi2
+        }
+
+        if (finalIntent.status !== 'succeeded') {
+          setError(`Pago no completado (${finalIntent.status}).`)
+          return
+        }
+
+        setPaymentSucceeded(true)
+        setProcessing(true)
+        const result = await onPaymentSuccess({
+          stripePaymentId:  finalIntent.id,
+          gastosGestion:    intentTotals.gastos / 100,   // en euros para el documento
+          totalNeto:        intentTotals.neto   / 100,
+          totalConComision: intentTotals.total  / 100,
+        })
+        if (!result?.ok) {
+          // El cobro se hizo pero el escribir en Firestore falló — alerta para refund manual
+          setError(`⚠️ Pago cobrado pero falló el registro: ${result?.error ?? 'desconocido'}. ` +
+                   `Contacta con la directiva con este ID: ${finalIntent.id}`)
+        }
+        setProcessing(false)
+      } catch (err) {
+        ev.complete('fail')
+        setError(err?.message || 'Error procesando el pago.')
+      }
+    })
+
+    return () => { cancelled = true }
+  }, [stripe, clientSecret, intentTotals, event.titulo, onPaymentSuccess])
+
+  // 3) Pago manual con CardElement (fallback universal)
+  const payWithCard = async () => {
+    if (!stripe || !elements || !clientSecret || processing) return
+    setProcessing(true); setError('')
+    try {
+      const card = elements.getElement(CardElement)
+      const { paymentIntent, error: confirmErr } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card,
+          billing_details: { name: fallero ? `${fallero.nombre ?? ''} ${fallero.apellidos ?? ''}`.trim() : undefined },
+        },
+      })
+      if (confirmErr) { setError(confirmErr.message || 'Tarjeta rechazada.'); setProcessing(false); return }
+      if (paymentIntent.status !== 'succeeded') { setError(`Pago no completado (${paymentIntent.status}).`); setProcessing(false); return }
+
+      setPaymentSucceeded(true)
+      const result = await onPaymentSuccess({
+        stripePaymentId:  paymentIntent.id,
+        gastosGestion:    intentTotals.gastos / 100,
+        totalNeto:        intentTotals.neto   / 100,
+        totalConComision: intentTotals.total  / 100,
+      })
+      if (!result?.ok) {
+        setError(`⚠️ Pago cobrado pero falló el registro: ${result?.error ?? 'desconocido'}. ` +
+                 `Contacta con la directiva con este ID: ${paymentIntent.id}`)
+      }
+    } catch (err) {
+      setError(err?.message || 'Error procesando el pago.')
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  const fmtEur = c => (c / 100).toFixed(2).replace('.', ',') + ' €'
+
+  if (!isReady) {
+    return (
+      <div style={{ padding: '0.85rem 1rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', textAlign: 'center', color: 'rgba(255,255,255,0.45)', fontSize: '0.78rem' }}>
+        Completa la lista de acompañantes para continuar al pago.
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      {/* Desglose */}
+      <div style={{ padding: '0.85rem 1rem', background: 'rgba(212,175,55,0.06)', border: '1px solid rgba(212,175,55,0.22)', borderRadius: '12px' }}>
+        <p style={{ margin: '0 0 0.55rem', fontSize: '0.65rem', fontWeight: 700, color: 'rgba(255,255,255,0.45)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Resumen del pago</p>
+        {loading || !intentTotals ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'rgba(255,255,255,0.45)', fontSize: '0.82rem' }}>
+            <Loader2 size={14} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
+            Calculando importe…
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.32rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'rgba(255,255,255,0.6)' }}>
+              <span>Subtotal inscripción</span>
+              <span style={{ fontWeight: 600 }}>{fmtEur(intentTotals.neto)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)' }}>
+              <span>Gastos de gestión (Stripe)</span>
+              <span style={{ fontWeight: 600 }}>{fmtEur(intentTotals.gastos)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.4rem', borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '0.15rem' }}>
+              <span style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.55)' }}>Total a pagar</span>
+              <span style={{ fontSize: '1.15rem', fontWeight: 800, color: GOLD }}>{fmtEur(intentTotals.total)}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', padding: '0.7rem 0.9rem', background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.28)', borderRadius: '10px' }}>
+          <AlertCircle size={14} color={RED} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span style={{ color: '#ff8080', fontSize: '0.8rem', lineHeight: 1.4 }}>{error}</span>
+        </div>
+      )}
+
+      {/* Apple/Google Pay — sólo si el dispositivo lo soporta */}
+      {canPay && paymentRequest && clientSecret && (
+        <div style={{ position: 'relative' }}>
+          <PaymentRequestButtonElement
+            options={{ paymentRequest, style: { paymentRequestButton: { theme: 'dark', height: '48px' } } }}
+          />
+          {processing && (
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Loader2 size={20} color="white" style={{ animation: 'falla-spin 0.8s linear infinite' }} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Toggle tarjeta + CardElement (fallback universal) */}
+      <div>
+        {!showCard ? (
+          <button type="button" onClick={() => setShowCard(true)}
+            style={{ width: '100%', minHeight: 48, background: 'rgba(255,255,255,0.06)', border: '1.5px solid rgba(255,255,255,0.14)', borderRadius: 12, color: 'rgba(255,255,255,0.78)', fontSize: '0.88rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            💳 {canPay ? 'Pagar con tarjeta' : 'Pagar con tarjeta'}
+          </button>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            <div style={{ padding: '0.75rem 0.9rem', background: 'rgba(255,255,255,0.05)', border: '1.5px solid rgba(255,255,255,0.12)', borderRadius: 12 }}>
+              <CardElement options={{
+                style: {
+                  base: { fontSize: '15px', color: '#fff', '::placeholder': { color: 'rgba(255,255,255,0.35)' } },
+                  invalid: { color: '#ff8080' },
+                },
+                hidePostalCode: true,
+              }} />
+            </div>
+            <button type="button" onClick={payWithCard} disabled={!stripe || !clientSecret || processing}
+              style={{ width: '100%', minHeight: 52, background: processing || !clientSecret ? 'rgba(212,175,55,0.4)' : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: 14, color: 'white', fontSize: '1rem', fontWeight: 800, cursor: processing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              {processing
+                ? <Loader2 size={18} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
+                : `Pagar ${intentTotals ? fmtEur(intentTotals.total) : ''}`}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Registration / Cancellation modal ───────────────────────────────────────
-function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClose, onSuccess, onCancelled }) {
+// Wrapper público que mete <Elements> alrededor — así cualquier hook
+// `useStripe` / `useElements` dentro del modal tiene contexto. Los callers
+// (CalendarView, Delegaciones, EventList) lo importan tal cual, sin saber
+// que se está usando Stripe internamente.
+function RegistrationModal(props) {
+  return (
+    <Elements stripe={stripePromise}>
+      <RegistrationModalContent {...props} />
+    </Elements>
+  )
+}
+
+function RegistrationModalContent({ event, isRegistered, inscribedByOther = null, onClose, onSuccess, onCancelled }) {
   const { user, fallero } = useAuth()
   const isAdmin = fallero?.rol === 'admin'
   const myName  = fallero
@@ -836,16 +1116,25 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
   const hasPendingEntries  = [...adultos, ...ninos].some(e => e.type === null)
   const hasCompanionErrors = adultoErrors.some(Boolean) || ninoErrors.some(Boolean) || hasPendingEntries
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (saving || wouldExceed || isAforoFull || hasCompanionErrors) return
+  // writeInscription: lógica atómica de escritura en Firestore.
+  // Llamada tanto por handleSubmit (eventos gratuitos) como por EventPaymentSection
+  // tras un cobro exitoso (eventos de pago). En el caso de pago, paymentInfo trae
+  // stripePaymentId/gastosGestion/totalNeto/totalConComision como justificante contable.
+  // Devuelve { ok, error } para que el llamador pueda reaccionar (alerta de refund manual
+  // si el cobro pasó pero el doc falla).
+  const writeInscription = async (paymentInfo = null) => {
+    if (saving) return { ok: false, error: 'En curso' }
     if (isPast) {
       setSaveError('Este evento ya se ha celebrado. No es posible realizar nuevas inscripciones.')
-      return
+      return { ok: false, error: 'past' }
     }
     if (event.fechaLimite && Date.now() > new Date(`${event.fechaLimite}T23:59:59`).getTime()) {
       setSaveError('Las inscripciones están cerradas para este evento.')
-      return
+      return { ok: false, error: 'closed' }
+    }
+    if (wouldExceed || isAforoFull || hasCompanionErrors) {
+      setSaveError('Revisa el formulario antes de confirmar.')
+      return { ok: false, error: 'validation' }
     }
     setSaving(true)
     setSaveError('')
@@ -853,14 +1142,17 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
       const snap = await getDocs(query(collection(db, 'inscripciones'), where('eventId', '==', event.id)))
       if (plazasTotal) {
         const live = snap.docs.reduce((s, d) => s + (d.data().totalPersonas ?? 1), 0)
-        if (live + totalPersonas > plazasTotal) { setInscritosCount(live); setSaving(false); return }
+        if (live + totalPersonas > plazasTotal) {
+          setInscritosCount(live); setSaving(false)
+          return { ok: false, error: 'aforo' }
+        }
       }
 
       // UID duplicate guard (race-condition safety)
       if (snap.docs.some(d => d.data().uid === user.uid && !d.data().esManual)) {
         setSaveError('Ya estás inscrito en este evento.')
         setSaving(false)
-        return
+        return { ok: false, error: 'duplicate-uid' }
       }
 
       // Defensa cross-device: ¿alguien ya me ha apuntado como acompañante?
@@ -882,7 +1174,7 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
             const fechaTxt = created ? created.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }) : null
             setSaveError(`${firstName} ya te ha apuntado a este evento${fechaTxt ? ` el ${fechaTxt}` : ''}. No puedes inscribirte de nuevo.`)
             setSaving(false)
-            return
+            return { ok: false, error: 'inscribed-by-other' }
           }
         }
       }
@@ -909,12 +1201,12 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
         if (c.uid && liveUids.has(c.uid)) {
           setSaveError(`El acompañante "${nombre}" ya ha sido inscrito por otra persona.`)
           setSaving(false)
-          return
+          return { ok: false, error: 'companion-collision' }
         }
         if (liveNames.has(normalizeName(nombre))) {
           setSaveError(`El acompañante "${nombre}" ya ha sido inscrito por otra persona.`)
           setSaving(false)
-          return
+          return { ok: false, error: 'companion-collision' }
         }
       }
 
@@ -946,21 +1238,46 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
         telefono:      fallero?.telefono ?? null,
         numeroOrden,
         createdAt:     serverTimestamp(),
+        // Justificante contable cuando el evento es de pago
+        ...(paymentInfo && {
+          stripePaymentId:  paymentInfo.stripePaymentId,
+          gastosGestion:    paymentInfo.gastosGestion,
+          totalNeto:        paymentInfo.totalNeto,
+          totalConComision: paymentInfo.totalConComision,
+          pagado:           true,
+          pagadoAt:         serverTimestamp(),
+        }),
       }
       await setDoc(doc(db, 'inscripciones', `${user.uid}_${event.id}`), payload)
       setStatus('saved')
       setTimeout(onSuccess, 900)
+      return { ok: true }
     } catch (err) {
       const msg = err?.message ?? ''
       const isPermission = msg.includes('permission') || msg.includes('PERMISSION') || err?.code === 'permission-denied'
       const isOffline    = msg.includes('ERR_BLOCKED') || msg.includes('Failed to fetch') || err?.code === 'unavailable'
-      setSaveError(
+      const friendly =
         isPermission ? 'Sin permisos para inscribirse. Contacta con la directiva.' :
         isOffline    ? 'Sin conexión. Comprueba tu red e inténtalo de nuevo.' :
-        msg || 'Error al guardar la inscripción. Inténtalo de nuevo.',
-      )
+        msg || 'Error al guardar la inscripción. Inténtalo de nuevo.'
+      setSaveError(friendly)
       setSaving(false)
+      return { ok: false, error: friendly }
     }
+  }
+
+  // Form submit. Cubre dos casos:
+  //   - Evento gratuito → writeInscription(null) directo
+  //   - Evento con precio pero pagoApp OFF → writeInscription(null), pago físico en casal
+  //   - Evento con pagoApp ON → defensa: ese caso no usa handleSubmit, va por
+  //     EventPaymentSection → writeInscription(paymentInfo). Si llega aquí, abortar.
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (event.pagoApp === true && event.precio != null && event.precio > 0) {
+      setSaveError('Este evento requiere pago online. Completa el cobro para confirmar.')
+      return
+    }
+    writeInscription(null)
   }
 
   const handleCancel = async () => {
@@ -1423,20 +1740,33 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
                   <span style={{ color: '#ff8080', fontSize: '0.8rem', lineHeight: 1.4 }}>{saveError}</span>
                 </div>
               )}
-              <button type="submit" disabled={saving || wouldExceed || hasCompanionErrors}
-                className={saving || wouldExceed || hasCompanionErrors ? '' : 'btn-shimmer'}
-                style={{
-                  width: '100%', minHeight: '52px',
-                  background: saving || wouldExceed || hasCompanionErrors ? 'rgba(206,17,38,0.35)' : `linear-gradient(135deg, ${RED}, #a00d1e)`,
-                  border: 'none', borderRadius: '14px', color: 'white', fontSize: '1rem', fontWeight: '800',
-                  cursor: saving || wouldExceed || hasCompanionErrors ? 'not-allowed' : 'pointer',
-                  boxShadow: saving || wouldExceed || hasCompanionErrors ? 'none' : `0 6px 24px rgba(206,17,38,0.35)`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                }}>
-                {saving
-                  ? <Loader2 size={18} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
-                  : `✅ Confirmar${totalPersonas > 1 ? ` (${totalPersonas} personas)` : ''}`}
-              </button>
+              {event.pagoApp === true && event.precio != null && event.precio > 0 ? (
+                <EventPaymentSection
+                  event={event}
+                  user={user}
+                  fallero={fallero}
+                  adultCount={priceBreakdown?.nAdultos ?? 0}
+                  childCount={priceBreakdown?.nNinos ?? 0}
+                  isReady={!saving && !wouldExceed && !isAforoFull && !hasCompanionErrors && !isPast}
+                  onPaymentSuccess={(paymentInfo) => writeInscription(paymentInfo)}
+                  onValidationError={setSaveError}
+                />
+              ) : (
+                <button type="submit" disabled={saving || wouldExceed || hasCompanionErrors}
+                  className={saving || wouldExceed || hasCompanionErrors ? '' : 'btn-shimmer'}
+                  style={{
+                    width: '100%', minHeight: '52px',
+                    background: saving || wouldExceed || hasCompanionErrors ? 'rgba(206,17,38,0.35)' : `linear-gradient(135deg, ${RED}, #a00d1e)`,
+                    border: 'none', borderRadius: '14px', color: 'white', fontSize: '1rem', fontWeight: '800',
+                    cursor: saving || wouldExceed || hasCompanionErrors ? 'not-allowed' : 'pointer',
+                    boxShadow: saving || wouldExceed || hasCompanionErrors ? 'none' : `0 6px 24px rgba(206,17,38,0.35)`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                  }}>
+                  {saving
+                    ? <Loader2 size={18} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
+                    : `✅ Confirmar${totalPersonas > 1 ? ` (${totalPersonas} personas)` : ''}`}
+                </button>
+              )}
             </>
           )}
         </form>
@@ -1518,7 +1848,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
   const isPrivileged = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
   const [form, setForm] = useState(() => {
-    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: initialFecha, hora: '', fechaLimite: '', notificarFechaLimite: false, lugar: '', precio: '', precioNino: '', plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: initialDelegacion }
+    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: initialFecha, hora: '', fechaLimite: '', notificarFechaLimite: false, lugar: '', precio: '', precioNino: '', pagoApp: false, plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: initialDelegacion }
     const d = editEvent.fecha?.toDate ? editEvent.fecha.toDate() : editEvent.fecha ? new Date(editEvent.fecha) : null
     const pad = n => String(n).padStart(2, '0')
     return {
@@ -1528,6 +1858,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
       hora:                 d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '',
       fechaLimite:          editEvent.fechaLimite ?? '',
       notificarFechaLimite: editEvent.notificarFechaLimite ?? false,
+      pagoApp:              editEvent.pagoApp === true,
       lugar:                editEvent.lugar ?? '',
       precio:               editEvent.precio != null ? String(editEvent.precio) : '',
       precioNino:           editEvent.precioNino != null ? String(editEvent.precioNino) : '',
@@ -1575,6 +1906,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
         fecha:                fechaDate,
         fechaLimite:          form.fechaLimite || null,
         notificarFechaLimite: Boolean(form.notificarFechaLimite),
+        pagoApp:              Boolean(form.pagoApp),
         lugar:                form.lugar.trim() || null,
         precio:               form.precio !== '' ? parseFloat(form.precio) : null,
         precioNino:           form.precioNino !== '' ? parseFloat(form.precioNino) : null,
@@ -1713,6 +2045,47 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
           <label style={sharedLabel}>Plazas</label>
           <input type="number" min="1" style={sharedInput} value={form.plazasTotal} onChange={e => set('plazasTotal', e.target.value)} placeholder="Ilimitado" onFocus={fg} onBlur={fb} />
         </div>
+
+        {/* Toggle: cobro online obligatorio vs cobro físico en casal.
+            Sólo tiene sentido si hay un precio > 0; con eventos gratuitos lo ocultamos. */}
+        {form.precio !== '' && parseFloat(form.precio) > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1rem', background: form.pagoApp ? 'rgba(212,175,55,0.07)' : 'rgba(255,255,255,0.03)', border: `1.5px solid ${form.pagoApp ? 'rgba(212,175,55,0.38)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '14px', transition: 'all 0.2s' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <span style={{ fontSize: '1.15rem' }}>{form.pagoApp ? '💳' : '🤝'}</span>
+              <div>
+                <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: '700', color: 'white', lineHeight: 1.2 }}>Pago online obligatorio</p>
+                <p style={{ margin: '2px 0 0', fontSize: '0.67rem', color: 'rgba(255,255,255,0.4)', lineHeight: 1.4 }}>
+                  {form.pagoApp
+                    ? 'Apple Pay / Google Pay / tarjeta. Sin cobro no hay inscripción.'
+                    : 'Apuntarse es libre. Pago en mano en el casal.'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => set('pagoApp', !form.pagoApp)}
+              style={{
+                width: '46px', height: '26px', flexShrink: 0,
+                background: form.pagoApp ? GOLD : 'rgba(255,255,255,0.18)',
+                border: 'none', borderRadius: '13px',
+                position: 'relative', cursor: 'pointer',
+                transition: 'background 0.22s', minHeight: 'auto', minWidth: 'auto',
+              }}
+              aria-checked={form.pagoApp}
+              role="switch"
+            >
+              <div style={{
+                position: 'absolute', top: '3px',
+                left: form.pagoApp ? '23px' : '3px',
+                width: '20px', height: '20px',
+                background: 'white', borderRadius: '50%',
+                transition: 'left 0.22s',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.35)',
+              }} />
+            </button>
+          </div>
+        )}
+
         <div>
           <label style={sharedLabel}>Descripción</label>
           <textarea rows={2} style={{ ...sharedInput, resize: 'vertical' }} value={form.descripcion} onChange={e => set('descripcion', e.target.value)} placeholder="Detalles…" onFocus={fg} onBlur={fb} />
