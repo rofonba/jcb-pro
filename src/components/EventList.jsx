@@ -49,6 +49,19 @@ function normalizeName(str) {
 
 const CHILD_AGE_LIMIT = 14
 
+// Evento pasado: comparación día a día contra "hoy" normalizado a las 00:00.
+// Evita problemas de huso horario y de horas raras del evento. Un evento de
+// HOY no se considera pasado (todavía se puede asistir/registrar durante el día).
+function isEventPast(eventDate) {
+  if (!eventDate) return false
+  const d = eventDate?.toDate ? eventDate.toDate() : new Date(eventDate)
+  if (!d || isNaN(d.getTime())) return false
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const evDay = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  return evDay.getTime() < today.getTime()
+}
+
 function calcAgeFromDate(fechaNacimiento) {
   if (!fechaNacimiento) return null
   const birth = new Date(fechaNacimiento)
@@ -111,6 +124,9 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
   const fmtLimite = event.fechaLimite
     ? new Date(`${event.fechaLimite}T00:00:00`).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })
     : null
+
+  // Evento ya celebrado: día anterior a hoy. Congela la tarjeta.
+  const isPast = isEventPast(event.fecha)
 
   const metaRows = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.28rem', marginBottom: '0.65rem' }}>
@@ -275,11 +291,19 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
                 <span style={{ fontSize: '1.1rem', fontWeight: 800, color: GOLD, textShadow: '0 1px 6px rgba(0,0,0,0.7)', letterSpacing: '-0.01em' }}>
                   {event.precio != null ? `${event.precio} €` : 'Gratuito'}
                 </span>
-                {isRegistered ? (
+                {isRegistered && isPast ? (
+                  <span style={{ padding: '7px 12px', background: 'rgba(16,185,129,0.18)', backdropFilter: 'blur(6px)', border: '1px solid rgba(16,185,129,0.4)', borderRadius: '9px', fontSize: '0.7rem', fontWeight: 700, color: '#34d399', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    ✓ Inscripción consolidada
+                  </span>
+                ) : isRegistered ? (
                   <button onClick={e => { e.stopPropagation(); onCancelPress(event) }}
                     style={{ padding: '7px 14px', background: 'rgba(206,17,38,0.65)', backdropFilter: 'blur(6px)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '9px', fontSize: '0.75rem', fontWeight: 700, color: 'white', cursor: 'pointer', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
                     <X size={12} /> Anular
                   </button>
+                ) : isPast ? (
+                  <span style={{ padding: '7px 14px', background: 'rgba(60,60,60,0.7)', borderRadius: '9px', fontSize: '0.72rem', fontWeight: 700, color: 'rgba(255,255,255,0.55)' }}>
+                    🔒 Inscripciones cerradas
+                  </span>
                 ) : inscribedByOther ? (
                   <span style={{ padding: '7px 12px', background: 'rgba(99,102,241,0.78)', backdropFilter: 'blur(6px)', borderRadius: '9px', fontSize: '0.7rem', fontWeight: 700, color: 'white', lineHeight: 1.3, maxWidth: '70%', textAlign: 'right' }}>
                     🔒 {inscribedByOther.byName} te ha apuntado{inscribedByOther.byDate ? ` el ${inscribedByOther.byDate}` : ''}
@@ -381,7 +405,11 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
             <span style={{ fontSize: '1.1rem', fontWeight: '800', color: GOLD }}>
               {event.precio != null ? `${event.precio} €` : 'Gratuito'}
             </span>
-            {isRegistered ? (
+            {isRegistered && isPast ? (
+              <span style={{ padding: '0.38rem 0.85rem', background: 'rgba(16,185,129,0.1)', border: '1.5px solid rgba(16,185,129,0.35)', borderRadius: '8px', fontSize: '0.7rem', fontWeight: '700', color: GREEN, display: 'flex', alignItems: 'center', gap: 5 }}>
+                ✓ Inscripción consolidada (evento pasado)
+              </span>
+            ) : isRegistered ? (
               <button
                 onClick={e => { e.stopPropagation(); onCancelPress(event) }}
                 style={{ padding: '0.38rem 1rem', background: 'transparent', border: `1.5px solid rgba(206,17,38,0.38)`, borderRadius: '8px', fontSize: '0.73rem', fontWeight: '700', color: 'rgba(220,38,38,0.8)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', minHeight: 'auto', transition: 'background 0.15s' }}
@@ -390,6 +418,10 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
               >
                 <X size={12} /> Anular inscripción
               </button>
+            ) : isPast ? (
+              <span style={{ padding: '0.38rem 0.9rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', fontSize: '0.72rem', fontWeight: '700', color: 'rgba(255,255,255,0.45)' }}>
+                🔒 Inscripciones cerradas
+              </span>
             ) : inscribedByOther ? (
               <span style={{ padding: '0.4rem 0.7rem', background: 'rgba(99,102,241,0.1)', border: '1.5px solid rgba(99,102,241,0.35)', borderRadius: '8px', fontSize: '0.7rem', fontWeight: '700', color: '#818cf8', lineHeight: 1.35, maxWidth: '75%', textAlign: 'right' }}>
                 🔒 {inscribedByOther.byName} te ha apuntado{inscribedByOther.byDate ? ` el ${inscribedByOther.byDate}` : ''}
@@ -708,6 +740,9 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
   const isAforoFull   = plazasTotal != null && disponibles <= 0
   const t             = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
 
+  // Evento ya celebrado: congelado. Bloquea form, cancel y modificar.
+  const isPast = isEventPast(event.fecha)
+
   // Determina si un entry del formulario (adultos[]/ninos[]) cuenta como niño
   // para el cálculo de precios — basado en edad del censo / hijo / sección.
   const isChildEntry = useCallback((entry, sectionIsChild = false) => {
@@ -804,6 +839,10 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (saving || wouldExceed || isAforoFull || hasCompanionErrors) return
+    if (isPast) {
+      setSaveError('Este evento ya se ha celebrado. No es posible realizar nuevas inscripciones.')
+      return
+    }
     if (event.fechaLimite && Date.now() > new Date(`${event.fechaLimite}T23:59:59`).getTime()) {
       setSaveError('Las inscripciones están cerradas para este evento.')
       return
@@ -926,6 +965,10 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
 
   const handleCancel = async () => {
     if (!myIns || cancelling) return
+    if (isPast) {
+      setCancelErr('No puedes anular: el evento ya se ha celebrado y tu inscripción queda consolidada en el histórico.')
+      return
+    }
     setCancelling(true)
     setCancelErr('')
     try {
@@ -939,6 +982,11 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
 
   const handleModify = async () => {
     if (!myIns || updating) return
+    if (isPast) {
+      // Modificar acompañantes también queda congelado en eventos pasados
+      setCancelErr('No puedes modificar: el evento ya se ha celebrado.')
+      return
+    }
     setUpdating(true)
     try {
       await updateDoc(doc(db, 'inscripciones', myIns.id), {
@@ -990,8 +1038,29 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
         </button>
       </div>
 
+      {/* ── Evento pasado: ya celebrado, congelado ─── */}
+      {isPast && !isRegistered && status === 'clean' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '1.5rem 1rem 0.5rem', gap: '0.85rem' }}>
+          <div style={{ width: '58px', height: '58px', background: 'rgba(156,163,175,0.15)', border: '1.5px solid rgba(156,163,175,0.35)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.6rem' }}>
+            📅
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <p style={{ margin: 0, fontWeight: 800, fontSize: '0.95rem', color: 'white' }}>
+              Evento ya celebrado
+            </p>
+            <p style={{ margin: '0.45rem 0 0', fontSize: '0.83rem', color: 'rgba(255,255,255,0.55)', lineHeight: 1.45 }}>
+              Este evento ya se ha celebrado. No es posible realizar nuevas inscripciones.
+            </p>
+          </div>
+          <button type="button" onClick={onClose}
+            style={{ marginTop: '0.4rem', minWidth: 140, minHeight: 44, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', color: 'rgba(255,255,255,0.6)', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer' }}>
+            Entendido
+          </button>
+        </div>
+      )}
+
       {/* ── Bloqueado: otro fallero ya me apuntó como acompañante ─── */}
-      {inscribedByOther && !isRegistered && status === 'clean' && (
+      {!isPast && inscribedByOther && !isRegistered && status === 'clean' && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '1.5rem 1rem 0.5rem', gap: '0.85rem' }}>
           <div style={{ width: '58px', height: '58px', background: 'rgba(99,102,241,0.15)', border: '1.5px solid rgba(99,102,241,0.35)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.6rem' }}>
             🔒
@@ -1065,7 +1134,7 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
                   </div>
                 )}
               </div>
-              {!modMode && (
+              {!modMode && !isPast && (
                 <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
                   <button type="button" onClick={() => { setNewAcomp(myIns.acompañantes ?? 0); setModMode(true) }}
                     style={{ flex: 1, minHeight: '44px', background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: '10px', color: GOLD, fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
@@ -1079,6 +1148,14 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
                   </button>
                 </div>
               )}
+              {isPast && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '0.7rem 0.9rem', background: 'rgba(16,185,129,0.08)', border: '1.5px solid rgba(16,185,129,0.3)', borderRadius: 12, marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '1rem' }}>✓</span>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: GREEN, letterSpacing: '0.01em' }}>
+                    Inscripción consolidada (evento pasado)
+                  </span>
+                </div>
+              )}
             </div>
           ) : null}
           {cancelErr && (
@@ -1086,9 +1163,11 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
               ⚠️ {cancelErr}
             </p>
           )}
-          <p style={{ margin: '0.5rem 0 0', fontSize: '0.7rem', color: 'rgba(255,255,255,0.22)', textAlign: 'center' }}>
-            Al anular, la plaza queda libre automáticamente.
-          </p>
+          {!isPast && (
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.7rem', color: 'rgba(255,255,255,0.22)', textAlign: 'center' }}>
+              Al anular, la plaza queda libre automáticamente.
+            </p>
+          )}
         </div>
       )}
 
@@ -1117,7 +1196,7 @@ function RegistrationModal({ event, isRegistered, inscribedByOther = null, onClo
       )}
 
       {/* ── Form (clean) ─── */}
-      {status === 'clean' && !inscribedByOther && (
+      {status === 'clean' && !inscribedByOther && !isPast && (
         <form onSubmit={handleSubmit}>
           {plazasTotal && inscritosCount !== null && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: isAforoFull ? 'rgba(206,17,38,0.1)' : 'rgba(255,255,255,0.04)', border: `1px solid ${isAforoFull ? 'rgba(206,17,38,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '10px', marginBottom: '1rem' }}>
