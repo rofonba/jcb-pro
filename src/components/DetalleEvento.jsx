@@ -4,9 +4,10 @@ import {
   getDocs, deleteDoc, documentId,
 } from 'firebase/firestore'
 import { db } from '../firebase'
+import { isPendingPayment } from '../utils/inscripciones'
 import { useAuth } from '../contexts/AuthContext'
 import { X, Users, Phone, Edit2, Download, Trash2, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
-import { RegistrationModal, EventFormModal, CancelConfirmModal, DeleteEventModal, PaymentReceipt } from './EventList'
+import { RegistrationModal, EventFormModal, CancelConfirmModal, DeleteEventModal, PaymentReceipt, PaidNotice } from './EventList'
 import { getDirectImageUrl } from '../utils/imageUtils'
 import logoFalla from '../assets/logo-falla.png'
 
@@ -97,7 +98,7 @@ export default function DetalleEvento({ eventId, onClose, onRegistered, onCancel
 
   useEffect(() => {
     const q = query(collection(db, 'inscripciones'), where('eventId', '==', eventId))
-    return onSnapshot(q, snap => setInscripciones(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+    return onSnapshot(q, snap => setInscripciones(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(i => !isPendingPayment(i))))
   }, [eventId])
 
   const isRegistered = useMemo(
@@ -338,7 +339,9 @@ export default function DetalleEvento({ eventId, onClose, onRegistered, onCancel
               {/* CTA */}
               {!isPast && (
                 <div style={{ marginBottom: 14 }}>
-                  {isRegistered ? (
+                  {isRegistered && inscripciones.some(i => i.uid === userId && !i.esManual && i.pagado === true) ? (
+                    <PaidNotice />
+                  ) : isRegistered ? (
                     <button
                       onClick={() => setShowCancel(true)}
                       style={{ width: '100%', minHeight: 52, background: 'transparent', border: `2px solid rgba(206,17,38,0.4)`, borderRadius: 16, color: RED, fontSize: 15, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}

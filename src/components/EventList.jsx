@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   collection, query, orderBy, onSnapshot,
   addDoc, setDoc, deleteDoc, serverTimestamp, getDocs, getDoc, where, doc, updateDoc,
 } from 'firebase/firestore'
 import { db } from '../firebase'
+import { isPendingPayment, countsForCapacity } from '../utils/inscripciones'
 import { enviarNotificacionFCM } from '../services/fcmService'
 import { useAuth } from '../contexts/AuthContext'
 import {
@@ -117,7 +118,7 @@ function Overlay({ children, onClose, scrollable = false }) {
 }
 
 // ─── Event card ───────────────────────────────────────────────────────────────
-function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEditPress, onCancelPress, onDeletePress, index = 0, liveCount = 0, inscribedByOther = null }) {
+function EventCard({ event, onPress, isRegistered, isPaid = false, isAdmin, onAdminPress, onEditPress, onCancelPress, onDeletePress, index = 0, liveCount = 0, inscribedByOther = null }) {
   const [imgError, setImgError] = useState(false)
   const t        = EVENT_TYPES[event.tipo] ?? EVENT_TYPES.acto
   const ocupadas = liveCount > 0 ? liveCount : (event.plazasOcupadas ?? 0)
@@ -305,6 +306,8 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
                   <span style={{ padding: '7px 12px', background: 'rgba(16,185,129,0.18)', backdropFilter: 'blur(6px)', border: '1px solid rgba(16,185,129,0.4)', borderRadius: '9px', fontSize: '0.7rem', fontWeight: 700, color: '#34d399', display: 'flex', alignItems: 'center', gap: 4 }}>
                     ✓ Inscripción consolidada
                   </span>
+                ) : isRegistered && isPaid ? (
+                  <PaidNotice variant="dark" compact />
                 ) : isRegistered ? (
                   <button onClick={e => { e.stopPropagation(); onCancelPress(event) }}
                     style={{ padding: '7px 14px', background: 'rgba(206,17,38,0.65)', backdropFilter: 'blur(6px)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '9px', fontSize: '0.75rem', fontWeight: 700, color: 'white', cursor: 'pointer', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -419,6 +422,8 @@ function EventCard({ event, onPress, isRegistered, isAdmin, onAdminPress, onEdit
               <span style={{ padding: '0.38rem 0.85rem', background: 'rgba(16,185,129,0.1)', border: '1.5px solid rgba(16,185,129,0.35)', borderRadius: '8px', fontSize: '0.7rem', fontWeight: '700', color: GREEN, display: 'flex', alignItems: 'center', gap: 5 }}>
                 ✓ Inscripción consolidada (evento pasado)
               </span>
+            ) : isRegistered && isPaid ? (
+              <PaidNotice variant="dark" compact />
             ) : isRegistered ? (
               <button
                 onClick={e => { e.stopPropagation(); onCancelPress(event) }}
@@ -584,7 +589,7 @@ function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, p
 //   · Apple Pay / Google Pay si el dispositivo lo soporta (PaymentRequest API)
 //   · Fallback CardElement para todo lo demás (WhatsApp/Instagram in-app browsers,
 //     Firefox, equipos sin Apple/Google Pay configurado, etc.)
-function EventPaymentSection({ event, user, fallero, adultCount, childCount, isReady, onPaymentSuccess, onValidationError }) {
+function EventPaymentSection({ event, user, fallero, adultCount, childCount, isReady, onPrepare, onAbort, onConfirmed }) {
   const stripe   = useStripe()
   const elements = useElements()
 
@@ -598,6 +603,42 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
   const [showCard,         setShowCard]         = useState(false)
   const [paymentSucceeded, setPaymentSucceeded] = useState(false)
   const [acceptedNoRefund, setAcceptedNoRefund]   = useState(false)
+  // Tras el cobro, esperamos a que el webhook marque la inscripción como pagado:true.
+  const [awaitingWebhook,  setAwaitingWebhook]  = useState(false)
+  const [confirmDelayed,   setConfirmDelayed]   = useState(false)
+  const [paidIntentId,     setPaidIntentId]     = useState(null)
+
+  // Callbacks del padre en una ref: el efecto de PaymentRequest no se recrea en cada render.
+  const cb = useRef({})
+  cb.current = { onPrepare, onAbort, onConfirmed }
+
+  // Reserva la plaza (inscripción pendiente, SIN campos financieros) antes de cobrar.
+  const prepareReservation = async () => {
+    const r = await cb.current.onPrepare()
+    if (!r?.ok) setError('No se pudo reservar tu plaza antes del pago. No se ha realizado ningún cobro. Revisa el formulario.')
+    return !!r?.ok
+  }
+
+  // Cobro realizado en Stripe → pasamos a esperar la confirmación del servidor.
+  const startAwaiting = (intentId) => {
+    setPaymentSucceeded(true)
+    setPaidIntentId(intentId)
+    setAwaitingWebhook(true)
+    setProcessing(false)
+  }
+
+  // Listener en tiempo real: cuando el backend (webhook) pone pagado:true, terminamos.
+  useEffect(() => {
+    if (!awaitingWebhook || !user?.uid) return
+    const unsub = onSnapshot(doc(db, 'inscripciones', `${user.uid}_${event.id}`), snap => {
+      if (snap.exists() && snap.data().pagado === true) {
+        setAwaitingWebhook(false)
+        cb.current.onConfirmed()
+      }
+    })
+    const t = setTimeout(() => setConfirmDelayed(true), 40000)
+    return () => { unsub(); clearTimeout(t) }
+  }, [awaitingWebhook, user?.uid, event.id])
 
   // 1) Crea / refresca el PaymentIntent siempre que cambien las cantidades.
   //    El backend recalcula y devuelve los importes "reales" — el frontend
@@ -662,6 +703,9 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
 
     pr.on('paymentmethod', async (ev) => {
       try {
+        // 1) Reserva de plaza (pendiente) antes de cobrar
+        if (!(await prepareReservation())) { ev.complete('fail'); return }
+
         const { paymentIntent, error: confirmErr } = await stripe.confirmCardPayment(
           clientSecret,
           { payment_method: ev.paymentMethod.id },
@@ -670,6 +714,7 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
 
         if (confirmErr) {
           ev.complete('fail')
+          await cb.current.onAbort()
           setError(confirmErr.message || 'Pago rechazado.')
           return
         }
@@ -681,29 +726,17 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
         let finalIntent = paymentIntent
         if (finalIntent.status === 'requires_action' || finalIntent.status === 'requires_confirmation') {
           const { paymentIntent: pi2, error: actErr } = await stripe.confirmCardPayment(clientSecret)
-          if (actErr) { setError(actErr.message || 'Autenticación bancaria fallida.'); return }
+          if (actErr) { await cb.current.onAbort(); setError(actErr.message || 'Autenticación bancaria fallida.'); return }
           finalIntent = pi2
         }
 
-        if (finalIntent.status !== 'succeeded') {
+        if (finalIntent.status !== 'succeeded' && finalIntent.status !== 'processing') {
+          await cb.current.onAbort()
           setError(`Pago no completado (${finalIntent.status}).`)
           return
         }
 
-        setPaymentSucceeded(true)
-        setProcessing(true)
-        const result = await onPaymentSuccess({
-          stripePaymentId:  finalIntent.id,
-          gastosGestion:    intentTotals.gastos / 100,   // en euros para el documento
-          totalNeto:        intentTotals.neto   / 100,
-          totalConComision: intentTotals.total  / 100,
-        })
-        if (!result?.ok) {
-          // El cobro se hizo pero el escribir en Firestore falló — alerta para refund manual
-          setError(`⚠️ Pago cobrado pero falló el registro: ${result?.error ?? 'desconocido'}. ` +
-                   `Contacta con la directiva con este ID: ${finalIntent.id}`)
-        }
-        setProcessing(false)
+        startAwaiting(finalIntent.id)
       } catch (err) {
         ev.complete('fail')
         setError(err?.message || 'Error procesando el pago.')
@@ -711,13 +744,15 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
     })
 
     return () => { cancelled = true }
-  }, [stripe, clientSecret, intentTotals, event.titulo, onPaymentSuccess])
+  }, [stripe, clientSecret, intentTotals, event.titulo])
 
   // 3) Pago manual con CardElement (fallback universal)
   const payWithCard = async () => {
     if (!stripe || !elements || !clientSecret || processing || !acceptedNoRefund) return
     setProcessing(true); setError('')
     try {
+      if (!(await prepareReservation())) { setProcessing(false); return }
+
       const card = elements.getElement(CardElement)
       const { paymentIntent, error: confirmErr } = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
@@ -725,30 +760,47 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
           billing_details: { name: fallero ? `${fallero.nombre ?? ''} ${fallero.apellidos ?? ''}`.trim() : undefined },
         },
       })
-      if (confirmErr) { setError(confirmErr.message || 'Tarjeta rechazada.'); setProcessing(false); return }
-      if (paymentIntent.status !== 'succeeded') { setError(`Pago no completado (${paymentIntent.status}).`); setProcessing(false); return }
-
-      setPaymentSucceeded(true)
-      const result = await onPaymentSuccess({
-        stripePaymentId:  paymentIntent.id,
-        gastosGestion:    intentTotals.gastos / 100,
-        totalNeto:        intentTotals.neto   / 100,
-        totalConComision: intentTotals.total  / 100,
-      })
-      if (!result?.ok) {
-        setError(`⚠️ Pago cobrado pero falló el registro: ${result?.error ?? 'desconocido'}. ` +
-                 `Contacta con la directiva con este ID: ${paymentIntent.id}`)
+      if (confirmErr) {
+        await cb.current.onAbort()
+        setError(confirmErr.message || 'Tarjeta rechazada.'); setProcessing(false); return
       }
+      if (paymentIntent.status !== 'succeeded' && paymentIntent.status !== 'processing') {
+        await cb.current.onAbort()
+        setError(`Pago no completado (${paymentIntent.status}).`); setProcessing(false); return
+      }
+      // El cliente NO marca nada como pagado: lo hará el webhook.
+      startAwaiting(paymentIntent.id)
     } catch (err) {
       setError(err?.message || 'Error procesando el pago.')
-    } finally {
       setProcessing(false)
     }
   }
 
   const fmtEur = c => (c / 100).toFixed(2).replace('.', ',') + ' €'
 
-  if (!isReady) {
+  // Cobro hecho: esperando que el servidor (webhook de Stripe) confirme el pago.
+  if (awaitingWebhook) {
+    return (
+      <div style={{ padding: '1.1rem 1rem', background: 'rgba(212,175,55,0.07)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: 14, textAlign: 'center' }}>
+        <Loader2 size={26} color={GOLD} style={{ animation: 'falla-spin 0.8s linear infinite', marginBottom: 8 }} />
+        <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: 'white' }}>Procesando confirmación…</p>
+        <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', lineHeight: 1.5 }}>
+          Estamos esperando la confirmación del banco. No cierres esta pantalla ni vuelvas a pagar.
+        </p>
+        {confirmDelayed && (
+          <p style={{ margin: '0.75rem 0 0', fontSize: '0.76rem', color: '#fbbf24', lineHeight: 1.5 }}>
+            ⚠️ La confirmación está tardando más de lo normal. Tu pago está registrado en Stripe
+            (ID <span style={{ fontFamily: 'monospace' }}>{paidIntentId}</span>) y tu inscripción se
+            confirmará sola en cuanto llegue. Si pasados unos minutos no aparece en «Check-in»,
+            contacta con la directiva con ese ID.
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  // (processing: no desmontar CardElement a mitad de un cobro aunque el formulario cambie)
+  if (!isReady && !processing) {
     return (
       <div style={{ padding: '0.85rem 1rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', textAlign: 'center', color: 'rgba(255,255,255,0.45)', fontSize: '0.78rem' }}>
         Completa la lista de acompañantes para continuar al pago.
@@ -845,6 +897,26 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
           </div>
         )}
       </div>}
+    </div>
+  )
+}
+
+// ─── Aviso para inscripciones pagadas: sólo la directiva puede cancelarlas ──
+export function PaidNotice({ variant = 'light', compact = false }) {
+  const dark = variant === 'dark'
+  return (
+    <div style={{
+      padding: compact ? '6px 10px' : '0.75rem 0.9rem',
+      background: dark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)',
+      border: `1px solid ${dark ? 'rgba(16,185,129,0.35)' : 'rgba(16,185,129,0.3)'}`,
+      borderRadius: compact ? 9 : 12,
+      textAlign: compact ? 'right' : 'center',
+      maxWidth: compact ? 170 : 'none',
+      marginBottom: compact ? 0 : '0.5rem',
+      fontSize: compact ? '0.62rem' : '0.8rem', lineHeight: 1.4, fontWeight: 600,
+      color: dark ? '#34d399' : '#047857',
+    }}>
+      ✅ Asistencia confirmada. Para cancelar, contacta con la directiva.
     </div>
   )
 }
@@ -952,7 +1024,7 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
   useEffect(() => {
     const q = query(collection(db, 'inscripciones'), where('eventId', '==', event.id))
     return onSnapshot(q, snap => {
-      setInscritosCount(snap.docs.reduce((s, d) => s + (d.data().totalPersonas ?? 1), 0))
+      setInscritosCount(snap.docs.reduce((s, d) => s + (countsForCapacity(d.data()) && d.data().uid !== user?.uid ? (d.data().totalPersonas ?? 1) : 0), 0))
       const names = new Set()
       const uids  = new Set()
       const fimByUid = new Map() // normalizedName → inscriber uid (family member)
@@ -1161,12 +1233,13 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
   const hasCompanionErrors = adultoErrors.some(Boolean) || ninoErrors.some(Boolean) || hasPendingEntries
 
   // writeInscription: lógica atómica de escritura en Firestore.
-  // Llamada tanto por handleSubmit (eventos gratuitos) como por EventPaymentSection
-  // tras un cobro exitoso (eventos de pago). En el caso de pago, paymentInfo trae
-  // stripePaymentId/gastosGestion/totalNeto/totalConComision como justificante contable.
-  // Devuelve { ok, error } para que el llamador pueda reaccionar (alerta de refund manual
-  // si el cobro pasó pero el doc falla).
-  const writeInscription = async (paymentInfo = null) => {
+  //   - Eventos gratuitos / pago en casal: writeInscription() → inscripción definitiva.
+  //   - Eventos de pago online: writeInscription({ pending: true }) ANTES de cobrar (reserva
+  //     la plaza como pendiente). El cobro lo confirma el webhook de Stripe, que es quien
+  //     escribe pagado:true e importes. Aquí el cliente nunca escribe campos financieros.
+  // Devuelve { ok, error }.
+  const writeInscription = async (opts = null) => {
+    const pending = opts?.pending === true
     if (saving) return { ok: false, error: 'En curso' }
     if (isPast) {
       setSaveError('Este evento ya se ha celebrado. No es posible realizar nuevas inscripciones.')
@@ -1185,7 +1258,11 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
     try {
       const snap = await getDocs(query(collection(db, 'inscripciones'), where('eventId', '==', event.id)))
       if (plazasTotal) {
-        const live = snap.docs.reduce((s, d) => s + (d.data().totalPersonas ?? 1), 0)
+        // Aforo: confirmadas + reservas pendientes recientes (no abandonadas); mi propia pendiente se reemplaza
+        const live = snap.docs.reduce((s, d) => {
+          const x = d.data()
+          return s + (countsForCapacity(x) && !(x.uid === user.uid && !x.esManual) ? (x.totalPersonas ?? 1) : 0)
+        }, 0)
         if (live + totalPersonas > plazasTotal) {
           setInscritosCount(live); setSaving(false)
           return { ok: false, error: 'aforo' }
@@ -1193,7 +1270,7 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
       }
 
       // UID duplicate guard (race-condition safety)
-      if (snap.docs.some(d => d.data().uid === user.uid && !d.data().esManual)) {
+      if (snap.docs.some(d => d.data().uid === user.uid && !d.data().esManual && !isPendingPayment(d.data()))) {
         setSaveError('Ya estás inscrito en este evento.')
         setSaving(false)
         return { ok: false, error: 'duplicate-uid' }
@@ -1275,6 +1352,17 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
           falleroId:    n.falleroId ?? null,
           uid:          n.uid ?? null,
         })),
+        // Beneficiarios: personas cuya entrada paga este usuario. `beneficiariosUids`
+        // (sólo usuarios reales de la app) permite consultarlos con array-contains.
+        beneficiarios: allCompanions.map((c, i) => ({
+          id:     c.uid ?? `ext_${i}`,   // clave en checkInEstado (check-in individual)
+          uid:    c.type === 'censo_app' ? (c.uid ?? null) : null,
+          nombre: c.nombre.trim() || 'Acompañante',
+          tipo:   c.type,
+        })),
+        beneficiariosUids: allCompanions
+          .filter(c => c.type === 'censo_app' && c.uid)
+          .map(c => c.uid),
         acompañantes:  validAdultos.length + validNinos.length,
         totalPersonas,
         nota:          nota.trim() || null,
@@ -1282,17 +1370,16 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
         telefono:      fallero?.telefono ?? null,
         numeroOrden,
         createdAt:     serverTimestamp(),
-        // Justificante contable cuando el evento es de pago
-        ...(paymentInfo && {
-          stripePaymentId:  paymentInfo.stripePaymentId,
-          gastosGestion:    paymentInfo.gastosGestion,
-          totalNeto:        paymentInfo.totalNeto,
-          totalConComision: paymentInfo.totalConComision,
-          pagado:           true,
-          pagadoAt:         serverTimestamp(),
-        }),
+        // Eventos de pago: la plaza queda reservada como pendiente. Los campos financieros
+        // (pagado, pagadoAt, stripePaymentId, importes) los escribe SÓLO el webhook de Stripe;
+        // las reglas de Firestore impiden que el cliente los escriba.
+        ...(pending && { estadoPago: 'pendiente' }),
       }
       await setDoc(doc(db, 'inscripciones', `${user.uid}_${event.id}`), payload)
+      if (pending) {
+        setSaving(false)   // el pago sigue en curso; la UI se cierra al confirmar el webhook
+        return { ok: true }
+      }
       setStatus('saved')
       setTimeout(onSuccess, 900)
       return { ok: true }
@@ -1310,18 +1397,23 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
     }
   }
 
+  // Pago fallido/rechazado: libera la plaza reservada (el dueño puede borrar su inscripción).
+  const abortPendingInscription = async () => {
+    try { await deleteDoc(doc(db, 'inscripciones', `${user.uid}_${event.id}`)) } catch { /* sin cobro: nada que revisar */ }
+  }
+
   // Form submit. Cubre dos casos:
-  //   - Evento gratuito → writeInscription(null) directo
-  //   - Evento con precio pero pagoApp OFF → writeInscription(null), pago físico en casal
+  //   - Evento gratuito → writeInscription() directo
+  //   - Evento con precio pero pagoApp OFF → writeInscription(), pago físico en casal
   //   - Evento con pagoApp ON → defensa: ese caso no usa handleSubmit, va por
-  //     EventPaymentSection → writeInscription(paymentInfo). Si llega aquí, abortar.
+  //     EventPaymentSection → webhook. Si llega aquí, abortar.
   const handleSubmit = (e) => {
     e.preventDefault()
     if (event.pagoApp === true && event.precio != null && event.precio > 0) {
       setSaveError('Este evento requiere pago online. Completa el cobro para confirmar.')
       return
     }
-    writeInscription(null)
+    writeInscription()
   }
 
   const handleCancel = async () => {
@@ -1343,6 +1435,10 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
 
   const handleModify = async () => {
     if (!myIns || updating) return
+    if (myIns.pagado === true) {
+      setCancelErr('Esta inscripción ya está pagada: no se pueden modificar los asistentes. Contacta con la directiva.')
+      return
+    }
     if (isPast) {
       // Modificar acompañantes también queda congelado en eventos pasados
       setCancelErr('No puedes modificar: el evento ya se ha celebrado.')
@@ -1448,7 +1544,9 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
       {status === 'duplicate' && (
         <div>
           <p style={{ margin: '0 0 0.75rem', fontSize: '0.78rem', fontWeight: '700', color: GREEN, letterSpacing: '0.04em' }}>
-            ✅ Tu inscripción confirmada:
+            {event.pagoApp === true && myIns && myIns.pagado !== true
+              ? '⏳ Pago pendiente de confirmación. Si ya has pagado, se confirmará sola en unos instantes; si no, puedes anularla.'
+              : '✅ Tu inscripción confirmada:'}
           </p>
           {loadingMine ? (
             <div style={{ textAlign: 'center', padding: '1rem', color: 'rgba(255,255,255,0.3)', fontSize: '0.85rem' }}>Cargando…</div>
@@ -1496,7 +1594,8 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
                   </div>
                 )}
               </div>
-              {!modMode && !isPast && (
+              {!modMode && !isPast && myIns.pagado === true && <PaidNotice variant="dark" />}
+              {!modMode && !isPast && myIns.pagado !== true && (
                 <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
                   <button type="button" onClick={() => { setNewAcomp(myIns.acompañantes ?? 0); setModMode(true) }}
                     style={{ flex: 1, minHeight: '44px', background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: '10px', color: GOLD, fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
@@ -1793,8 +1892,9 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
                   adultCount={priceBreakdown?.nAdultos ?? 0}
                   childCount={priceBreakdown?.nNinos ?? 0}
                   isReady={!saving && !wouldExceed && !isAforoFull && !hasCompanionErrors && !isPast}
-                  onPaymentSuccess={(paymentInfo) => writeInscription(paymentInfo)}
-                  onValidationError={setSaveError}
+                  onPrepare={() => writeInscription({ pending: true })}
+                  onAbort={abortPendingInscription}
+                  onConfirmed={() => { setSaving(false); setStatus('saved'); setTimeout(onSuccess, 900) }}
                 />
               ) : (
                 <button type="submit" disabled={saving || wouldExceed || hasCompanionErrors}
@@ -2353,6 +2453,7 @@ export default function EventList() {
   const [events, setEvents]               = useState([])
   const [loading, setLoading]             = useState(true)
   const [registeredIds, setRegisteredIds] = useState(new Set())
+  const [paidIds, setPaidIds]             = useState(new Set())
   const [inscCountMap, setInscCountMap]   = useState({})
   const [inscribedByOtherMap, setInscribedByOtherMap] = useState({}) // eventId → { byName, byDate }
   const [selectedEvent, setSelectedEvent] = useState(null)
@@ -2372,9 +2473,18 @@ export default function EventList() {
 
   useEffect(() => {
     if (!user?.uid) return
-    getDocs(query(collection(db, 'inscripciones'), where('uid', '==', user.uid)))
-      .then(snap => setRegisteredIds(new Set(snap.docs.map(d => d.data().eventId))))
-      .catch(() => {})
+    // En vivo: confirmadas (registeredIds) y, dentro de ellas, las pagadas (paidIds: sólo la directiva puede anularlas)
+    return onSnapshot(query(collection(db, 'inscripciones'), where('uid', '==', user.uid)), snap => {
+      const reg = new Set(), paid = new Set()
+      for (const d of snap.docs) {
+        const x = d.data()
+        if (isPendingPayment(x)) continue
+        reg.add(x.eventId)
+        if (x.pagado === true) paid.add(x.eventId)
+      }
+      setRegisteredIds(reg)
+      setPaidIds(paid)
+    }, () => {})
   }, [user?.uid])
 
   // Real-time inscription counts + "already-inscribed-by-someone-else" detector.
@@ -2393,6 +2503,7 @@ export default function EventList() {
       for (const d of snap.docs) {
         const data = d.data()
         const { eventId, totalPersonas } = data
+        if (isPendingPayment(data)) continue   // pendientes de pago no cuentan como confirmados
         if (eventId) map[eventId] = (map[eventId] ?? 0) + (totalPersonas ?? 1)
         if (!eventId) continue
 
@@ -2529,6 +2640,7 @@ export default function EventList() {
           <EventCard
             key={ev.id} event={ev} index={i}
             isRegistered={registeredIds.has(ev.id)}
+            isPaid={paidIds.has(ev.id)}
             isAdmin={isAdmin}
             liveCount={inscCountMap[ev.id] ?? 0}
             inscribedByOther={inscribedByOtherMap[ev.id] ?? null}

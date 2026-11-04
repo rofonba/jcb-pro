@@ -4,6 +4,7 @@ import {
   doc, updateDoc, arrayUnion, arrayRemove, onSnapshot, writeBatch,
 } from 'firebase/firestore'
 import { db } from '../firebase'
+import { isPendingPayment } from '../utils/inscripciones'
 import { useAuth } from '../contexts/AuthContext'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { enviarNotificacionFCM } from '../services/fcmService'
@@ -905,7 +906,7 @@ function AttendeesModal({ event, onClose }) {
       orderBy('createdAt', 'asc'),
     )
     const unsub = onSnapshot(q, snap => {
-      setAttendees(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setAttendees(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(a => !isPendingPayment(a)))
       setLoading(false)
     }, () => setLoading(false))
     return unsub
@@ -1065,6 +1066,7 @@ function AdminPanel() {
     const unsub = onSnapshot(collection(db, 'inscripciones'), snap => {
       const map = {}
       snap.forEach(d => {
+        if (isPendingPayment(d.data())) return
         const { eventId, totalPersonas = 1 } = d.data()
         if (eventId) map[eventId] = (map[eventId] ?? 0) + totalPersonas
       })

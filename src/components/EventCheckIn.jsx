@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
-  collection, query, where, onSnapshot, doc, runTransaction, serverTimestamp,
+  collection, query, where, onSnapshot, doc, runTransaction, serverTimestamp, deleteField,
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
+import { getPersons, getCheckInState } from '../utils/checkIn'
 import { ArrowLeft, ScanLine, Loader2, Search, DoorOpen } from 'lucide-react'
 
 const GOLD  = '#D4AF37'
@@ -20,6 +21,9 @@ function getCounts(ins) {
     ? { adultos: 0, ninos: ins.totalPersonas ?? 1 }
     : { adultos: ins.totalPersonas ?? 1, ninos: 0 }
 }
+
+// Búsqueda sin tildes ni mayúsculas (útil en la puerta: 'maria' encuentra 'María').
+const norm = t => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 
 // Evita inyección de fórmulas en Excel/Sheets (=, +, -, @) y escapa comillas.
 function csvCell(v) {
@@ -71,31 +75,65 @@ export default function EventCheckIn({ event, onClose }) {
     }, () => setLoading(false))
   }, [event.id, isStaff])
 
-  const paid = useMemo(() => {
-    const list = inscriptions
-      .filter(i => i.pagado === true)
-      .sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es'))
-    const q = search.trim().toLowerCase()
-    return q ? list.filter(i => (i.nombre ?? '').toLowerCase().includes(q)) : list
-  }, [inscriptions, search])
+  // Una fila por PERSONA (titular + cada acompañante) de las inscripciones pagadas.
+  const allPeople = useMemo(() => inscriptions
+    .filter(i => i.pagado === true && !i.esManual)
+    .flatMap(ins => getPersons(ins).map(person => ({
+      key: `${ins.id}:${person.id}`, ins, person, ...getCheckInState(ins, person.id),
+    }))), [inscriptions])
 
-  const totalPaid   = inscriptions.filter(i => i.pagado === true).length
-  const totalIn     = inscriptions.filter(i => i.pagado === true && i.checkIn === true).length
+  const people = useMemo(() => {
+    const q = norm(search.trim())
+    const list = [...allPeople].sort((a, b) => a.person.nombre.localeCompare(b.person.nombre, 'es'))
+    return q
+      ? list.filter(p => norm(p.person.nombre).includes(q) || norm(p.ins.nombre ?? '').includes(q))
+      : list
+  }, [allPeople, search])
 
-  // Transacción: relee el documento y sólo marca si todavía no ha entrado
-  // (evita doble entrada si dos puertas pulsan a la vez).
-  const handleCheckIn = async (ins) => {
-    setBusyId(ins.id); setError('')
+  const totalPaid = allPeople.length
+  const totalIn   = allPeople.filter(p => p.entered).length
+
+  // Transacción: relee el documento y sólo marca a ESTA persona si todavía no ha entrado.
+  const handleCheckIn = async ({ key, ins, person }) => {
+    setBusyId(key); setError('')
     try {
       await runTransaction(db, async (tx) => {
         const ref  = doc(db, 'inscripciones', ins.id)
         const snap = await tx.get(ref)
         if (!snap.exists()) throw new Error('La inscripción ya no existe.')
-        if (snap.data().checkIn === true) throw new Error(`${ins.nombre} ya ha entrado.`)
-        tx.update(ref, { checkIn: true, checkInAt: serverTimestamp() })
+        if (getCheckInState(snap.data(), person.id).entered) throw new Error(`${person.nombre} ya ha entrado.`)
+        tx.update(ref, { [`checkInEstado.${person.id}`]: { checkIn: true, checkInAt: serverTimestamp() } })
       })
     } catch (err) {
       setError(err?.message || 'No se pudo registrar la entrada.')
+    } finally { setBusyId(null) }
+  }
+
+  // Deshacer un check-in hecho por error. Transacción sobre esa persona únicamente.
+  const handleUndo = async ({ key, ins, person }) => {
+    if (!window.confirm(`¿Anular la entrada de ${person.nombre}?`)) return
+    setBusyId(key); setError('')
+    try {
+      await runTransaction(db, async (tx) => {
+        const ref  = doc(db, 'inscripciones', ins.id)
+        const snap = await tx.get(ref)
+        if (!snap.exists()) throw new Error('La inscripción ya no existe.')
+        const data = snap.data()
+        const upd  = {}
+        // Datos antiguos con checkIn global: se desglosa a individual antes de anular a uno.
+        if (data.checkIn === true) {
+          upd.checkIn = deleteField(); upd.checkInAt = deleteField()
+          for (const p of getPersons(data)) {
+            if (p.id !== person.id && !data.checkInEstado?.[p.id]?.checkIn) {
+              upd[`checkInEstado.${p.id}`] = { checkIn: true, checkInAt: data.checkInAt ?? serverTimestamp() }
+            }
+          }
+        }
+        upd[`checkInEstado.${person.id}`] = deleteField()
+        tx.update(ref, upd)
+      })
+    } catch (err) {
+      setError(err?.message || 'No se pudo anular la entrada.')
     } finally { setBusyId(null) }
   }
 
@@ -124,7 +162,7 @@ export default function EventCheckIn({ event, onClose }) {
           </div>
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
             <div style={{ fontSize: '1.3rem', fontWeight: 900, color: GREEN, lineHeight: 1 }}>{totalIn}/{totalPaid}</div>
-            <div style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Han entrado</div>
+            <div style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Personas dentro</div>
           </div>
         </div>
 
@@ -145,31 +183,36 @@ export default function EventCheckIn({ event, onClose }) {
             <div style={{ textAlign: 'center', padding: '2rem', color: 'rgba(255,255,255,0.35)' }}>
               <Loader2 size={20} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
             </div>
-          ) : paid.length === 0 ? (
+          ) : people.length === 0 ? (
             <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: '0.85rem', padding: '2rem 0' }}>
               {search ? 'Sin resultados' : 'Nadie ha pagado este evento todavía'}
             </p>
-          ) : paid.map(ins => {
-            const { adultos, ninos } = getCounts(ins)
-            const entered = ins.checkIn === true
-            const at = ins.checkInAt?.toDate ? ins.checkInAt.toDate().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : null
+          ) : people.map(row => {
+            const { key, ins, person, entered, at } = row
+            const hora = at?.toDate ? at.toDate().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : null
+            const sub = person.isPayer
+              ? `Titular${ins.totalConComision != null ? ` · pagó ${Number(ins.totalConComision).toFixed(2)} €` : ''}`
+              : `Entrada pagada por ${ins.nombre}`
             return (
-              <div key={ins.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 0.9rem', background: entered ? 'rgba(16,185,129,0.07)' : 'rgba(255,255,255,0.04)', border: `1px solid ${entered ? 'rgba(16,185,129,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 12 }}>
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 0.9rem', background: entered ? 'rgba(16,185,129,0.07)' : 'rgba(255,255,255,0.04)', border: `1px solid ${entered ? 'rgba(16,185,129,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 12 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'white', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{ins.nombre}</div>
-                  <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
-                    {adultos} adulto{adultos !== 1 ? 's' : ''}{ninos > 0 ? ` · ${ninos} niño${ninos !== 1 ? 's' : ''}` : ''}
-                    {ins.totalConComision != null && ` · ${Number(ins.totalConComision).toFixed(2)} €`}
+                  <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'white', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                    {person.nombre}{person.tipo === 'censo_hijo' ? ' 🧒' : ''}
                   </div>
+                  <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>{sub}</div>
                 </div>
                 {entered ? (
                   <span style={{ flexShrink: 0, padding: '0.5rem 0.75rem', background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', borderRadius: 10, color: GREEN, fontSize: '0.75rem', fontWeight: 800, textAlign: 'center' }}>
-                    ✅ Ya ha entrado{at ? ` · ${at}` : ''}
+                    ✅ Ya ha entrado{hora ? ` · ${hora}` : ''}
+                    <button onClick={() => handleUndo(row)} disabled={busyId === key}
+                      style={{ display: 'block', margin: '4px auto 0', background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: '0.65rem', textDecoration: 'underline', cursor: 'pointer', padding: 0, minHeight: 'auto', minWidth: 'auto' }}>
+                      ↩ Deshacer
+                    </button>
                   </span>
                 ) : (
-                  <button onClick={() => handleCheckIn(ins)} disabled={busyId === ins.id}
-                    style={{ flexShrink: 0, minHeight: 44, padding: '0 0.9rem', background: busyId === ins.id ? 'rgba(212,175,55,0.3)' : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: 10, color: 'white', fontSize: '0.78rem', fontWeight: 800, cursor: busyId === ins.id ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {busyId === ins.id ? <Loader2 size={14} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : <><DoorOpen size={14} /> Hacer Check-in</>}
+                  <button onClick={() => handleCheckIn(row)} disabled={busyId === key}
+                    style={{ flexShrink: 0, minHeight: 44, padding: '0 0.9rem', background: busyId === key ? 'rgba(212,175,55,0.3)' : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: 10, color: 'white', fontSize: '0.78rem', fontWeight: 800, cursor: busyId === key ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {busyId === key ? <Loader2 size={14} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : <><DoorOpen size={14} /> Hacer Check-in</>}
                   </button>
                 )}
               </div>

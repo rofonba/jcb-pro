@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { collection, query, orderBy, onSnapshot, getDocs, where, deleteDoc, doc } from 'firebase/firestore'
 import { db } from '../firebase'
+import { isPendingPayment } from '../utils/inscripciones'
 import { useAuth } from '../contexts/AuthContext'
 import { ChevronLeft, ChevronRight, Plus, BarChart2, Check, Pencil, Trash2 } from 'lucide-react'
-import { RegistrationModal, EventFormModal, SuccessToast, CancelConfirmModal, DeleteEventModal } from './EventList'
+import { RegistrationModal, EventFormModal, SuccessToast, CancelConfirmModal, DeleteEventModal, PaidNotice } from './EventList'
 import AdminEventControl from './AdminEventControl'
 
 const GOLD  = '#D4AF37'
@@ -144,6 +145,7 @@ export default function CalendarView({ onDetailPress }) {
   const [events, setEvents]               = useState([])
   const [loading, setLoading]             = useState(true)
   const [registeredIds, setRegisteredIds] = useState(new Set())
+  const [paidIds, setPaidIds]             = useState(new Set())
   const [inscCountMap, setInscCountMap]   = useState({})
   const [viewDate, setViewDate]           = useState(() => {
     const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1)
@@ -172,15 +174,25 @@ export default function CalendarView({ onDetailPress }) {
 
   useEffect(() => {
     if (!user?.uid) return
-    getDocs(query(collection(db, 'inscripciones'), where('uid', '==', user.uid)))
-      .then(snap => setRegisteredIds(new Set(snap.docs.map(d => d.data().eventId))))
-      .catch(() => {})
+    // En vivo: confirmadas (registeredIds) y, dentro de ellas, las pagadas (paidIds: sólo la directiva puede anularlas)
+    return onSnapshot(query(collection(db, 'inscripciones'), where('uid', '==', user.uid)), snap => {
+      const reg = new Set(), paid = new Set()
+      for (const d of snap.docs) {
+        const x = d.data()
+        if (isPendingPayment(x)) continue
+        reg.add(x.eventId)
+        if (x.pagado === true) paid.add(x.eventId)
+      }
+      setRegisteredIds(reg)
+      setPaidIds(paid)
+    }, () => {})
   }, [user?.uid])
 
   useEffect(() => {
     return onSnapshot(collection(db, 'inscripciones'), snap => {
       const map = {}
       for (const d of snap.docs) {
+        if (isPendingPayment(d.data())) continue   // pendientes de pago no cuentan como confirmados
         const { eventId, totalPersonas } = d.data()
         if (eventId) map[eventId] = (map[eventId] ?? 0) + (totalPersonas ?? 1)
       }
@@ -621,7 +633,9 @@ export default function CalendarView({ onDetailPress }) {
                         </button>
                       </>
                     )}
-                    {isFestivo ? null : isReg ? (
+                    {isFestivo ? null : isReg && paidIds.has(ev.id) ? (
+                      <PaidNotice compact />
+                    ) : isReg ? (
                       <button
                         onClick={() => setCancelTarget(ev)}
                         style={{

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
-import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, query, where, orderBy, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../firebase'
-import { ArrowLeft, Download, BarChart2, UserPlus, Check, Loader2, Users, ScanLine, FileSpreadsheet } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
+import { isPendingPayment } from '../utils/inscripciones'
+import { ArrowLeft, Download, BarChart2, UserPlus, Check, Loader2, Users, ScanLine, FileSpreadsheet, Trash2, AlertTriangle } from 'lucide-react'
 import EventCheckIn, { exportAttendeesCsv } from './EventCheckIn'
 
 const GOLD   = '#D4AF37'
@@ -41,6 +43,24 @@ export default function AdminEventControl({ event, onClose }) {
   const [manualDone,    setManualDone]    = useState(false)
   const [showCheckIn,   setShowCheckIn]   = useState(false)
 
+  // Baja manual (sólo staff): confirmación + borrado de la inscripción
+  const { fallero } = useAuth()
+  const isStaff = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
+  const [bajaTarget, setBajaTarget] = useState(null)
+  const [bajaBusy,   setBajaBusy]   = useState(false)
+  const [bajaError,  setBajaError]  = useState('')
+
+  const confirmBaja = async () => {
+    if (!bajaTarget || bajaBusy) return
+    setBajaBusy(true); setBajaError('')
+    try {
+      await deleteDoc(doc(db, 'inscripciones', bajaTarget.id))
+      setBajaTarget(null)   // el onSnapshot de la lista la retira y el aforo se recalcula solo
+    } catch (err) {
+      setBajaError(err?.message || 'No se pudo anular la inscripción. Inténtalo de nuevo.')
+    } finally { setBajaBusy(false) }
+  }
+
   useEffect(() => {
     const q = query(
       collection(db, 'inscripciones'),
@@ -48,7 +68,8 @@ export default function AdminEventControl({ event, onClose }) {
       orderBy('createdAt', 'asc'),
     )
     return onSnapshot(q, snap => {
-      setInscriptions(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      // Los pagos pendientes de confirmar no son inscritos (ni cuentan en lista/CSV)
+      setInscriptions(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(i => !isPendingPayment(i)))
       setLoading(false)
     }, () => setLoading(false))
   }, [event.id])
@@ -278,6 +299,17 @@ export default function AdminEventControl({ event, onClose }) {
                         </div>
                       )}
                     </div>
+                    {/* Baja manual — sólo admin/directiva */}
+                    {isStaff && (
+                      <button
+                        onClick={() => { setBajaError(''); setBajaTarget(ins) }}
+                        title="Anular inscripción"
+                        aria-label={`Anular inscripción de ${ins.nombre}`}
+                        style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, padding: '6px 9px', background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.3)', borderRadius: 9, color: RED, fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', minHeight: 'auto', minWidth: 'auto' }}
+                      >
+                        <Trash2 size={12} /> Dar de baja
+                      </button>
+                    )}
                   </div>
                 </div>
               )
@@ -380,6 +412,52 @@ export default function AdminEventControl({ event, onClose }) {
         )}
       </div>
       {showCheckIn && <EventCheckIn event={event} onClose={() => setShowCheckIn(false)} />}
+
+      {/* Confirmación de baja */}
+      {isStaff && bajaTarget && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 130, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.25rem' }}
+          onClick={e => { e.stopPropagation(); if (!bajaBusy) setBajaTarget(null) }}
+        >
+          <div
+            style={{ width: '100%', maxWidth: 380, background: CARD, border: '1px solid rgba(206,17,38,0.4)', borderRadius: 20, padding: '1.4rem' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.75rem' }}>
+              <AlertTriangle size={20} color={RED} />
+              <span style={{ fontSize: '1rem', fontWeight: 800, color: 'white' }}>Anular inscripción</span>
+            </div>
+            <p style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 }}>
+              ¿Estás seguro de que deseas anular la inscripción de <strong>{bajaTarget.nombre}</strong>
+              {' '}({bajaTarget.totalPersonas ?? 1} {(bajaTarget.totalPersonas ?? 1) === 1 ? 'persona' : 'personas'})?
+              Esta acción no se puede deshacer y el aforo quedará liberado.
+            </p>
+            {bajaTarget.pagado === true && (
+              <p style={{ margin: '0 0 0.75rem', padding: '0.6rem 0.75rem', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 10, fontSize: '0.75rem', color: '#fbbf24', lineHeight: 1.45 }}>
+                ⚠️ Esta inscripción está <strong>pagada</strong>
+                {bajaTarget.totalConComision != null ? ` (${Number(bajaTarget.totalConComision).toFixed(2)} €)` : ''}.
+                Al anularla no se devuelve ningún dinero automáticamente: si procede, haz el reembolso desde el panel de Stripe
+                {bajaTarget.stripePaymentId ? ` (ID ${bajaTarget.stripePaymentId})` : ''}.
+              </p>
+            )}
+            {bajaError && <p style={{ margin: '0 0 0.75rem', fontSize: '0.78rem', color: '#ff8080' }}>{bajaError}</p>}
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                onClick={() => setBajaTarget(null)} disabled={bajaBusy}
+                style={{ flex: 1, minHeight: 44, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 12, color: 'rgba(255,255,255,0.7)', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmBaja} disabled={bajaBusy}
+                style={{ flex: 1, minHeight: 44, background: bajaBusy ? 'rgba(206,17,38,0.4)' : RED, border: 'none', borderRadius: 12, color: 'white', fontSize: '0.85rem', fontWeight: 800, cursor: bajaBusy ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              >
+                {bajaBusy ? <Loader2 size={15} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : 'Sí, anular'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

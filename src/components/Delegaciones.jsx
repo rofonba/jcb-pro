@@ -5,10 +5,11 @@ import {
 } from 'firebase/firestore'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage } from '../firebase'
+import { isPendingPayment } from '../utils/inscripciones'
 import { getDirectImageUrl } from '../utils/imageUtils'
 import { useAuth } from '../contexts/AuthContext'
 import { ChevronLeft, Plus, X, Loader2, Pencil, Trash2 } from 'lucide-react'
-import { RegistrationModal, CancelConfirmModal, SuccessToast, EventFormModal } from './EventList'
+import { RegistrationModal, CancelConfirmModal, SuccessToast, EventFormModal, PaidNotice } from './EventList'
 
 const GOLD   = '#D4AF37'
 const WHITE  = '#FFFFFF'
@@ -373,6 +374,7 @@ function DelegacionDetail({ delegacion, onBack, isAdmin }) {
   const [events,        setEvents]        = useState([])
   const [announcements, setAnn]           = useState([])
   const [registeredIds, setRegisteredIds] = useState(new Set())
+  const [paidIds, setPaidIds]             = useState(new Set())
   const [inscCountMap,  setInscCountMap]  = useState({})
   const [loading,       setLoading]       = useState(true)
   const [selectedEvent, setSelectedEvent] = useState(null)
@@ -404,15 +406,25 @@ function DelegacionDetail({ delegacion, onBack, isAdmin }) {
 
   useEffect(() => {
     if (!user?.uid) return
-    getDocs(query(collection(db, 'inscripciones'), where('uid', '==', user.uid)))
-      .then(snap => setRegisteredIds(new Set(snap.docs.map(d => d.data().eventId))))
-      .catch(() => {})
+    // En vivo: confirmadas (registeredIds) y, dentro de ellas, las pagadas (paidIds: sólo la directiva puede anularlas)
+    return onSnapshot(query(collection(db, 'inscripciones'), where('uid', '==', user.uid)), snap => {
+      const reg = new Set(), paid = new Set()
+      for (const d of snap.docs) {
+        const x = d.data()
+        if (isPendingPayment(x)) continue
+        reg.add(x.eventId)
+        if (x.pagado === true) paid.add(x.eventId)
+      }
+      setRegisteredIds(reg)
+      setPaidIds(paid)
+    }, () => {})
   }, [user?.uid])
 
   useEffect(() => {
     return onSnapshot(collection(db, 'inscripciones'), snap => {
       const map = {}
       for (const d of snap.docs) {
+        if (isPendingPayment(d.data())) continue   // pendientes de pago no cuentan como confirmados
         const { eventId, totalPersonas } = d.data()
         if (eventId) map[eventId] = (map[eventId] ?? 0) + (totalPersonas ?? 1)
       }
@@ -529,7 +541,9 @@ function DelegacionDetail({ delegacion, onBack, isAdmin }) {
                       {isReg && <span style={{ display: 'inline-block', marginTop: 3, fontSize: 10, fontWeight: 700, color: GREEN }}>✅ APUNTADO</span>}
                     </div>
                     <div style={{ flexShrink: 0 }}>
-                      {isReg ? (
+                      {isReg && paidIds.has(ev.id) ? (
+                        <PaidNotice compact />
+                      ) : isReg ? (
                         <button
                           onClick={() => setCancelTarget(ev)}
                           style={{ padding: '6px 10px', background: 'transparent', border: '1.5px solid rgba(206,17,38,0.35)', borderRadius: 8, fontSize: 11, fontWeight: 700, color: 'rgba(206,17,38,0.75)', cursor: 'pointer', minHeight: 'auto' }}

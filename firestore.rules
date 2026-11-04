@@ -57,10 +57,42 @@ service cloud.firestore {
     // Inscripciones: fallero autenticado crea la suya y borra/edita las suyas; admins gestionan todo
     match /inscripciones/{docId} {
       allow read:   if request.auth != null;
+      // Campos que el usuario NUNCA puede escribir: financieros (sólo webhook con Admin SDK,
+      // que ignora estas reglas, o admin/directiva) y de check-in (sólo staff).
+      // create: el dueño no puede incluirlos; staff sí (inscripciones manuales).
       allow create: if request.auth != null
-        && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if request.auth != null
-        && (resource.data.uid == request.auth.uid || isPrivileged());
+        && (isPrivileged()
+            || (request.resource.data.uid == request.auth.uid
+                && !request.resource.data.keys().hasAny([
+                     'pagado', 'pagadoAt', 'stripePaymentId', 'totalNeto',
+                     'totalConComision', 'gastosGestion',
+                     'checkInEstado', 'checkIn', 'checkInAt'])));
+      // update: el dueño no puede añadir, modificar ni borrar esos campos.
+      allow update: if request.auth != null
+        && (isPrivileged()
+            || (resource.data.uid == request.auth.uid
+                // nunca: campos financieros, de check-in, ni reasignar la inscripción a otro evento/usuario
+                && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+                     'pagado', 'pagadoAt', 'stripePaymentId', 'totalNeto',
+                     'totalConComision', 'gastosGestion',
+                     'checkInEstado', 'checkIn', 'checkInAt',
+                     'uid', 'eventId'])
+                // inscripción ya pagada: congelar personas y acompañantes
+                && !(resource.data.get('pagado', false) == true
+                     && request.resource.data.diff(resource.data).affectedKeys().hasAny([
+                          'totalPersonas', 'beneficiarios', 'beneficiariosUids',
+                          'acompañantes', 'acompañantesAdultos', 'acompañantesNinos']))));
+      // Una inscripción pagada sólo la puede borrar el staff (la directiva gestiona las bajas).
+      allow delete: if request.auth != null
+        && (isPrivileged()
+            || (resource.data.uid == request.auth.uid
+                && resource.data.get('pagado', false) != true));
+    }
+
+    // Cobros que requieren revisión manual (los escribe sólo el webhook con Admin SDK)
+    match /pagosPendientesRevision/{piId} {
+      allow read: if isPrivileged();
+      allow write: if false;
     }
 
     // Votaciones: todos leen; admins crean/eliminan/cierran; falleros pueden incrementar contadores al votar

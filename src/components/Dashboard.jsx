@@ -5,6 +5,7 @@ import {
 } from 'firebase/firestore'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage } from '../firebase'
+import { isPendingPayment } from '../utils/inscripciones'
 import { getDirectImageUrl } from '../utils/imageUtils'
 import { enviarNotificacionFCM } from '../services/fcmService'
 import { useAuth } from '../contexts/AuthContext'
@@ -15,7 +16,8 @@ import Votaciones from './Votaciones'
 import AdminMetrics from './AdminMetrics'
 import DetalleEvento from './DetalleEvento'
 import Delegaciones from './Delegaciones'
-import { RegistrationModal, SuccessToast, CancelConfirmModal } from './EventList'
+import UserWallet from './UserWallet'
+import { RegistrationModal, SuccessToast, CancelConfirmModal, PaidNotice } from './EventList'
 import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X, Loader2, Trash2, Pencil } from 'lucide-react'
 import logoFalla from '../assets/logo-falla.png'
 import { usePushNotifications } from '../hooks/usePushNotifications'
@@ -257,7 +259,7 @@ function ActionButton({ icon, label, onClick, active = false, badge = 0 }) {
 
 // ─── Mis citas (collapsible reveal) ──────────────────────────────────────────
 
-function MisCitas({ events, registeredIds, onCancelPress, onDetailPress }) {
+function MisCitas({ events, registeredIds, pendingIds, paidIds, onCancelPress, onDetailPress }) {
   const mine = useMemo(() => {
     const now = Date.now()
     return events
@@ -273,17 +275,48 @@ function MisCitas({ events, registeredIds, onCancelPress, onDetailPress }) {
       })
   }, [events, registeredIds])
 
+  // Pagos sin confirmar (p. ej. se salió a mitad de pago): se muestran aparte con «Anular»
+  const pending = useMemo(
+    () => events.filter(ev => pendingIds?.has(ev.id)),
+    [events, pendingIds],
+  )
+
+  const pendingBlock = pending.length > 0 && (
+    <div style={{ background: '#FFFBEB', border: '1.5px solid #FCD34D', borderRadius: 20, padding: '14px 16px', marginBottom: 12 }}>
+      <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 700, color: '#92400E' }}>⏳ Pago pendiente de confirmar</p>
+      <p style={{ margin: '0 0 10px', fontSize: 11, color: '#92400E' }}>
+        No cuenta como inscripción confirmada. Si ya has pagado, se confirmará sola en unos instantes; si no, anula la reserva para liberar la plaza.
+      </p>
+      {pending.map(ev => (
+        <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: '1px solid #FDE68A' }}>
+          <p style={{ flex: 1, margin: 0, fontSize: 13, fontWeight: 600, color: TEXT, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{ev.titulo}</p>
+          <button
+            onClick={() => onCancelPress(ev)}
+            style={{ padding: '6px 11px', background: 'transparent', border: '1px solid rgba(206,17,38,0.4)', borderRadius: 8, fontSize: 11, fontWeight: 700, color: RED, cursor: 'pointer', minHeight: 'auto', flexShrink: 0 }}
+          >
+            Anular
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+
   if (mine.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: '28px 16px', background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 20 }}>
-        <div style={{ fontSize: 32, marginBottom: 10 }}>📭</div>
-        <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Aún no te has apuntado a ningún evento</p>
-        <p style={{ margin: '4px 0 0', fontSize: 12, color: MUTED, opacity: 0.7 }}>Pulsa «Apuntarme» para empezar</p>
-      </div>
+      <>
+        {pendingBlock}
+        <div style={{ textAlign: 'center', padding: '28px 16px', background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 20 }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>📭</div>
+          <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Aún no te has apuntado a ningún evento</p>
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: MUTED, opacity: 0.7 }}>Pulsa «Apuntarme» para empezar</p>
+        </div>
+      </>
     )
   }
 
   return (
+    <>
+    {pendingBlock}
     <div style={{ background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 20, padding: '16px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
       <div style={{ marginBottom: 12 }}>
         <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: TEXT }}>Mis inscripciones</p>
@@ -307,17 +340,22 @@ function MisCitas({ events, registeredIds, onCancelPress, onDetailPress }) {
                   {fmtDate(ev.fecha)}{fmtTime(ev.fecha) && ` · ${fmtTime(ev.fecha)}`}
                 </p>
               </div>
+              {paidIds?.has(ev.id) ? (
+                <div style={{ flexShrink: 0 }}><PaidNotice compact /></div>
+              ) : (
               <button
                 onClick={e => { e.stopPropagation(); onCancelPress(ev) }}
                 style={{ padding: '5px 9px', background: 'transparent', border: '1px solid rgba(206,17,38,0.28)', borderRadius: 8, fontSize: 10, fontWeight: 700, color: 'rgba(206,17,38,0.75)', cursor: 'pointer', minHeight: 'auto', flexShrink: 0 }}
               >
                 Anular
               </button>
+              )}
             </div>
           )
         })}
       </div>
     </div>
+    </>
   )
 }
 
@@ -387,7 +425,7 @@ function NextEventCountdown({ event }) {
 
 // ─── Próximos eventos (general list) ─────────────────────────────────────────
 
-function ProximosEventos({ events, registeredIds, inscCountMap = {}, onPress, onCancelPress, onDetailPress }) {
+function ProximosEventos({ events, registeredIds, paidIds, inscCountMap = {}, onPress, onCancelPress, onDetailPress }) {
   const upcoming = useMemo(() => {
     const now = Date.now() - 3600000
     return events
@@ -428,7 +466,9 @@ function ProximosEventos({ events, registeredIds, inscCountMap = {}, onPress, on
                 {isReg && <span style={{ display: 'inline-block', marginTop: 3, fontSize: 10, fontWeight: 700, color: GREEN }}>✅ APUNTADO</span>}
               </div>
               <div style={{ flexShrink: 0 }}>
-                {isReg ? (
+                {isReg && paidIds?.has(ev.id) ? (
+                  <PaidNotice compact />
+                ) : isReg ? (
                   <button onClick={e => { e.stopPropagation(); onCancelPress(ev) }} style={{ padding: '6px 10px', background: 'transparent', border: '1.5px solid rgba(206,17,38,0.35)', borderRadius: 8, fontSize: 11, fontWeight: 700, color: 'rgba(206,17,38,0.75)', cursor: 'pointer', minHeight: 'auto' }}>
                     Anular
                   </button>
@@ -787,8 +827,8 @@ function PushModal({ permission, tokenSaved, loading, onEnable }) {
 function HomeTab({
   nombre, numFallero, isAdmin,
   announcements, loadingAnns,
-  events, registeredIds, inscCountMap,
-  onNavigate, onMetrics, onCreateAviso,
+  events, registeredIds, pendingIds, paidIds, inscCountMap,
+  onNavigate, onMetrics, onCreateAviso, onOpenWallet,
   onEventPress, onCancelPress, onDetailPress,
   unreadCount,
   pushPermission, pushTokenSaved, pushLoading, onEnablePush,
@@ -858,6 +898,26 @@ function HomeTab({
         )}
       </div>
 
+      {/* ── Check-in / Wallet de entradas ───────────────────────── */}
+      <div style={{ padding: '20px 20px 0' }}>
+        <button
+          onClick={onOpenWallet}
+          style={{
+            width: '100%', minHeight: 'auto', padding: '20px 18px',
+            background: `linear-gradient(135deg, ${GOLD}, #8a6f1a)`,
+            border: 'none', borderRadius: 22, cursor: 'pointer',
+            boxShadow: '0 8px 26px rgba(212,175,55,0.38)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14,
+          }}
+        >
+          <span style={{ fontSize: 34 }}>🎟️</span>
+          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+            <span style={{ fontSize: 26, fontWeight: 900, color: WHITE, letterSpacing: '-0.02em', lineHeight: 1 }}>Check-in</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>¿Qué he pagado?</span>
+          </span>
+        </button>
+      </div>
+
       {/* ── 4 Action Buttons ─────────────────────────────────────── */}
       <div style={{ padding: '20px 20px 0' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -887,14 +947,14 @@ function HomeTab({
       {/* ── Collapsible: Mis inscripciones ───────────────────────── */}
       {showMyCitas && (
         <div style={{ padding: '16px 20px 0' }}>
-          <MisCitas events={events} registeredIds={registeredIds} onCancelPress={onCancelPress} onDetailPress={onDetailPress} />
+          <MisCitas events={events} registeredIds={registeredIds} pendingIds={pendingIds} paidIds={paidIds} onCancelPress={onCancelPress} onDetailPress={onDetailPress} />
         </div>
       )}
 
       {/* ── Collapsible: Apuntarme (event list) ──────────────────── */}
       {showEvents && (
         <div style={{ padding: '16px 20px 0' }}>
-          <ProximosEventos events={events} registeredIds={registeredIds} inscCountMap={inscCountMap} onPress={onEventPress} onCancelPress={onCancelPress} onDetailPress={onDetailPress} />
+          <ProximosEventos events={events} registeredIds={registeredIds} paidIds={paidIds} inscCountMap={inscCountMap} onPress={onEventPress} onCancelPress={onCancelPress} onDetailPress={onDetailPress} />
         </div>
       )}
 
@@ -1166,6 +1226,8 @@ export default function Dashboard() {
 
   const [events, setEvents]               = useState([])
   const [registeredIds, setRegisteredIds] = useState(new Set())
+  const [pendingIds, setPendingIds]       = useState(new Set())
+  const [paidIds, setPaidIds]             = useState(new Set())
   const [inscCountMap, setInscCountMap]   = useState({})
   const [selectedEvent, setSelectedEvent]     = useState(null)
   const [cancelTarget, setCancelTarget]       = useState(null)
@@ -1173,6 +1235,7 @@ export default function Dashboard() {
   const [toast, setToast]                     = useState(null)
   const [detailEventId, setDetailEventId]     = useState(null)
   const [openAvisosForm, setOpenAvisosForm]   = useState(false)
+  const [showWallet, setShowWallet]           = useState(false)
 
   useEffect(() => {
     const q = query(collection(db, 'anuncios'), orderBy('createdAt', 'desc'), limit(10))
@@ -1189,9 +1252,19 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user?.uid) return
-    getDocs(query(collection(db, 'inscripciones'), where('uid', '==', user.uid)))
-      .then(snap => setRegisteredIds(new Set(snap.docs.map(d => d.data().eventId))))
-      .catch(() => {})
+    // En vivo: confirmadas → registeredIds; pagos sin confirmar → pendingIds (con botón Anular)
+    return onSnapshot(query(collection(db, 'inscripciones'), where('uid', '==', user.uid)), snap => {
+      const confirmed = new Set(), pending = new Set(), paid = new Set()
+      for (const d of snap.docs) {
+        const x = d.data()
+        if (x.esManual || !x.eventId) continue
+        ;(isPendingPayment(x) ? pending : confirmed).add(x.eventId)
+        if (x.pagado === true) paid.add(x.eventId)
+      }
+      setPaidIds(paid)
+      setRegisteredIds(confirmed)
+      setPendingIds(pending)
+    }, () => {})
   }, [user?.uid])
 
   // Real-time inscription counts for all events (capacity / isFull logic)
@@ -1199,6 +1272,7 @@ export default function Dashboard() {
     return onSnapshot(collection(db, 'inscripciones'), snap => {
       const map = {}
       for (const d of snap.docs) {
+        if (isPendingPayment(d.data())) continue   // pendientes de pago no cuentan como confirmados
         const { eventId, totalPersonas } = d.data()
         if (eventId) map[eventId] = (map[eventId] ?? 0) + (totalPersonas ?? 1)
       }
@@ -1296,10 +1370,11 @@ export default function Dashboard() {
           <HomeTab
             nombre={nombre} numFallero={numFallero} isAdmin={isAdmin}
             announcements={announcements} loadingAnns={loadingAnns}
-            events={events} registeredIds={registeredIds} inscCountMap={inscCountMap}
+            events={events} registeredIds={registeredIds} pendingIds={pendingIds} paidIds={paidIds} inscCountMap={inscCountMap}
             onNavigate={handleTabChange}
             onMetrics={() => setShowMetrics(true)}
             onCreateAviso={handleCreateAviso}
+            onOpenWallet={() => setShowWallet(true)}
             onEventPress={setSelectedEvent}
             onCancelPress={setCancelTarget}
             onDetailPress={setDetailEventId}
@@ -1341,6 +1416,7 @@ export default function Dashboard() {
         />
       )}
       {toast && <SuccessToast message={toast} onDismiss={() => setToast(null)} />}
+      {showWallet && <UserWallet events={events} onClose={() => setShowWallet(false)} />}
       {showMetrics && isAdmin && <AdminMetrics onClose={() => setShowMetrics(false)} />}
 
       {detailEventId && (
