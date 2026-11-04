@@ -16,9 +16,24 @@ service cloud.firestore {
     match /falleros/{userId} {
       allow read: if request.auth != null
         && (request.auth.uid == userId || isPrivileged());
-      allow create: if request.auth != null && request.auth.uid == userId;
+      // El número de fallero solo puede asignarlo el contador atómico (misma transacción)
+      allow create: if request.auth != null && request.auth.uid == userId
+        && request.resource.data.numeroFallero ==
+           getAfter(/databases/$(database)/documents/metadata/counters).data.ultimoNumeroFallero;
+      // El usuario no puede modificar su número de fallero; solo un admin
       allow update: if request.auth != null
-        && (request.auth.uid == userId || isAdmin());
+        && ((request.auth.uid == userId
+             && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['numeroFallero']))
+            || isAdmin());
+    }
+
+    // Contadores globales: lectura/escritura solo para incrementar en +1 (transacción de registro)
+    match /metadata/counters {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.ultimoNumeroFallero == 1;
+      allow update: if request.auth != null
+        && request.resource.data.ultimoNumeroFallero == resource.data.ultimoNumeroFallero + 1;
     }
 
     // Anuncios: cualquier fallero autenticado lee; admins y directiva escriben

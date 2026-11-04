@@ -33,6 +33,7 @@ const EVENT_TYPES = {
   cena:    { emoji: '🌙', label: 'Cena',    color: '#6366f1' },
   acto:    { emoji: '🎭', label: 'Acto',    color: RED },
   reunion: { emoji: '📋', label: 'Reunión', color: '#6B7280' },
+  festivo: { emoji: '🚩', label: 'Festivo', color: '#2563EB' },
 }
 
 const sharedInput = {

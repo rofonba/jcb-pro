@@ -5,10 +5,24 @@ import {
   signOut,
   onAuthStateChanged,
 } from 'firebase/auth'
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, runTransaction, serverTimestamp } from 'firebase/firestore'
 import { auth, db, authReady } from '../firebase'
 
 const AuthContext = createContext(null)
+
+// Contador atómico: metadata/counters.ultimoNumeroFallero. Crea el documento fallero
+// y asigna el siguiente número en la misma transacción (sin colisiones).
+async function createFalleroWithNumber(uid, data) {
+  const counterRef = doc(db, 'metadata', 'counters')
+  const falleroRef = doc(db, 'falleros', uid)
+  return runTransaction(db, async (tx) => {
+    const counterSnap = await tx.get(counterRef)
+    const next = (counterSnap.exists() ? (counterSnap.data().ultimoNumeroFallero ?? 0) : 0) + 1
+    tx.set(counterRef, { ultimoNumeroFallero: next }, { merge: true })
+    tx.set(falleroRef, { ...data, numeroFallero: next })
+    return next
+  })
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser]                   = useState(null)
@@ -80,13 +94,13 @@ export function AuthProvider({ children }) {
       fechaNacimiento: fechaNacimiento ?? '',
       createdAt:       serverTimestamp(),
     }
-    await setDoc(doc(db, 'falleros', cred.user.uid), data)
-    setFallero(data)
+    const numeroFallero = await createFalleroWithNumber(cred.user.uid, data)
+    setFallero({ ...data, numeroFallero })
     setProfileMissing(false)
     return cred
   }
 
-  const completeProfile = async (nombre, apellidos, telefono, numeroFallero) => {
+  const completeProfile = async (nombre, apellidos, telefono) => {
     const currentUser = auth.currentUser
     if (!currentUser) throw new Error('No autenticado')
     const data = {
@@ -94,14 +108,13 @@ export function AuthProvider({ children }) {
       apellidos:      apellidos.trim(),
       email:          currentUser.email,
       telefono:       telefono.trim(),
-      numeroFallero:  numeroFallero ? Number(numeroFallero) : null,
       rol:            'fallero',
       estaActivo:     true,
       hijos:          [],
       createdAt:      serverTimestamp(),
     }
-    await setDoc(doc(db, 'falleros', currentUser.uid), data)
-    setFallero(data)
+    const numeroFallero = await createFalleroWithNumber(currentUser.uid, data)
+    setFallero({ ...data, numeroFallero })
     setProfileMissing(false)
   }
 

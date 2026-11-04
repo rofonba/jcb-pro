@@ -21,6 +21,7 @@ const EVENT_TYPES = {
   cena:    { emoji: '🌙', label: 'Cena',    color: '#6366f1' },
   acto:    { emoji: '🎭', label: 'Acto',    color: RED },
   reunion: { emoji: '📋', label: 'Reunión', color: TEXT2 },
+  festivo: { emoji: '🚩', label: 'Festivo', color: '#2563EB' },
   otro:    { emoji: '📌', label: 'Otro',    color: MUTED },
 }
 
@@ -28,6 +29,7 @@ const FILTER_DEFS = [
   { key: 'food',    label: '🍽️ Comidas/Cenas', types: new Set(['comida', 'cena']) },
   { key: 'acto',    label: '🎭 Actos',          types: new Set(['acto']) },
   { key: 'reunion', label: '📋 Reuniones',       types: new Set(['reunion']) },
+  { key: 'festivo', label: '🚩 Festivos',        types: new Set(['festivo']) },
 ]
 
 const WEEKDAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
@@ -213,6 +215,17 @@ export default function CalendarView({ onDetailPress }) {
     return s
   }, [events, registeredIds])
 
+  // Días con eventos de tipo festivo (se pintan como festivo y no cuentan como acto)
+  const festivoDays = useMemo(() => {
+    const s = new Set()
+    for (const ev of events) {
+      if (ev.tipo !== 'festivo' || !ev.fecha) continue
+      const d = ev.fecha?.toDate ? ev.fecha.toDate() : new Date(ev.fecha)
+      s.add(toKey(d))
+    }
+    return s
+  }, [events])
+
   const filterTypes = useMemo(() => {
     if (activeFilters.size === 0) return null
     return new Set(FILTER_DEFS.filter(f => activeFilters.has(f.key)).flatMap(f => [...f.types]))
@@ -331,7 +344,7 @@ export default function CalendarView({ onDetailPress }) {
           {[
             { symbol: '🔵', label: 'Actos/Eventos' },
             { symbol: '✅', label: 'Apuntado'       },
-            { symbol: '🚩', label: 'Festivos'       },
+            { symbol: '🚩', label: 'Festivo'        },
           ].map(({ symbol, label }) => (
             <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <span style={{ fontSize: 11 }}>{symbol}</span>
@@ -348,10 +361,11 @@ export default function CalendarView({ onDetailPress }) {
             const isToday    = key === todayKey
             const isSelected = selectedDay && toKey(selectedDay) === key
             const hasEvents  = (eventsByDay[key]?.length ?? 0) > 0
+            const hasActos   = (eventsByDay[key] ?? []).some(ev => ev.tipo !== 'festivo')
             const isReg      = regDays.has(key)
             const dow        = date.getDay()
             const isWeekend  = isCurrentMonth && (dow === 0 || dow === 6)
-            const isHoliday  = isCurrentMonth && HOLIDAYS_ES.has(key)
+            const isHoliday  = isCurrentMonth && (HOLIDAYS_ES.has(key) || festivoDays.has(key))
 
             const cellBg = isSelected ? GOLD
               : isToday    ? `${GOLD}14`
@@ -401,7 +415,7 @@ export default function CalendarView({ onDetailPress }) {
                 </span>
                 <div style={{
                   width: 4, height: 4, borderRadius: '50%',
-                  background: hasEvents ? (isSelected ? WHITE : isReg ? GREEN : GOLD) : 'transparent',
+                  background: hasActos ? (isSelected ? WHITE : isReg ? GREEN : GOLD) : 'transparent',
                 }} />
                 {adminCanCreate && (
                   <span style={{ position: 'absolute', top: 2, right: 3, fontSize: 9, color: 'rgba(212,175,55,0.55)', fontWeight: 800, lineHeight: 1 }}>+</span>
@@ -491,13 +505,14 @@ export default function CalendarView({ onDetailPress }) {
               const isReg    = registeredIds.has(ev.id)
               const ocupadas = inscCountMap[ev.id] ?? ev.plazasOcupadas ?? 0
               const isFull   = ev.plazasTotal && ocupadas >= ev.plazasTotal && !isReg
+              const isFestivo = ev.tipo === 'festivo'
 
               return (
                 <div
                   key={ev.id}
                   style={{
-                    background: isReg ? 'rgba(16,185,129,0.04)' : WHITE,
-                    border: `1.5px solid ${isReg ? 'rgba(16,185,129,0.38)' : BORDER}`,
+                    background: isFestivo ? '#F5F9FF' : isReg ? 'rgba(16,185,129,0.04)' : WHITE,
+                    border: `1.5px ${isFestivo ? 'dashed' : 'solid'} ${isFestivo ? 'rgba(37,99,235,0.28)' : isReg ? 'rgba(16,185,129,0.38)' : BORDER}`,
                     borderRadius: 16, padding: '14px 16px',
                     boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
                     display: 'flex', alignItems: 'center', gap: 14,
@@ -606,7 +621,7 @@ export default function CalendarView({ onDetailPress }) {
                         </button>
                       </>
                     )}
-                    {isReg ? (
+                    {isFestivo ? null : isReg ? (
                       <button
                         onClick={() => setCancelTarget(ev)}
                         style={{

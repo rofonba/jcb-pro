@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { sendPasswordResetEmail } from 'firebase/auth'
 import { auth } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { Lock, Mail, Eye, EyeOff, AlertCircle, User, ArrowLeft, CheckCircle, KeyRound, Phone, Calendar } from 'lucide-react'
+import { Lock, Mail, Eye, EyeOff, AlertCircle, User, ArrowLeft, CheckCircle, KeyRound, Phone, Calendar, ShieldCheck } from 'lucide-react'
 import logoFalla from '../assets/logo-falla.png'
 
 const GOLD = '#C9A84C'
 const RED  = '#CE1126'
+const CODIGO_FALLA = 'APPJCB'
 
 const inputBase = {
   width: '100%',
@@ -203,6 +204,7 @@ export default function Login() {
   const [apellidos, setApellidos]         = useState('')
   const [telefono, setTelefono]           = useState('')
   const [fechaNacimiento, setFechaNac]    = useState('')
+  const [codigoFalla, setCodigoFalla]     = useState('')
   const [email, setEmail]                 = useState('')
   const [password, setPassword]           = useState('')
   const [showPass, setShowPass]           = useState(false)
@@ -211,13 +213,15 @@ export default function Login() {
 
   const switchMode = (m) => {
     setMode(m); setError('')
-    setNombre(''); setApellidos(''); setTelefono(''); setFechaNac(''); setEmail(''); setPassword('')
+    setNombre(''); setApellidos(''); setTelefono(''); setFechaNac(''); setCodigoFalla(''); setEmail(''); setPassword('')
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     if (mode === 'register') {
+      if (codigoFalla.trim().toUpperCase() !== CODIGO_FALLA)
+        return setError('El código de falla es incorrecto')
       if (!nombre.trim())        return setError('Introduce tu nombre')
       if (!telefono.trim())      return setError('Introduce tu teléfono de contacto')
       if (!fechaNacimiento)      return setError('Introduce tu fecha de nacimiento')
@@ -346,6 +350,14 @@ export default function Login() {
             <form onSubmit={handleSubmit}>
               {mode === 'register' && (
                 <>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={labelStyle}>Código de Falla *</label>
+                    <Field
+                      icon={ShieldCheck} type="text"
+                      value={codigoFalla} onChange={e => setCodigoFalla(e.target.value)}
+                      placeholder="Código facilitado por la comisión" autoFocus
+                    />
+                  </div>
                   <div style={{ marginBottom: '1rem' }}>
                     <label style={labelStyle}>Nombre</label>
                     <Field

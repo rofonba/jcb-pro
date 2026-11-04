@@ -117,7 +117,6 @@ function fmtBirthDisplay(fecha) {
 
 function ContactSection({ fallero, userId, onUpdate }) {
   const [savingPhone,  setSavingPhone]  = useState(false)
-  const [savingNumero, setSavingNumero] = useState(false)
   const [savingBirth,  setSavingBirth]  = useState(false)
 
   const numFallero = fallero?.numeroFallero ?? fallero?.memberNumber ?? fallero?.numero ?? null
@@ -128,16 +127,6 @@ function ContactSection({ fallero, userId, onUpdate }) {
       await updateDoc(doc(db, 'falleros', userId), { telefono: val.trim() })
       onUpdate({ telefono: val.trim() })
     } finally { setSavingPhone(false) }
-  }
-
-  const saveNumero = async (val) => {
-    const n = parseInt(val, 10)
-    if (!val || isNaN(n) || n < 1) return
-    setSavingNumero(true)
-    try {
-      await updateDoc(doc(db, 'falleros', userId), { numeroFallero: n })
-      onUpdate({ numeroFallero: n })
-    } finally { setSavingNumero(false) }
   }
 
   const saveBirth = async (val) => {
@@ -158,15 +147,16 @@ function ContactSection({ fallero, userId, onUpdate }) {
         <span style={{ fontSize: 14, fontWeight: 700, color: TEXT }}>Contacto</span>
       </div>
 
-      {/* Número de fallero */}
-      <EditableRow
-        label="Nº Fallero"
-        displayValue={numFallero != null ? `Nº ${String(numFallero).padStart(3, '0')}` : 'S/N'}
-        editValue={numFallero != null ? String(numFallero) : ''}
-        onSave={saveNumero}
-        saving={savingNumero}
-        inputProps={{ type: 'number', min: '1', inputMode: 'numeric', placeholder: 'Ej: 124', style: { width: 90 } }}
-      />
+      {/* Número de fallero — autogenerado, solo lectura */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
+        paddingBottom: '0.65rem', marginBottom: '0.65rem', borderBottom: `1px solid ${BORDER}`,
+      }}>
+        <span style={{ fontSize: 13, color: TEXT2 }}>Nº Fallero</span>
+        <span style={{ fontSize: 13, color: TEXT, fontWeight: 600 }}>
+          {numFallero != null ? `Nº ${String(numFallero).padStart(3, '0')}` : 'S/N'}
+        </span>
+      </div>
 
       {/* Teléfono */}
       <EditableRow
