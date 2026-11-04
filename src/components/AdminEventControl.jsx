@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../firebase'
-import { ArrowLeft, Download, BarChart2, UserPlus, Check, Loader2, Users } from 'lucide-react'
+import { ArrowLeft, Download, BarChart2, UserPlus, Check, Loader2, Users, ScanLine, FileSpreadsheet } from 'lucide-react'
+import EventCheckIn, { exportAttendeesCsv } from './EventCheckIn'
 
 const GOLD   = '#D4AF37'
 const RED    = '#CE1126'
@@ -38,6 +39,7 @@ export default function AdminEventControl({ event, onClose }) {
   const [manualEsHijo,  setManualEsHijo]  = useState(false)
   const [savingManual,  setSavingManual]  = useState(false)
   const [manualDone,    setManualDone]    = useState(false)
+  const [showCheckIn,   setShowCheckIn]   = useState(false)
 
   useEffect(() => {
     const q = query(
@@ -348,6 +350,24 @@ export default function AdminEventControl({ event, onClose }) {
           )}
         </div>
 
+        {/* Exportar lista de pago + Check-in digital */}
+        {!loading && inscriptions.length > 0 && (
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.6rem', flexShrink: 0 }}>
+            <button
+              onClick={() => exportAttendeesCsv(event, inscriptions)}
+              style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', minHeight: 46, background: 'rgba(212,175,55,0.1)', border: '1px solid rgba(212,175,55,0.35)', borderRadius: 12, color: GOLD, fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' }}
+            >
+              <FileSpreadsheet size={15} /> Exportar Lista
+            </button>
+            <button
+              onClick={() => setShowCheckIn(true)}
+              style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', minHeight: 46, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.35)', borderRadius: 12, color: GREEN, fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' }}
+            >
+              <ScanLine size={15} /> Modo Check-in
+            </button>
+          </div>
+        )}
+
         {/* CSV download */}
         {!loading && inscriptions.length > 0 && (
           <button
@@ -359,6 +379,7 @@ export default function AdminEventControl({ event, onClose }) {
           </button>
         )}
       </div>
+      {showCheckIn && <EventCheckIn event={event} onClose={() => setShowCheckIn(false)} />}
     </div>
   )
 }

@@ -6,7 +6,7 @@ import {
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { X, Users, Phone, Edit2, Download, Trash2, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
-import { RegistrationModal, EventFormModal, CancelConfirmModal, DeleteEventModal } from './EventList'
+import { RegistrationModal, EventFormModal, CancelConfirmModal, DeleteEventModal, PaymentReceipt } from './EventList'
 import { getDirectImageUrl } from '../utils/imageUtils'
 import logoFalla from '../assets/logo-falla.png'
 
@@ -331,6 +331,9 @@ export default function DetalleEvento({ eventId, onClose, onRegistered, onCancel
                   <p style={{ margin: 0, fontSize: 13, color: TEXT, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{event.menu}</p>
                 </div>
               )}
+
+              {/* Justificante de pago */}
+              <PaymentReceipt variant="light" inscription={inscripciones.find(i => i.uid === userId && !i.esManual)} />
 
               {/* CTA */}
               {!isPast && (

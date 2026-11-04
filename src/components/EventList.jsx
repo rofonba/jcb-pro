@@ -597,6 +597,7 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
   const [processing,       setProcessing]       = useState(false)
   const [showCard,         setShowCard]         = useState(false)
   const [paymentSucceeded, setPaymentSucceeded] = useState(false)
+  const [acceptedNoRefund, setAcceptedNoRefund]   = useState(false)
 
   // 1) Crea / refresca el PaymentIntent siempre que cambien las cantidades.
   //    El backend recalcula y devuelve los importes "reales" — el frontend
@@ -613,7 +614,7 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
         const res = await fetch('/api/createPaymentIntent', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-          body: JSON.stringify({ eventId: event.id, adultCount, childCount }),
+          body: JSON.stringify({ eventId: event.id, adultCount, childCount, email: user.email ?? undefined }),
         })
         const data = await res.json()
         if (cancelled) return
@@ -714,7 +715,7 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
 
   // 3) Pago manual con CardElement (fallback universal)
   const payWithCard = async () => {
-    if (!stripe || !elements || !clientSecret || processing) return
+    if (!stripe || !elements || !clientSecret || processing || !acceptedNoRefund) return
     setProcessing(true); setError('')
     try {
       const card = elements.getElement(CardElement)
@@ -790,8 +791,21 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
         </div>
       )}
 
-      {/* Apple/Google Pay — sólo si el dispositivo lo soporta */}
-      {canPay && paymentRequest && clientSecret && (
+      {/* Política de no devolución — obligatoria antes de mostrar cualquier método de pago */}
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', padding: '0.85rem 1rem', background: acceptedNoRefund ? 'rgba(16,185,129,0.07)' : 'rgba(206,17,38,0.07)', border: `1.5px solid ${acceptedNoRefund ? 'rgba(16,185,129,0.35)' : 'rgba(206,17,38,0.3)'}`, borderRadius: 12, cursor: 'pointer' }}>
+        <input
+          type="checkbox" checked={acceptedNoRefund}
+          onChange={e => setAcceptedNoRefund(e.target.checked)}
+          style={{ width: 20, height: 20, marginTop: 2, flexShrink: 0, accentColor: GOLD, cursor: 'pointer' }}
+        />
+        <span style={{ fontSize: '0.78rem', lineHeight: 1.5, color: 'rgba(255,255,255,0.75)' }}>
+          <strong style={{ color: 'white' }}>Entendido.</strong>{' '}
+          Para garantizar la correcta organización y compra de provisiones, las inscripciones a los eventos de pago son definitivas y no admiten devolución. ¡Gracias por tu comprensión y colaboración con la falla!
+        </span>
+      </label>
+
+      {/* Apple/Google Pay — sólo si el dispositivo lo soporta y se ha aceptado la política */}
+      {acceptedNoRefund && canPay && paymentRequest && clientSecret && (
         <div style={{ position: 'relative' }}>
           <PaymentRequestButtonElement
             options={{ paymentRequest, style: { paymentRequestButton: { theme: 'dark', height: '48px' } } }}
@@ -805,7 +819,7 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
       )}
 
       {/* Toggle tarjeta + CardElement (fallback universal) */}
-      <div>
+      {acceptedNoRefund && <div>
         {!showCard ? (
           <button type="button" onClick={() => setShowCard(true)}
             style={{ width: '100%', minHeight: 48, background: 'rgba(255,255,255,0.06)', border: '1.5px solid rgba(255,255,255,0.14)', borderRadius: 12, color: 'rgba(255,255,255,0.78)', fontSize: '0.88rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
@@ -829,6 +843,35 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
                 : `Pagar ${intentTotals ? fmtEur(intentTotals.total) : ''}`}
             </button>
           </div>
+        )}
+      </div>}
+    </div>
+  )
+}
+
+// ─── Justificante de pago (visible para el fallero cuando pagado === true) ───
+export function PaymentReceipt({ inscription, variant = 'dark' }) {
+  if (!inscription?.pagado) return null
+  const light = variant === 'light'
+  const txt   = light ? '#111827' : 'white'
+  const muted = light ? '#6B7280' : 'rgba(255,255,255,0.55)'
+  const d = inscription.pagadoAt?.toDate ? inscription.pagadoAt.toDate() : null
+  const fecha = d
+    ? d.toLocaleString('es-ES', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : 'Procesando…'
+  const total = inscription.totalConComision != null
+    ? Number(inscription.totalConComision).toFixed(2).replace('.', ',')
+    : '—'
+  return (
+    <div style={{ padding: '0.9rem 1rem', background: 'rgba(16,185,129,0.1)', border: '1.5px solid rgba(16,185,129,0.45)', borderRadius: 14, marginBottom: '0.75rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+        <span style={{ fontSize: '1.5rem', lineHeight: 1 }}>✅</span>
+        <span style={{ fontSize: '1rem', fontWeight: 800, color: GREEN }}>Pagado: {total} €</span>
+      </div>
+      <div style={{ fontSize: '0.75rem', color: muted, lineHeight: 1.6 }}>
+        <div>📅 {fecha}</div>
+        {inscription.stripePaymentId && (
+          <div style={{ wordBreak: 'break-all' }}>🧾 ID transacción: <span style={{ fontFamily: 'monospace', color: txt }}>{inscription.stripePaymentId}</span></div>
         )}
       </div>
     </div>
@@ -1411,6 +1454,7 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
             <div style={{ textAlign: 'center', padding: '1rem', color: 'rgba(255,255,255,0.3)', fontSize: '0.85rem' }}>Cargando…</div>
           ) : myIns ? (
             <div>
+              <PaymentReceipt inscription={myIns} />
               <div style={{ padding: '0.85rem 1rem', background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '14px', marginBottom: '0.75rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', marginBottom: modMode ? '0.9rem' : 0 }}>
                   <span style={{ fontSize: '1.1rem' }}>👤</span>

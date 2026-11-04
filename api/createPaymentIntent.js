@@ -64,7 +64,7 @@ export default async function handler(req, res) {
   const uid = decoded.uid
 
   // ── 2. Payload ────────────────────────────────────────────────────────────
-  const { eventId, adultCount, childCount } = req.body ?? {}
+  const { eventId, adultCount, childCount, email } = req.body ?? {}
   if (!eventId || typeof eventId !== 'string') {
     return res.status(400).json({ error: 'Falta eventId' })
   }
@@ -76,6 +76,12 @@ export default async function handler(req, res) {
   if (aCount + cCount === 0) {
     return res.status(400).json({ error: 'Debe haber al menos una persona en la inscripción' })
   }
+
+  // Email para el recibo oficial de Stripe. Preferimos el email verificado del token;
+  // si no lo trae, usamos el del body siempre que tenga formato válido.
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  const bodyEmail = typeof email === 'string' ? email.trim() : ''
+  const receiptEmail = decoded.email || (EMAIL_RE.test(bodyEmail) ? bodyEmail : undefined)
 
   // ── 3. Lee precios + flag pagoApp del evento desde Firestore (única fuente de verdad)
   //    Regla de negocio: si pagoApp !== true, el evento NO acepta cobros online.
@@ -122,6 +128,7 @@ export default async function handler(req, res) {
       amount:   totalConComisionCent,
       currency: 'eur',
       automatic_payment_methods: { enabled: true },
+      ...(receiptEmail && { receipt_email: receiptEmail }),
       description: eventoTitulo ? `Inscripción a "${eventoTitulo}"` : `Inscripción evento ${eventId}`,
       metadata: {
         eventId,
