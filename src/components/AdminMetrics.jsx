@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { collection, getDocs } from 'firebase/firestore'
 import { db } from '../firebase'
-import { X, RefreshCw, Loader2, TrendingUp, BarChart2, Users } from 'lucide-react'
+import { ChevronLeft, RefreshCw, Loader2, TrendingUp, BarChart2, Users } from 'lucide-react'
 
 const GOLD   = '#D4AF37'
 const WHITE  = '#FFFFFF'
@@ -39,7 +39,7 @@ async function fetchMetrics() {
   const inscriptions = insSnap.docs.map(d => ({ id: d.id, ...d.data() }))
   const fallerosList = fallerosSnap.docs.map(d => d.data())
 
-  // 1. Top 10 falleros — ranking del ciclo fallero en curso (1-abr → 1-abr)
+  // 1. Top 3 falleros — ranking del ciclo fallero en curso (1-abr → 1-abr)
   const yearStart  = getFalleroYearStart()
   const yearStartMs = yearStart.getTime()
   const countByUid = {}
@@ -54,7 +54,7 @@ async function fetchMetrics() {
   const topFalleros = Object.entries(countByUid)
     .map(([uid, count]) => ({ uid, nombre: nameByUid[uid], count }))
     .sort((a, b) => b.count - a.count)
-    .slice(0, 10)
+    .slice(0, 3)
 
   // 2. Event volume — usa totalPersonas para reflejar el aforo real
   //    (titular + acompañantes censo_app + censo_hijo + manuales validados).
@@ -85,6 +85,7 @@ async function fetchMetrics() {
       total,
     }))
     .sort((a, b) => b.total - a.total)
+    .slice(0, 5)   // Top 5 eventos más populares
 
   // 3. Demographics from falleros collection
   const totalAdultos  = fallerosList.length
@@ -342,7 +343,8 @@ export default function AdminMetrics({ onClose }) {
       {/* Header */}
       <header style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 20px',
+        // safe-area: sin esto la cabecera queda bajo la barra de estado/notch del iPhone (PWA) y no se puede pulsar «Volver»
+        padding: 'calc(14px + env(safe-area-inset-top)) 20px 14px',
         background: 'rgba(249,250,251,0.96)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
@@ -352,14 +354,16 @@ export default function AdminMetrics({ onClose }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             onClick={onClose}
+            aria-label="Volver"
             style={{
               background: 'transparent', border: `1.5px solid ${BORDER}`,
-              borderRadius: 10, width: 34, height: 34,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: 10, padding: '0 10px 0 6px', height: 38,
+              display: 'flex', alignItems: 'center', gap: 2,
               cursor: 'pointer', minHeight: 'auto', minWidth: 'auto',
+              fontSize: 13, fontWeight: 700, color: TEXT2,
             }}
           >
-            <X size={16} color={TEXT2} />
+            <ChevronLeft size={18} color={TEXT2} /> Volver
           </button>
           <div>
             <div style={{ fontSize: 15, fontWeight: 800, color: TEXT, letterSpacing: '-0.01em' }}>

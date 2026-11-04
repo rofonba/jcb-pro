@@ -16,6 +16,7 @@
 import Stripe from 'stripe'
 import { initializeApp, cert, getApps, getApp } from 'firebase-admin/app'
 import { getFirestore, FieldValue }             from 'firebase-admin/firestore'
+import { computeBreakdown, netCents, companionsFromInscription } from './_lib/pricing.js'
 
 // Necesario para poder verificar la firma: Vercel no debe parsear el body.
 export const config = { api: { bodyParser: false } }
@@ -87,6 +88,31 @@ async function handleSucceeded(pi) {
       tx.set(revisionRef, {
         motivo: 'personas-no-coinciden', eventId, userId, stripePaymentId: pi.id,
         totalConComision, personasPagadas, personasInscritas: ins.totalPersonas ?? 1,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return
+    }
+
+    // Verificación independiente del importe: se recalcula el precio desde la inscripción
+    // REAL (quiénes van y sus edades en Firestore) y los precios actuales del evento, y debe
+    // coincidir con lo cobrado. Cierra el caso "pago por A y apunto a B" o desglose manipulado.
+    let esperadoCent = null, motivo = null
+    try {
+      const evSnap = await db.collection('eventos').doc(eventId).get()
+      if (!evSnap.exists) throw new Error('evento inexistente')
+      const ev = evSnap.data()
+      const { adultCount, childCount } =
+        await computeBreakdown(db, userId, companionsFromInscription(ins))
+      esperadoCent = netCents(adultCount, childCount, ev.precio, ev.precioNino != null ? ev.precioNino : ev.precio)
+      if (adultCount + childCount !== (ins.totalPersonas ?? 1)) motivo = 'personas-no-coinciden'
+    } catch (err) {
+      motivo = 'no-verificable: ' + err.message
+    }
+    const cobradoNetoCent = Math.round(totalNeto * 100)
+    if (motivo || esperadoCent !== cobradoNetoCent) {
+      tx.set(revisionRef, {
+        motivo: motivo ?? 'importe-no-coincide', eventId, userId, stripePaymentId: pi.id,
+        totalConComision, cobradoNetoCent, esperadoCent,
         createdAt: FieldValue.serverTimestamp(),
       })
       return

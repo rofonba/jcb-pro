@@ -50,6 +50,8 @@ const HOLIDAYS_ES = new Set([
   '2027-9-12', '2027-10-1', '2027-11-6', '2027-11-8', '2027-11-25',
 ])
 
+const normText = t => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
 function toKey(d) { return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` }
 
 function buildCalendarDays(year, month) {
@@ -153,6 +155,9 @@ export default function CalendarView({ onDetailPress }) {
   const [selectedDay, setSelectedDay]     = useState(null)
   const [dayPicker, setDayPicker]         = useState(null) // { date, events }
   const [activeFilters, setActiveFilters] = useState(new Set())
+  const [timeTab, setTimeTab]             = useState('proximos')   // 'proximos' | 'pasados'
+  const [searchText, setSearchText]       = useState('')
+  const [startOfToday]                    = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime() })
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [adminEvent, setAdminEvent]       = useState(null)
   const [editEvent, setEditEvent]         = useState(null)
@@ -243,11 +248,26 @@ export default function CalendarView({ onDetailPress }) {
     return new Set(FILTER_DEFS.filter(f => activeFilters.has(f.key)).flatMap(f => [...f.types]))
   }, [activeFilters])
 
+  // Lista inferior: un día seleccionado manda; si no, la pestaña activa (Próximos / Pasados).
+  // El buscador filtra por título (sin tildes ni mayúsculas) dentro de lo que se está viendo.
   const displayedEvents = useMemo(() => {
-    let list = selectedDay ? (eventsByDay[toKey(selectedDay)] ?? []) : events
+    let list
+    if (selectedDay) {
+      list = eventsByDay[toKey(selectedDay)] ?? []
+    } else {
+      const isPastEv = ev => {
+        if (!ev.fecha) return false
+        const d = ev.fecha?.toDate ? ev.fecha.toDate() : new Date(ev.fecha)
+        return d.getTime() < startOfToday
+      }
+      list = events.filter(ev => (timeTab === 'pasados' ? isPastEv(ev) : !isPastEv(ev)))
+      if (timeTab === 'pasados') list = [...list].reverse()   // lo más reciente primero
+    }
     if (filterTypes) list = list.filter(ev => filterTypes.has(ev.tipo))
+    const q = normText(searchText.trim())
+    if (q) list = list.filter(ev => normText(ev.titulo).includes(q))
     return list
-  }, [events, eventsByDay, selectedDay, filterTypes])
+  }, [events, eventsByDay, selectedDay, filterTypes, timeTab, searchText, startOfToday])
 
   const toggleFilter = (key) => setActiveFilters(prev => {
     const next = new Set(prev)
@@ -484,11 +504,42 @@ export default function CalendarView({ onDetailPress }) {
       {/* ── Events list ───────────────────────────────── */}
       <div style={{ padding: '16px 20px' }}>
 
+        {/* Próximos / Pasados + buscador */}
+        <div style={{ display: 'flex', background: BG, border: `1.5px solid ${BORDER}`, borderRadius: 14, padding: 3, gap: 3, marginBottom: 10 }}>
+          {[['proximos', 'Próximos'], ['pasados', 'Pasados']].map(([key, label]) => {
+            const on = timeTab === key && !selectedDay
+            return (
+              <button
+                key={key}
+                onClick={() => { setTimeTab(key); setSelectedDay(null) }}
+                style={{
+                  flex: 1, padding: '9px 0', minHeight: 'auto', cursor: 'pointer',
+                  background: on ? WHITE : 'transparent',
+                  border: on ? `1.5px solid ${GOLD}` : '1.5px solid transparent',
+                  borderRadius: 11, fontSize: 13, fontWeight: on ? 800 : 500,
+                  color: on ? GOLD : TEXT2,
+                  boxShadow: on ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+        <input
+          type="search"
+          value={searchText}
+          onChange={e => setSearchText(e.target.value)}
+          placeholder="🔍 Buscar evento por nombre…"
+          style={{ width: '100%', boxSizing: 'border-box', padding: '11px 14px', marginBottom: 14, background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 12, fontSize: 14, color: TEXT, outline: 'none', fontFamily: 'inherit' }}
+        />
+
         {/* Section label */}
         <p style={{ fontSize: 12, fontWeight: 600, color: MUTED, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 12px' }}>
           {selectedDay
             ? selectedDay.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
-            : filterTypes ? 'Filtrado' : 'Todos los actos'}
+            : filterTypes ? 'Filtrado' : timeTab === 'proximos' ? 'Próximos eventos' : 'Eventos pasados'}
           {displayedEvents.length > 0 && ` · ${displayedEvents.length}`}
         </p>
 
@@ -502,9 +553,12 @@ export default function CalendarView({ onDetailPress }) {
           <div style={{ textAlign: 'center', padding: '44px 24px' }}>
             <div style={{ fontSize: 38, marginBottom: 10 }}>📅</div>
             <p style={{ color: MUTED, fontSize: 14, margin: 0 }}>
-              {selectedDay ? 'No hay actos este día' : 'No hay actos próximos'}
+              {searchText.trim()
+                ? `Sin resultados para «${searchText.trim()}»`
+                : selectedDay ? 'No hay actos este día'
+                : timeTab === 'pasados' ? 'No hay eventos pasados' : 'No hay actos próximos'}
             </p>
-            {isAdmin && !selectedDay && (
+            {isAdmin && !selectedDay && timeTab === 'proximos' && !searchText.trim() && (
               <p style={{ color: MUTED, fontSize: 12, margin: '6px 0 0', opacity: 0.6 }}>
                 Pulsa + para crear el primero
               </p>

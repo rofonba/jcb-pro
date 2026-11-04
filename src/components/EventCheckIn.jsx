@@ -4,7 +4,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { getPersons, getCheckInState } from '../utils/checkIn'
+import { getPersons, getCheckInState, markCheckIn } from '../utils/checkIn'
 import { ArrowLeft, ScanLine, Loader2, Search, DoorOpen } from 'lucide-react'
 
 const GOLD  = '#D4AF37'
@@ -97,13 +97,7 @@ export default function EventCheckIn({ event, onClose }) {
   const handleCheckIn = async ({ key, ins, person }) => {
     setBusyId(key); setError('')
     try {
-      await runTransaction(db, async (tx) => {
-        const ref  = doc(db, 'inscripciones', ins.id)
-        const snap = await tx.get(ref)
-        if (!snap.exists()) throw new Error('La inscripción ya no existe.')
-        if (getCheckInState(snap.data(), person.id).entered) throw new Error(`${person.nombre} ya ha entrado.`)
-        tx.update(ref, { [`checkInEstado.${person.id}`]: { checkIn: true, checkInAt: serverTimestamp() } })
-      })
+      await markCheckIn(ins.id, person)
     } catch (err) {
       setError(err?.message || 'No se pudo registrar la entrada.')
     } finally { setBusyId(null) }

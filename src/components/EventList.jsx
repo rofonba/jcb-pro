@@ -58,7 +58,9 @@ function normalizeName(str) {
     .replace(/\s+/g, '')
 }
 
-const CHILD_AGE_LIMIT = 14
+// Tarifa por edad (años cumplidos): ≤ 14 → niño, ≥ 15 → adulto (`age < CHILD_AGE_LIMIT` ⇒ niño).
+// DEBE coincidir con CHILD_MAX_AGE de api/_lib/pricing.js: el servidor es quien decide el cobro.
+const CHILD_AGE_LIMIT = 15
 
 // Evento pasado: comparación día a día contra "hoy" normalizado a las 00:00.
 // Evita problemas de huso horario y de horas raras del evento. Un evento de
@@ -465,7 +467,7 @@ function EventCard({ event, onPress, isRegistered, isPaid = false, isAdmin, onAd
 }
 
 // ─── Companion picker (Census + Manual) ──────────────────────────────────────
-function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, placeholder }) {
+function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, placeholder, externalOnly = false, ageLabel = null, categoriaDefault = 'adulto' }) {
   const [search, setSearch] = useState('')
   const [open,   setOpen]   = useState(false)
 
@@ -487,7 +489,7 @@ function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, p
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 0.9rem', background: bgChip, border: `1.5px solid ${brChip}`, borderRadius: '12px' }}>
         <span style={{ flex: 1, fontSize: '0.87rem', fontWeight: '700', color: 'white' }}>{value.nombre}</span>
         <span style={{ fontSize: '0.58rem', fontWeight: '800', letterSpacing: '0.08em', color: tagCol, background: tagBg, borderRadius: '4px', padding: '2px 6px', flexShrink: 0 }}>
-          {isHijo ? '🧒 HIJO/A CENSO' : '📋 CENSO'}
+          {isHijo ? '🧒 HIJO/A CENSO' : '📋 CENSO'}{ageLabel ? ` · ${ageLabel(value)}` : ''}
         </span>
         <button type="button" onClick={() => onChange({ type: null, nombre: '', falleroId: null, uid: null })}
           style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '6px', padding: '3px 5px', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}>
@@ -498,12 +500,14 @@ function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, p
   }
 
   if (value.type === 'manual') {
+    const categoria = value.categoria === 'nino' ? 'nino' : 'adulto'
     return (
+      <div>
       <div style={{ position: 'relative' }}>
         <input
           value={value.nombre}
           onChange={e => onChange({ ...value, nombre: e.target.value })}
-          placeholder="Nombre completo"
+          placeholder={externalOnly ? 'Nombre y apellidos del externo' : 'Nombre completo'}
           autoFocus
           style={{
             ...sharedInput, paddingRight: '5.5rem',
@@ -513,11 +517,30 @@ function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, p
           onFocus={e => { if (!error) e.target.style.borderColor = '#f97316' }}
           onBlur={e => { e.target.style.borderColor = error ? 'rgba(206,17,38,0.75)' : 'rgba(249,115,22,0.45)' }}
         />
-        <span style={{ position: 'absolute', right: '2.6rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.58rem', fontWeight: '800', letterSpacing: '0.06em', color: '#f97316', background: 'rgba(249,115,22,0.12)', borderRadius: '4px', padding: '2px 5px', pointerEvents: 'none' }}>✍️ MANUAL</span>
+        <span style={{ position: 'absolute', right: '2.6rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.58rem', fontWeight: '800', letterSpacing: '0.06em', color: '#f97316', background: 'rgba(249,115,22,0.12)', borderRadius: '4px', padding: '2px 5px', pointerEvents: 'none' }}>{externalOnly ? '🎟️ EXTERNO' : '✍️ MANUAL'}</span>
         <button type="button" onClick={() => onChange({ type: null, nombre: '', falleroId: null, uid: null })}
           style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.2)', borderRadius: '6px', padding: '3px 5px', color: 'rgba(220,38,38,0.7)', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: 'auto', minWidth: 'auto' }}>
           <X size={12} />
         </button>
+      </div>
+      {/* Externo: el fallero declara si es adulto o niño/a (determina la tarifa) */}
+      {externalOnly && (
+        <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+          {[['adulto', '👤 Adulto'], ['nino', '🧒 Niño/a']].map(([k, label]) => {
+            const on = categoria === k
+            return (
+              <button key={k} type="button" onClick={() => onChange({ ...value, categoria: k })}
+                style={{ flex: 1, minHeight: 'auto', padding: '0.45rem 0.5rem', cursor: 'pointer',
+                  background: on ? 'rgba(249,115,22,0.16)' : 'rgba(255,255,255,0.04)',
+                  border: `1.5px solid ${on ? 'rgba(249,115,22,0.6)' : 'rgba(255,255,255,0.1)'}`,
+                  borderRadius: 10, fontSize: '0.78rem', fontWeight: on ? 800 : 600,
+                  color: on ? '#f97316' : 'rgba(255,255,255,0.45)' }}>
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      )}
       </div>
     )
   }
@@ -568,12 +591,16 @@ function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, p
           })}
           <button type="button"
             onMouseDown={() => {
-              onChange({ type: 'manual', nombre: search, falleroId: null, uid: null })
+              onChange({ type: 'manual', categoria: categoriaDefault, nombre: search, falleroId: null, uid: null })
               setOpen(false)
             }}
             style={{ width: '100%', textAlign: 'left', background: 'rgba(249,115,22,0.06)', border: 'none', borderTop: '1px solid rgba(255,255,255,0.07)', padding: '0.6rem 1rem', color: 'rgba(249,115,22,0.85)', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.15rem' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>✍️ Añadir manualmente</span>
-            <span style={{ fontSize: '0.62rem', color: 'rgba(249,115,22,0.55)', fontWeight: 600 }}>Sólo para invitados externos a la falla</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>{externalOnly ? '🎟️ Añadir externo' : '✍️ Añadir manualmente'}</span>
+            <span style={{ fontSize: '0.62rem', color: 'rgba(249,115,22,0.55)', fontWeight: 600 }}>
+              {externalOnly
+                ? 'Sólo personas de fuera de la falla · nombre y apellidos obligatorios · los falleros se buscan arriba'
+                : 'Sólo para invitados externos a la falla'}
+            </span>
           </button>
         </div>
       )}
@@ -589,7 +616,7 @@ function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, p
 //   · Apple Pay / Google Pay si el dispositivo lo soporta (PaymentRequest API)
 //   · Fallback CardElement para todo lo demás (WhatsApp/Instagram in-app browsers,
 //     Firefox, equipos sin Apple/Google Pay configurado, etc.)
-function EventPaymentSection({ event, user, fallero, adultCount, childCount, isReady, onPrepare, onAbort, onConfirmed }) {
+function EventPaymentSection({ event, user, fallero, adultCount, childCount, companions, isReady, onPrepare, onAbort, onConfirmed }) {
   const stripe   = useStripe()
   const elements = useElements()
 
@@ -603,6 +630,7 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
   const [showCard,         setShowCard]         = useState(false)
   const [paymentSucceeded, setPaymentSucceeded] = useState(false)
   const [acceptedNoRefund, setAcceptedNoRefund]   = useState(false)
+  const companionsKey = JSON.stringify(companions ?? [])
   // Tras el cobro, esperamos a que el webhook marque la inscripción como pagado:true.
   const [awaitingWebhook,  setAwaitingWebhook]  = useState(false)
   const [confirmDelayed,   setConfirmDelayed]   = useState(false)
@@ -610,7 +638,7 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
 
   // Callbacks del padre en una ref: el efecto de PaymentRequest no se recrea en cada render.
   const cb = useRef({})
-  cb.current = { onPrepare, onAbort, onConfirmed }
+  useEffect(() => { cb.current = { onPrepare, onAbort, onConfirmed } })
 
   // Reserva la plaza (inscripción pendiente, SIN campos financieros) antes de cobrar.
   const prepareReservation = async () => {
@@ -655,7 +683,8 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
         const res = await fetch('/api/createPaymentIntent', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-          body: JSON.stringify({ eventId: event.id, adultCount, childCount, email: user.email ?? undefined }),
+          // Sin adultCount/childCount: el servidor deduce adulto/niño por edad
+          body: JSON.stringify({ eventId: event.id, companions: JSON.parse(companionsKey), email: user.email ?? undefined }),
         })
         const data = await res.json()
         if (cancelled) return
@@ -674,7 +703,7 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
     })()
 
     return () => { cancelled = true }
-  }, [event.id, adultCount, childCount, isReady, user, paymentSucceeded])
+  }, [event.id, adultCount, childCount, companionsKey, isReady, user, paymentSucceeded])
 
   // 2) Cuando llegan stripe + clientSecret + total, prepara PaymentRequest
   //    (Apple Pay / Google Pay). Si canMakePayment devuelve nada, queda canPay=false
@@ -851,8 +880,10 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
           style={{ width: 20, height: 20, marginTop: 2, flexShrink: 0, accentColor: GOLD, cursor: 'pointer' }}
         />
         <span style={{ fontSize: '0.78rem', lineHeight: 1.5, color: 'rgba(255,255,255,0.75)' }}>
-          <strong style={{ color: 'white' }}>Entendido.</strong>{' '}
-          Para garantizar la correcta organización y compra de provisiones, las inscripciones a los eventos de pago son definitivas y no admiten devolución. ¡Gracias por tu comprensión y colaboración con la falla!
+          <span style={{ display: 'block', marginBottom: '0.5rem', color: 'rgba(255,255,255,0.55)' }}>
+            Para garantizar la correcta organización y compra de provisiones, las inscripciones a los eventos de pago son definitivas y no admiten devolución. ¡Gracias por tu comprensión y colaboración con la falla!
+          </span>
+          <strong style={{ color: 'white' }}>He revisado los asistentes y consiento que NO se realizarán devoluciones del importe pagado bajo ninguna circunstancia.</strong>
         </span>
       </label>
 
@@ -871,7 +902,7 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
       )}
 
       {/* Toggle tarjeta + CardElement (fallback universal) */}
-      {acceptedNoRefund && <div>
+      <div>
         {!showCard ? (
           <button type="button" onClick={() => setShowCard(true)}
             style={{ width: '100%', minHeight: 48, background: 'rgba(255,255,255,0.06)', border: '1.5px solid rgba(255,255,255,0.14)', borderRadius: 12, color: 'rgba(255,255,255,0.78)', fontSize: '0.88rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
@@ -888,15 +919,15 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, isR
                 hidePostalCode: true,
               }} />
             </div>
-            <button type="button" onClick={payWithCard} disabled={!stripe || !clientSecret || processing}
-              style={{ width: '100%', minHeight: 52, background: processing || !clientSecret ? 'rgba(212,175,55,0.4)' : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: 14, color: 'white', fontSize: '1rem', fontWeight: 800, cursor: processing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <button type="button" onClick={payWithCard} disabled={!stripe || !clientSecret || processing || !acceptedNoRefund}
+              style={{ width: '100%', minHeight: 52, background: processing || !clientSecret || !acceptedNoRefund ? 'rgba(212,175,55,0.4)' : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: 14, color: 'white', fontSize: '1rem', fontWeight: 800, cursor: processing || !acceptedNoRefund ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
               {processing
                 ? <Loader2 size={18} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
                 : `Pagar ${intentTotals ? fmtEur(intentTotals.total) : ''}`}
             </button>
           </div>
         )}
-      </div>}
+      </div>
     </div>
   )
 }
@@ -1006,9 +1037,10 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
   const [extDone,   setExtDone]   = useState(false)
 
   useEffect(() => {
-    getDocs(collection(db, 'falleros')).then(snap => {
-      setFallerosList(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    })
+    // Buscador de acompañantes: lee `directorio` (copia reducida y no sensible), NUNCA `falleros`
+    getDocs(collection(db, 'directorio'))
+      .then(snap => setFallerosList(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -1096,6 +1128,19 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
     return list
   }, [fallerosList])
 
+  // Evento de pago: los falleros sólo se añaden desde el buscador del censo (nunca a mano);
+  // lo escrito a mano es un EXTERNO y debe llevar nombre y apellidos.
+  const paidEvent = event.precio != null && event.precio > 0
+  const censusNames = useMemo(() => new Set(censusList.map(c => normalizeName(c.nombre))), [censusList])
+  const externalError = (entry) => {
+    if (!paidEvent || entry.type !== 'manual') return ''
+    const nombre = entry.nombre.trim()
+    if (!nombre) return 'Escribe el nombre completo del externo'
+    if (nombre.split(/\s+/).filter(Boolean).length < 2) return 'Escribe nombre y apellidos del externo'
+    if (censusNames.has(normalizeName(nombre))) return 'Esta persona figura en el censo de la falla: búscala en el buscador para añadirla'
+    return ''
+  }
+
   // Lookup by uid (real or synthetic) → census entry — used for age/price logic.
   const censusById = useMemo(() => {
     const m = new Map()
@@ -1139,17 +1184,17 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
   // Evento ya celebrado: congelado. Bloquea form, cancel y modificar.
   const isPast = isEventPast(event.fecha)
 
-  // Determina si un entry del formulario (adultos[]/ninos[]) cuenta como niño
-  // para el cálculo de precios — basado en edad del censo / hijo / sección.
-  const isChildEntry = useCallback((entry, sectionIsChild = false) => {
-    if (sectionIsChild) return true                  // sección "Niños/as": siempre tarifa infantil
-    if (entry.type === 'censo_hijo') return true     // hijo del censo → siempre niño
-    if (entry.type === 'censo_app') {
-      const c = censusById.get(entry.uid)
-      const age = calcAgeFromDate(c?.fechaNacimiento)
-      return age != null && age < CHILD_AGE_LIMIT
-    }
-    return false                                      // manual o type=null → adulto por defecto
+  // ¿Cuenta como niño en el cálculo de precios? Automático por EDAD EXACTA (fechaNacimiento
+  // del directorio), sin importar en qué sección del formulario se haya puesto:
+  //   · fallero con app: niño si ≤ 14 años; sin fecha de nacimiento → adulto
+  //   · hijo del censo: por su fecha; sin fecha → niño
+  //   · externo (manual): lo que declare el fallero (adulto / niño/a) — buena fe, no verificable
+  // El servidor repite este cálculo (api/_lib/pricing.js) y es el que manda.
+  const isChildEntry = useCallback((entry) => {
+    const age = calcAgeFromDate(censusById.get(entry.uid)?.fechaNacimiento)
+    if (entry.type === 'censo_hijo') return age == null || age < CHILD_AGE_LIMIT
+    if (entry.type === 'censo_app')  return age != null && age < CHILD_AGE_LIMIT
+    return entry.type === 'manual' && entry.categoria === 'nino'
   }, [censusById])
 
   // Edad del usuario principal → determina su tarifa por defecto.
@@ -1173,12 +1218,12 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
 
     // Sección "Acompañantes adultos" — detectar edad
     for (const a of validAdultos) {
-      if (isChildEntry(a, false)) nNinos++
+      if (isChildEntry(a)) nNinos++
       else nAdultos++
     }
     // Sección "Acompañantes niños/as" — siempre niño
     for (const n of validNinos) {
-      if (isChildEntry(n, true)) nNinos++
+      if (isChildEntry(n)) nNinos++
       else nAdultos++
     }
 
@@ -1188,11 +1233,22 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
 
   const totalCost = priceBreakdown?.total ?? null
 
+  // Lo único que se envía al servidor para cobrar: QUIÉN va. El desglose adulto/niño lo decide él.
+  const paymentCompanions = useMemo(
+    () => [...validAdultos, ...validNinos].map(c => (
+      c.type === 'manual'
+        ? { type: 'manual', categoria: c.categoria === 'nino' ? 'nino' : 'adulto' }   // externo_adulto / externo_nino
+        : { type: c.type, uid: c.uid ?? null }
+    )),
+    [validAdultos, validNinos],
+  )
+
   const adultoErrors = useMemo(() => {
     const seen = new Set()
     return adultos.map(a => {
       if (a.type === null) return ''
       if (a.type === 'manual' && !a.nombre.trim()) return 'Escribe el nombre del acompañante'
+      if (externalError(a)) return externalError(a)
       const key = normalizeName(a.nombre)
       if (!key) return ''
       if (seen.has(key)) return 'Nombre repetido en el formulario'
@@ -1205,7 +1261,7 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
       if (takenNames.has(key)) return 'Esta persona ya figura en la lista. Revisa si un familiar ya la ha apuntado.'
       return ''
     })
-  }, [adultos, takenNames, takenUids, familyInscribedMap])
+  }, [adultos, takenNames, takenUids, familyInscribedMap, paidEvent, censusNames]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const ninoErrors = useMemo(() => {
     const seenAdultos = new Set(
@@ -1215,6 +1271,7 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
     return ninos.map(n => {
       if (n.type === null) return ''
       if (n.type === 'manual' && !n.nombre.trim()) return 'Escribe el nombre del acompañante'
+      if (externalError(n)) return externalError(n)
       const key = normalizeName(n.nombre)
       if (!key) return ''
       if (seen.has(key) || seenAdultos.has(key)) return 'Nombre repetido en el formulario'
@@ -1227,7 +1284,7 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
       if (takenNames.has(key)) return 'Esta persona ya figura en la lista. Revisa si un familiar ya la ha apuntado.'
       return ''
     })
-  }, [ninos, adultos, takenNames, takenUids, familyInscribedMap])
+  }, [ninos, adultos, takenNames, takenUids, familyInscribedMap, paidEvent, censusNames]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasPendingEntries  = [...adultos, ...ninos].some(e => e.type === null)
   const hasCompanionErrors = adultoErrors.some(Boolean) || ninoErrors.some(Boolean) || hasPendingEntries
@@ -1332,6 +1389,7 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
       }
 
       const numeroOrden = snap.docs.length + 1
+      let extN = 0   // contador de externos (ext_1, ext_2…)
       const payload = {
         eventId:      event.id,
         eventoTitulo: event.titulo,
@@ -1340,22 +1398,26 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
         numFallero:   fallero?.numero ?? null,
         esHijo:       false,
         esManual:     false,
-        acompañantesAdultos: validAdultos.map(a => ({
+        // Se reparten por tarifa real (edad / categoría declarada del externo), no por la sección
+        // del formulario, para que los contadores adulto/niño de administración cuadren con lo cobrado.
+        acompañantesAdultos: allCompanions.filter(c => !isChildEntry(c)).map(a => ({
           nombre:       a.nombre.trim() || 'Adulto',
           tipoRegistro: a.type,
+          categoria:    a.type === 'manual' ? 'adulto' : null,
           falleroId:    a.falleroId ?? null,
           uid:          a.uid ?? null,
         })),
-        acompañantesNinos: validNinos.map(n => ({
+        acompañantesNinos: allCompanions.filter(c => isChildEntry(c)).map(n => ({
           nombre:       n.nombre.trim() || 'Niño/a',
           tipoRegistro: n.type,
+          categoria:    n.type === 'manual' ? 'nino' : null,
           falleroId:    n.falleroId ?? null,
           uid:          n.uid ?? null,
         })),
         // Beneficiarios: personas cuya entrada paga este usuario. `beneficiariosUids`
         // (sólo usuarios reales de la app) permite consultarlos con array-contains.
-        beneficiarios: allCompanions.map((c, i) => ({
-          id:     c.uid ?? `ext_${i}`,   // clave en checkInEstado (check-in individual)
+        beneficiarios: allCompanions.map((c) => ({
+          id:     c.uid ?? `ext_${++extN}`,   // clave en checkInEstado: uid, o ext_1, ext_2… para externos
           uid:    c.type === 'censo_app' ? (c.uid ?? null) : null,
           nombre: c.nombre.trim() || 'Acompañante',
           tipo:   c.type,
@@ -1712,6 +1774,9 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
                           value={a}
                           onChange={val => { const next = [...adultos]; next[i] = val; setAdultos(next) }}
                           fallerosList={censusList}
+                          externalOnly={paidEvent}
+                          categoriaDefault="adulto"
+                          ageLabel={event.precio != null ? (v => (isChildEntry(v) ? 'NIÑO/A' : 'ADULTO')) : null}
                           occupiedUids={pickerOccupied}
                           error={adultoErrors[i]}
                           placeholder={`Buscar adulto ${i + 1}…`}
@@ -1748,6 +1813,9 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
                           value={n}
                           onChange={val => { const next = [...ninos]; next[i] = val; setNinos(next) }}
                           fallerosList={childCensusList}
+                          externalOnly={paidEvent}
+                          categoriaDefault="nino"
+                          ageLabel={event.precio != null ? (v => (isChildEntry(v) ? 'NIÑO/A' : 'ADULTO')) : null}
                           occupiedUids={pickerOccupied}
                           error={ninoErrors[i]}
                           placeholder={`Buscar niño/a ${i + 1}…`}
@@ -1784,7 +1852,16 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
                       const isBlocked = alreadyAdded || !!familyInscribed || selfInscribed
                       return (
                         <button key={i} type="button" disabled={isBlocked}
-                          onClick={() => { if (!isBlocked) setNinos(prev => [...prev, { type: 'manual', nombre: h.nombre, falleroId: null, uid: null }]) }}
+                          onClick={() => {
+                            if (isBlocked) return
+                            if (paidEvent) {
+                              // Evento de pago: el hijo debe venir del censo (Firestore), no escrito a mano
+                              const c = censusList.find(x => x.kind === 'hijo' && x.falleroId === user.uid && normalizeName(x.nombre) === key)
+                              if (c) setNinos(prev => [...prev, { type: 'censo_hijo', nombre: c.nombre, falleroId: c.falleroId, uid: c.id }])
+                              return
+                            }
+                            setNinos(prev => [...prev, { type: 'manual', nombre: h.nombre, falleroId: null, uid: null }])
+                          }}
                           style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '4px 10px', background: isBlocked ? 'rgba(255,255,255,0.03)' : 'rgba(249,115,22,0.1)', border: `1px solid ${isBlocked ? 'rgba(255,255,255,0.08)' : 'rgba(249,115,22,0.35)'}`, borderRadius: '8px', color: isBlocked ? 'rgba(255,255,255,0.2)' : 'rgba(249,115,22,0.9)', fontSize: '0.75rem', fontWeight: '600', cursor: isBlocked ? 'not-allowed' : 'pointer', minHeight: 'auto' }}>
                           🧒 {h.nombre}
                           {familyInscribed && <span style={{ fontSize: '0.6rem', color: 'rgba(255,165,0,0.5)' }}>· {familyInscribed}</span>}
@@ -1891,6 +1968,7 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
                   fallero={fallero}
                   adultCount={priceBreakdown?.nAdultos ?? 0}
                   childCount={priceBreakdown?.nNinos ?? 0}
+                  companions={paymentCompanions}
                   isReady={!saving && !wouldExceed && !isAforoFull && !hasCompanionErrors && !isPast}
                   onPrepare={() => writeInscription({ pending: true })}
                   onAbort={abortPendingInscription}

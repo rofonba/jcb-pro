@@ -17,6 +17,7 @@ import AdminMetrics from './AdminMetrics'
 import DetalleEvento from './DetalleEvento'
 import Delegaciones from './Delegaciones'
 import UserWallet from './UserWallet'
+import AdminPanelControl from './AdminPanelControl'
 import { RegistrationModal, SuccessToast, CancelConfirmModal, PaidNotice } from './EventList'
 import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X, Loader2, Trash2, Pencil } from 'lucide-react'
 import logoFalla from '../assets/logo-falla.png'
@@ -828,7 +829,7 @@ function HomeTab({
   nombre, numFallero, isAdmin,
   announcements, loadingAnns,
   events, registeredIds, pendingIds, paidIds, inscCountMap,
-  onNavigate, onMetrics, onCreateAviso, onOpenWallet,
+  onNavigate, onMetrics, onCreateAviso, onOpenWallet, onOpenPanel,
   onEventPress, onCancelPress, onDetailPress,
   unreadCount,
   pushPermission, pushTokenSaved, pushLoading, onEnablePush,
@@ -917,6 +918,19 @@ function HomeTab({
           </span>
         </button>
       </div>
+
+      {/* ── Panel Control (sólo admin/directiva) ─────────────────── */}
+      {isAdmin && (
+        <div style={{ padding: '12px 20px 0' }}>
+          <button
+            onClick={onOpenPanel}
+            style={{ width: '100%', minHeight: 'auto', padding: '14px 18px', background: WHITE, border: `1.5px solid ${GOLD}55`, borderRadius: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}
+          >
+            <span style={{ fontSize: 22 }}>🛠️</span>
+            <span style={{ fontSize: 15, fontWeight: 800, color: GOLD, letterSpacing: '0.01em' }}>Panel Control</span>
+          </button>
+        </div>
+      )}
 
       {/* ── 4 Action Buttons ─────────────────────────────────────── */}
       <div style={{ padding: '20px 20px 0' }}>
@@ -1236,6 +1250,7 @@ export default function Dashboard() {
   const [detailEventId, setDetailEventId]     = useState(null)
   const [openAvisosForm, setOpenAvisosForm]   = useState(false)
   const [showWallet, setShowWallet]           = useState(false)
+  const [showPanel, setShowPanel]             = useState(false)
 
   useEffect(() => {
     const q = query(collection(db, 'anuncios'), orderBy('createdAt', 'desc'), limit(10))
@@ -1375,6 +1390,7 @@ export default function Dashboard() {
             onMetrics={() => setShowMetrics(true)}
             onCreateAviso={handleCreateAviso}
             onOpenWallet={() => setShowWallet(true)}
+            onOpenPanel={() => setShowPanel(true)}
             onEventPress={setSelectedEvent}
             onCancelPress={setCancelTarget}
             onDetailPress={setDetailEventId}
@@ -1417,6 +1433,7 @@ export default function Dashboard() {
       )}
       {toast && <SuccessToast message={toast} onDismiss={() => setToast(null)} />}
       {showWallet && <UserWallet events={events} onClose={() => setShowWallet(false)} />}
+      {showPanel && isAdmin && <AdminPanelControl events={events} onClose={() => setShowPanel(false)} />}
       {showMetrics && isAdmin && <AdminMetrics onClose={() => setShowMetrics(false)} />}
 
       {detailEventId && (

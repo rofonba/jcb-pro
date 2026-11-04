@@ -5,6 +5,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { isPendingPayment } from '../utils/inscripciones'
+import { syncDirectorio } from '../utils/directorio'
 import { useAuth } from '../contexts/AuthContext'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { enviarNotificacionFCM } from '../services/fcmService'
@@ -135,6 +136,7 @@ function ContactSection({ fallero, userId, onUpdate }) {
     setSavingBirth(true)
     try {
       await updateDoc(doc(db, 'falleros', userId), { fechaNacimiento: val })
+      await syncDirectorio(userId, { ...fallero, fechaNacimiento: val })
       onUpdate({ fechaNacimiento: val })
     } finally { setSavingBirth(false) }
   }
@@ -319,6 +321,7 @@ function HijosSection({ fallero, userId, onUpdate }) {
     setSaving(true)
     try {
       await updateDoc(doc(db, 'falleros', userId), { hijos: newArr })
+      await syncDirectorio(userId, { ...fallero, hijos: newArr })   // mantiene el directorio al día
       onUpdate({ hijos: newArr })
     } finally { setSaving(false) }
   }

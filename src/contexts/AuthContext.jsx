@@ -7,6 +7,7 @@ import {
 } from 'firebase/auth'
 import { doc, getDoc, runTransaction, serverTimestamp } from 'firebase/firestore'
 import { auth, db, authReady } from '../firebase'
+import { syncDirectorio } from '../utils/directorio'
 
 const AuthContext = createContext(null)
 
@@ -15,13 +16,16 @@ const AuthContext = createContext(null)
 async function createFalleroWithNumber(uid, data) {
   const counterRef = doc(db, 'metadata', 'counters')
   const falleroRef = doc(db, 'falleros', uid)
-  return runTransaction(db, async (tx) => {
+  const next = await runTransaction(db, async (tx) => {
     const counterSnap = await tx.get(counterRef)
     const next = (counterSnap.exists() ? (counterSnap.data().ultimoNumeroFallero ?? 0) : 0) + 1
     tx.set(counterRef, { ultimoNumeroFallero: next }, { merge: true })
     tx.set(falleroRef, { ...data, numeroFallero: next })
     return next
   })
+  // Copia reducida en `directorio` (buscador de acompañantes). No bloquea el registro si falla.
+  await syncDirectorio(uid, { ...data, numeroFallero: next })
+  return next
 }
 
 export function AuthProvider({ children }) {

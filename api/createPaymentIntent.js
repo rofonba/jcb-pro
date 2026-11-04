@@ -4,7 +4,9 @@
 //   - Verifica el Firebase ID token del cliente (cabecera Authorization Bearer)
 //     y usa SIEMPRE el uid decodificado, nunca el userId que pueda mandar el body.
 //   - Lee precio y precioNino del documento del evento en Firestore.
-//     NUNCA confía en cantidades enviadas por el cliente — sólo cuenta adultos/niños.
+//   - NUNCA confía en el desglose adultos/niños del navegador: éste sólo envía QUIÉN
+//     va (type + uid de cada acompañante) y el servidor deduce adulto/niño por edad
+//     (fechaNacimiento en Firestore, ≤14 años = niño). Ver api/_lib/pricing.js.
 //   - Aplica la fórmula de tarifa inversa con Math.ceil para que la falla
 //     reciba el importe íntegro y el usuario cubra el 100% de la comisión.
 //
@@ -19,6 +21,7 @@ import Stripe from 'stripe'
 import { initializeApp, cert, getApps, getApp } from 'firebase-admin/app'
 import { getAuth }                              from 'firebase-admin/auth'
 import { getFirestore }                         from 'firebase-admin/firestore'
+import { computeBreakdown, netCents, PricingError } from './_lib/pricing.js'
 
 const STRIPE_VARIABLE_FEE = 0.015 // 1,5 %
 const STRIPE_FIXED_FEE_CENT = 25  // 0,25 €
@@ -64,17 +67,18 @@ export default async function handler(req, res) {
   const uid = decoded.uid
 
   // ── 2. Payload ────────────────────────────────────────────────────────────
-  const { eventId, adultCount, childCount, email } = req.body ?? {}
+  const { eventId, companions, email } = req.body ?? {}
   if (!eventId || typeof eventId !== 'string') {
     return res.status(400).json({ error: 'Falta eventId' })
   }
-  const aCount = Number.isInteger(adultCount) && adultCount >= 0 ? adultCount : null
-  const cCount = Number.isInteger(childCount) && childCount >= 0 ? childCount : null
-  if (aCount === null || cCount === null) {
-    return res.status(400).json({ error: 'adultCount/childCount deben ser enteros no negativos' })
-  }
-  if (aCount + cCount === 0) {
-    return res.status(400).json({ error: 'Debe haber al menos una persona en la inscripción' })
+  // El desglose adulto/niño lo calcula el servidor a partir de las personas y sus fechas de nacimiento
+  let aCount, cCount
+  try {
+    ;({ adultCount: aCount, childCount: cCount } =
+      await computeBreakdown(getFirestore(adminApp()), uid, companions ?? []))
+  } catch (err) {
+    if (err instanceof PricingError) return res.status(err.status).json({ error: err.message })
+    return res.status(500).json({ error: 'Error calculando el precio: ' + err.message })
   }
 
   // Email para el recibo oficial de Stripe. Preferimos el email verificado del token;
@@ -108,7 +112,7 @@ export default async function handler(req, res) {
   }
 
   // ── 4. Tarifa inversa (Math.ceil — falla recibe importe íntegro) ──────────
-  const totalNetoCent = Math.round((aCount * precio + cCount * precioNino) * 100)
+  const totalNetoCent = netCents(aCount, cCount, precio, precioNino)
   if (totalNetoCent <= 0) {
     return res.status(400).json({ error: 'El importe neto debe ser mayor que cero' })
   }
@@ -136,6 +140,7 @@ export default async function handler(req, res) {
         adultCount: String(aCount),
         childCount: String(cCount),
         totalNeto:  (totalNetoCent / 100).toFixed(2),
+        totalNetoCent: String(totalNetoCent),
       },
     })
     return res.status(200).json({
@@ -144,6 +149,8 @@ export default async function handler(req, res) {
       totalConComision: totalConComisionCent,
       totalNeto:        totalNetoCent,
       gastosGestion:    gastosGestionCent,
+      adultCount:       aCount,   // desglose calculado por el servidor (informativo para la UI)
+      childCount:       cCount,
     })
   } catch (err) {
     return res.status(500).json({ error: 'Error creando el PaymentIntent: ' + err.message })

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { ArrowLeft, MapPin } from 'lucide-react'
+import { ChevronLeft, MapPin } from 'lucide-react'
 import { getPersons, getCheckInState } from '../utils/checkIn'
 
 const GOLD   = '#D4AF37'
@@ -176,10 +176,10 @@ export default function UserWallet({ events, onClose }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 80, background: BG, overflowY: 'auto', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-      <header style={{ position: 'sticky', top: 0, zIndex: 2, background: 'rgba(249,250,251,0.96)', backdropFilter: 'blur(20px)', borderBottom: `1px solid ${BORDER}`, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+      <header style={{ position: 'sticky', top: 0, zIndex: 2, background: 'rgba(249,250,251,0.96)', backdropFilter: 'blur(20px)', borderBottom: `1px solid ${BORDER}`, padding: 'calc(12px + env(safe-area-inset-top)) 20px 12px', display: 'flex', alignItems: 'center', gap: 12 }}>
         <button onClick={onClose}
           style={{ display: 'flex', alignItems: 'center', gap: 6, background: `${GOLD}14`, border: `1px solid ${GOLD}40`, borderRadius: 10, padding: '8px 12px', color: GOLD, fontSize: 13, fontWeight: 700, cursor: 'pointer', minHeight: 'auto' }}>
-          <ArrowLeft size={15} /> Volver
+          <ChevronLeft size={17} /> Volver
         </button>
         <div>
           <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: TEXT }}>Mis entradas</p>

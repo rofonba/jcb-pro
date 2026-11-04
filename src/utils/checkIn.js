@@ -1,3 +1,6 @@
+import { doc, runTransaction, serverTimestamp } from 'firebase/firestore'
+import { db } from '../firebase'
+
 // Control de acceso individual.
 //
 // Cada inscripción pagada tiene un mapa `checkInEstado`:
@@ -31,4 +34,16 @@ export function getCheckInState(ins, personId) {
   if (e?.checkIn === true) return { entered: true, at: e.checkInAt ?? null }
   if (ins.checkIn === true) return { entered: true, at: ins.checkInAt ?? null }
   return { entered: false, at: null }
+}
+
+// Marca la entrada de UNA persona (transacción: relee y no pisa si ya entró).
+// Lo usan la lista de puerta (EventCheckIn) y el Panel de Control global.
+export async function markCheckIn(inscriptionId, person) {
+  await runTransaction(db, async (tx) => {
+    const ref  = doc(db, 'inscripciones', inscriptionId)
+    const snap = await tx.get(ref)
+    if (!snap.exists()) throw new Error('La inscripción ya no existe.')
+    if (getCheckInState(snap.data(), person.id).entered) throw new Error(`${person.nombre} ya ha entrado.`)
+    tx.update(ref, { [`checkInEstado.${person.id}`]: { checkIn: true, checkInAt: serverTimestamp() } })
+  })
 }

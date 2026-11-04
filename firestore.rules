@@ -36,6 +36,24 @@ service cloud.firestore {
         && request.resource.data.ultimoNumeroFallero == resource.data.ultimoNumeroFallero + 1;
     }
 
+    // Directorio: copia reducida (uid, nombre, apellidos, numeroFallero, fechaNacimiento, hijos[{nombre, fechaNacimiento}]) para el buscador
+    // de acompañantes. Lo lee cualquier usuario autenticado; sólo staff escribe libremente.
+    match /directorio/{uid} {
+      allow read: if request.auth != null;
+      allow write: if isPrivileged();
+
+      // Sincronización de la propia ficha (registro / edición de hijos desde la app):
+      // sólo SU documento, sólo estos campos, y nombre/apellidos/número idénticos a su perfil.
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['uid', 'nombre', 'apellidos', 'numeroFallero', 'fechaNacimiento', 'hijos'])
+        && request.resource.data.uid == uid
+        && request.resource.data.nombre == getAfter(/databases/$(database)/documents/falleros/$(uid)).data.nombre
+        && request.resource.data.apellidos == getAfter(/databases/$(database)/documents/falleros/$(uid)).data.get('apellidos', '')
+        && request.resource.data.numeroFallero == getAfter(/databases/$(database)/documents/falleros/$(uid)).data.get('numeroFallero', null)
+        && request.resource.data.fechaNacimiento == getAfter(/databases/$(database)/documents/falleros/$(uid)).data.get('fechaNacimiento', '');
+    }
+
     // Anuncios: cualquier fallero autenticado lee; admins y directiva escriben
     match /anuncios/{docId} {
       allow read:  if request.auth != null;
