@@ -1,10 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
-import {
-  collection, query, where, onSnapshot, doc, runTransaction, serverTimestamp, deleteField,
-} from 'firebase/firestore'
+import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { getPersons, getCheckInState, markCheckIn } from '../utils/checkIn'
+import { getPersons, getCheckInState, markCheckIn, undoCheckIn } from '../utils/checkIn'
 import { ArrowLeft, ScanLine, Loader2, Search, DoorOpen } from 'lucide-react'
 
 const GOLD  = '#D4AF37'
@@ -108,24 +106,7 @@ export default function EventCheckIn({ event, onClose }) {
     if (!window.confirm(`¿Anular la entrada de ${person.nombre}?`)) return
     setBusyId(key); setError('')
     try {
-      await runTransaction(db, async (tx) => {
-        const ref  = doc(db, 'inscripciones', ins.id)
-        const snap = await tx.get(ref)
-        if (!snap.exists()) throw new Error('La inscripción ya no existe.')
-        const data = snap.data()
-        const upd  = {}
-        // Datos antiguos con checkIn global: se desglosa a individual antes de anular a uno.
-        if (data.checkIn === true) {
-          upd.checkIn = deleteField(); upd.checkInAt = deleteField()
-          for (const p of getPersons(data)) {
-            if (p.id !== person.id && !data.checkInEstado?.[p.id]?.checkIn) {
-              upd[`checkInEstado.${p.id}`] = { checkIn: true, checkInAt: data.checkInAt ?? serverTimestamp() }
-            }
-          }
-        }
-        upd[`checkInEstado.${person.id}`] = deleteField()
-        tx.update(ref, upd)
-      })
+      await undoCheckIn(ins.id, person)
     } catch (err) {
       setError(err?.message || 'No se pudo anular la entrada.')
     } finally { setBusyId(null) }

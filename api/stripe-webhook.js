@@ -101,10 +101,16 @@ async function handleSucceeded(pi) {
       const evSnap = await db.collection('eventos').doc(eventId).get()
       if (!evSnap.exists) throw new Error('evento inexistente')
       const ev = evSnap.data()
-      const { adultCount, childCount } =
+      const { adultCount, childCount, externalAdultCount, externalChildCount } =
         await computeBreakdown(db, userId, companionsFromInscription(ins))
       esperadoCent = netCents(adultCount, childCount, ev.precio, ev.precioNino != null ? ev.precioNino : ev.precio)
       if (adultCount + childCount !== (ins.totalPersonas ?? 1)) motivo = 'personas-no-coinciden'
+      // Candado de externos: los que lleva la inscripción deben ser EXACTAMENTE los que se cobraron
+      // al crear el PaymentIntent (nadie cuela invitados que no pasaron por el cobro).
+      if (!motivo && (externalAdultCount !== Number(pi.metadata.externalAdultCount ?? 0)
+                   || externalChildCount !== Number(pi.metadata.externalChildCount ?? 0))) {
+        motivo = 'externos-no-coinciden'
+      }
     } catch (err) {
       motivo = 'no-verificable: ' + err.message
     }
@@ -126,6 +132,11 @@ async function handleSucceeded(pi) {
       totalConComision,
       gastosGestion,
       estadoPago:       FieldValue.delete(),
+      // Invitados sin app (externos e hijos del censo) por los que el titular puede hacer check-in.
+      // Los fija sólo el servidor, a partir de la inscripción ya verificada.
+      checkInDelegadoIds: (Array.isArray(ins.beneficiarios) ? ins.beneficiarios : [])
+        .filter(b => b?.tipo !== 'censo_app' && typeof b?.id === 'string')
+        .map(b => b.id),
     })
   })
 }

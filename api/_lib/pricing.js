@@ -70,6 +70,7 @@ export async function computeBreakdown(db, payerUid, companions) {
   const today = madridToday()
 
   let adultCount = 0, childCount = 0
+  let externalAdultCount = 0, externalChildCount = 0
 
   const payer = docs.get(payerUid)
   if (!payer) throw new PricingError('Tu perfil de fallero no existe')
@@ -77,7 +78,10 @@ export async function computeBreakdown(db, payerUid, companions) {
   if (payerAge != null && isChildAge(payerAge)) childCount++; else adultCount++
 
   for (const c of list) {
-    if (c.type === 'manual') { if (c.categoria === 'nino') childCount++; else adultCount++; continue }
+    if (c.type === 'manual') {
+      if (c.categoria === 'nino') { childCount++; externalChildCount++ } else { adultCount++; externalAdultCount++ }
+      continue
+    }
     if (c.type === 'censo_app') {
       const d = docs.get(c.uid)
       if (!d) throw new PricingError('Fallero acompañante no encontrado')
@@ -91,7 +95,7 @@ export async function computeBreakdown(db, payerUid, companions) {
     if (age == null || isChildAge(age)) childCount++; else adultCount++
   }
 
-  return { adultCount, childCount }
+  return { adultCount, childCount, externalAdultCount, externalChildCount }
 }
 
 export const netCents = (adultCount, childCount, precio, precioNino) =>

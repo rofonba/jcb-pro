@@ -467,7 +467,7 @@ function EventCard({ event, onPress, isRegistered, isPaid = false, isAdmin, onAd
 }
 
 // ─── Companion picker (Census + Manual) ──────────────────────────────────────
-function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, placeholder, externalOnly = false, ageLabel = null, categoriaDefault = 'adulto' }) {
+function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, placeholder, externalOnly = false, externalsBlocked = false, ageLabel = null, categoriaDefault = 'adulto' }) {
   const [search, setSearch] = useState('')
   const [open,   setOpen]   = useState(false)
 
@@ -589,6 +589,11 @@ function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, p
               </button>
             )
           })}
+          {externalsBlocked ? (
+            <p style={{ margin: 0, padding: '0.6rem 1rem', borderTop: '1px solid rgba(255,255,255,0.07)', fontSize: '0.66rem', lineHeight: 1.4, color: 'rgba(255,255,255,0.45)' }}>
+              🔒 En este evento el pago es en el casal: los invitados externos no se pueden inscribir desde la app. Contacta con la directiva.
+            </p>
+          ) : (
           <button type="button"
             onMouseDown={() => {
               onChange({ type: 'manual', categoria: categoriaDefault, nombre: search, falleroId: null, uid: null })
@@ -602,6 +607,7 @@ function CompanionPicker({ value, onChange, fallerosList, occupiedUids, error, p
                 : 'Sólo para invitados externos a la falla'}
             </span>
           </button>
+          )}
         </div>
       )}
     </div>
@@ -1132,8 +1138,13 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
   // lo escrito a mano es un EXTERNO y debe llevar nombre y apellidos.
   const paidEvent = event.precio != null && event.precio > 0
   const censusNames = useMemo(() => new Set(censusList.map(c => normalizeName(c.nombre))), [censusList])
+  // Evento con precio pero SIN cobro online (pago en el casal): no se admiten externos desde la app.
+  // Sólo se inscriben externos en eventos de pago online (pasan por Stripe + webhook) o gratuitos.
+  const externalsBlocked = paidEvent && event.pagoApp !== true
   const externalError = (entry) => {
-    if (!paidEvent || entry.type !== 'manual') return ''
+    if (entry.type !== 'manual') return ''
+    if (externalsBlocked) return 'Los externos sólo se pueden inscribir en eventos con pago online. Contacta con la directiva.'
+    if (!paidEvent) return ''
     const nombre = entry.nombre.trim()
     if (!nombre) return 'Escribe el nombre completo del externo'
     if (nombre.split(/\s+/).filter(Boolean).length < 2) return 'Escribe nombre y apellidos del externo'
@@ -1309,6 +1320,11 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
     if (wouldExceed || isAforoFull || hasCompanionErrors) {
       setSaveError('Revisa el formulario antes de confirmar.')
       return { ok: false, error: 'validation' }
+    }
+    // Candado: sin cobro online en un evento de pago, jamás se guarda una inscripción con externos
+    if (externalsBlocked && [...validAdultos, ...validNinos].some(c => c.type === 'manual')) {
+      setSaveError('Los externos sólo se pueden inscribir en eventos con pago online. Contacta con la directiva.')
+      return { ok: false, error: 'externos-bloqueados' }
     }
     setSaving(true)
     setSaveError('')
@@ -1775,6 +1791,7 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
                           onChange={val => { const next = [...adultos]; next[i] = val; setAdultos(next) }}
                           fallerosList={censusList}
                           externalOnly={paidEvent}
+                          externalsBlocked={externalsBlocked}
                           categoriaDefault="adulto"
                           ageLabel={event.precio != null ? (v => (isChildEntry(v) ? 'NIÑO/A' : 'ADULTO')) : null}
                           occupiedUids={pickerOccupied}
@@ -1814,6 +1831,7 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
                           onChange={val => { const next = [...ninos]; next[i] = val; setNinos(next) }}
                           fallerosList={childCensusList}
                           externalOnly={paidEvent}
+                          externalsBlocked={externalsBlocked}
                           categoriaDefault="nino"
                           ageLabel={event.precio != null ? (v => (isChildEntry(v) ? 'NIÑO/A' : 'ADULTO')) : null}
                           occupiedUids={pickerOccupied}

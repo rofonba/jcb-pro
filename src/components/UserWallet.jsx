@@ -3,7 +3,7 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { ChevronLeft, MapPin } from 'lucide-react'
-import { getPersons, getCheckInState, markCheckIn } from '../utils/checkIn'
+import { getPersons, getCheckInState, markCheckInGroup, getDelegatedPersons } from '../utils/checkIn'
 
 const GOLD   = '#D4AF37'
 const BG     = '#F9FAFB'
@@ -149,7 +149,7 @@ const SLIDER_CSS = `
 .ft-slider:disabled { opacity: 0.6; cursor: wait; }
 `
 
-function SlideToCheckIn({ onComplete, busy }) {
+function SlideToCheckIn({ onComplete, busy, disabled = false, label = 'Desliza para entregar ticket' }) {
   const [value, setValue] = useState(0)
   const done = useRef(false)
 
@@ -170,12 +170,12 @@ function SlideToCheckIn({ onComplete, busy }) {
       {/* relleno verde que sigue al dedo */}
       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `calc(${value}% * 0.9 + 34px)`, background: `${SUCCESS_GREEN}55`, borderRadius: 34, transition: value === 0 ? 'width 0.25s' : 'none', pointerEvents: 'none' }} />
       <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', paddingLeft: 56, fontSize: 17, fontWeight: 800, color: TEXT2, opacity: Math.max(0, 1 - value / 50), pointerEvents: 'none', textAlign: 'center' }}>
-        {busy ? 'Entregando…' : 'Desliza para entregar ticket  ➜'}
+        {busy ? 'Entregando…' : `${label}  ➜`}
       </span>
       <input
         className="ft-slider" type="range" min="0" max="100" step="1"
-        value={value} disabled={busy}
-        aria-label="Desliza para entregar ticket"
+        value={value} disabled={busy || disabled}
+        aria-label={label}
         onChange={e => setValue(Number(e.target.value))}
         onPointerUp={release} onTouchEnd={release} onMouseUp={release}
         onKeyUp={e => { if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') release() }}
@@ -186,7 +186,7 @@ function SlideToCheckIn({ onComplete, busy }) {
 }
 
 // ─── Fast Track: evento de hoy + deslizable ──────────────────────────────────────────────
-function FastTrack({ event, ins, busy, error, onSlide, onShowAll, others, onPick }) {
+function FastTrack({ event, ins, busy, error, onSlide, onShowAll, others, onPick, group, selectedIds, onToggle, myName }) {
   const date = toDate(event?.fecha)
   return (
     <div style={{ padding: '28px 22px 40px', display: 'flex', flexDirection: 'column', gap: 22, minHeight: 'calc(100dvh - 90px)', justifyContent: 'center' }}>
@@ -210,8 +210,38 @@ function FastTrack({ event, ins, busy, error, onSlide, onShowAll, others, onPick
         </p>
       </div>
 
+      {/* Mi grupo: yo + invitados sin app. Marca quién entra AHORA (los que llegan después, luego). */}
+      {group.length > 1 && (
+        <div style={{ background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 18, padding: '12px 14px' }}>
+          <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 800, color: TEXT2, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            ¿Quién entra ahora?
+          </p>
+          {group.map(({ person, entered, isMe }) => (
+            <label key={person.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 4px', borderTop: `1px solid ${BORDER}`, cursor: entered ? 'default' : 'pointer', opacity: entered ? 0.6 : 1 }}>
+              <input
+                type="checkbox" disabled={entered || busy}
+                checked={entered || selectedIds.has(person.id)}
+                onChange={() => onToggle(person.id)}
+                style={{ width: 24, height: 24, accentColor: SUCCESS_GREEN, flexShrink: 0 }}
+              />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 16, fontWeight: 700, color: TEXT, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                  {isMe ? `Tú (${myName})` : person.nombre}
+                </span>
+                {!isMe && <span style={{ fontSize: 11, fontWeight: 700, color: '#EA580C' }}>{person.tipo === 'manual' ? 'INVITADO EXTERNO' : 'HIJO/A'}</span>}
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 800, color: entered ? TEXT2 : '#B45309' }}>{entered ? 'Dentro ✅' : 'Pendiente ⏳'}</span>
+            </label>
+          ))}
+        </div>
+      )}
+
       <div style={{ marginTop: 10 }}>
-        <SlideToCheckIn onComplete={onSlide} busy={busy} />
+        <SlideToCheckIn
+          onComplete={onSlide} busy={busy}
+          disabled={selectedIds.size === 0}
+          label={selectedIds.size > 1 ? `Desliza para entregar ${selectedIds.size} tickets` : 'Desliza para entregar ticket'}
+        />
         {error && <p style={{ margin: '12px 0 0', textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#B91C1C' }}>{error}</p>}
       </div>
 
@@ -224,7 +254,7 @@ function FastTrack({ event, ins, busy, error, onSlide, onShowAll, others, onPick
 }
 
 // ─── Modo Puerta: pantalla verde legible a 2 metros ──────────────────────────────────────
-function DoorSuccess({ name, eventTitle, at, onClose }) {
+function DoorSuccess({ name, eventTitle, at, onClose, guestsIn = [], pendingGuests = 0, onManageGuests }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 90, background: SUCCESS_GREEN, color: WHITE, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 'calc(24px + env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom))', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
       <button onClick={onClose}
@@ -239,6 +269,17 @@ function DoorSuccess({ name, eventTitle, at, onClose }) {
       <p style={{ margin: 'clamp(10px, 2.5vh, 22px) 0 0', fontSize: 'clamp(1.6rem, 8vw, 2.6rem)', fontWeight: 800, lineHeight: 1.15, opacity: 0.95, wordBreak: 'break-word' }}>
         {eventTitle}
       </p>
+      {guestsIn.length > 0 && (
+        <p style={{ margin: 'clamp(10px, 2.5vh, 22px) 0 0', fontSize: 'clamp(1.1rem, 5.5vw, 1.8rem)', fontWeight: 700, opacity: 0.95 }}>
+          Con: {guestsIn.join(', ')}
+        </p>
+      )}
+      {pendingGuests > 0 && (
+        <button onClick={onManageGuests}
+          style={{ marginTop: 'clamp(16px, 4vh, 36px)', background: WHITE, color: '#15803d', border: 'none', borderRadius: 16, padding: '16px 22px', fontSize: 18, fontWeight: 800, cursor: 'pointer', minHeight: 'auto', boxShadow: '0 6px 18px rgba(0,0,0,0.2)' }}>
+          Entregar tickets de mis invitados ({pendingGuests})
+        </button>
+      )}
       <p style={{ position: 'absolute', bottom: 'calc(18px + env(safe-area-inset-bottom))', margin: 0, fontSize: 14, fontWeight: 700, opacity: 0.85 }}>
         {at ? `Entrada registrada a las ${at} · ` : ''}<LiveClock />
       </p>
@@ -274,6 +315,8 @@ export default function UserWallet({ events, onClose }) {
   const [pickedId,  setPickedId]  = useState(null)     // varios eventos hoy: cuál se muestra
   const [slideBusy, setSlideBusy] = useState(false)
   const [slideErr,  setSlideErr]  = useState('')
+  const [skipIds,   setSkipIds]   = useState(() => new Set())   // desmarcados en el checklist
+  const [manageGuests, setManageGuests] = useState(false)       // yo ya entré: entregar tickets de invitados
   const eventsById = useMemo(() => new Map(events.map(e => [e.id, e])), [events])
 
   // Sólo entradas pagadas de eventos de hoy en adelante. Si pagué yo → soy pagador.
@@ -302,14 +345,32 @@ export default function UserWallet({ events, onClose }) {
 
   const loading = loadingA || loadingB
 
-  // Entrega del ticket: marca SÓLO mi entrada (checkInEstado[mi uid]) con la transacción compartida.
+  // Grupo del Fast Track: yo + (si soy el titular) mis invitados sin app, con su estado de entrada.
+  const myPerson = current ? getPersons(current.ins).find(p => p.id === user.uid || p.appUid === user.uid) : null
+  const group = useMemo(() => {
+    if (!current) return []
+    const rows = []
+    if (myPerson) rows.push({ person: myPerson, isMe: true, entered: getCheckInState(current.ins, myPerson.id).entered })
+    if (current.isPayer) {
+      for (const p of getDelegatedPersons(current.ins)) {
+        rows.push({ person: p, isMe: false, entered: getCheckInState(current.ins, p.id).entered })
+      }
+    }
+    return rows
+  }, [current, myPerson])
+  const pendingGroup = group.filter(r => !r.entered)
+  const selectedIds  = new Set(pendingGroup.filter(r => !skipIds.has(r.person.id)).map(r => r.person.id))
+  const toggleSelected = (id) => setSkipIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+
+  // Entrega del ticket: marca mi entrada y/o la de mis invitados seleccionados (una transacción).
   const handleSlide = async () => {
     if (!current || slideBusy) return
-    const person = getPersons(current.ins).find(p => p.id === user.uid || p.appUid === user.uid)
-    if (!person) { setSlideErr('No apareces en esta inscripción. Habla con la directiva.'); return }
+    const persons = pendingGroup.filter(r => selectedIds.has(r.person.id)).map(r => r.person)
+    if (!persons.length) { setSlideErr(myPerson ? 'Selecciona a quién entregas el ticket.' : 'No apareces en esta inscripción. Habla con la directiva.'); return }
     setSlideBusy(true); setSlideErr('')
     try {
-      await markCheckIn(current.ins.id, person)
+      await markCheckInGroup(current.ins.id, persons)
+      setSkipIds(new Set())
     } catch (err) {
       const msg = err?.message ?? ''
       setSlideErr(/permission|PERMISSION/.test(msg) || err?.code === 'permission-denied'
@@ -318,15 +379,20 @@ export default function UserWallet({ events, onClose }) {
     } finally { setSlideBusy(false) }
   }
 
-  // Modo Puerta: ya ha entrado hoy (ahora mismo o antes) → pantalla verde gigante
-  if (!loading && !showAll && current && stateOf(current).entered) {
-    const at = toDate(stateOf(current).at)
+  // Modo Puerta: yo ya he entrado hoy → pantalla verde gigante (salvo que esté entregando tickets de invitados)
+  const myEntered     = !!current && !!myPerson && getCheckInState(current.ins, myPerson.id).entered
+  const pendingGuests = group.filter(r => !r.isMe && !r.entered).length
+  if (!loading && !showAll && current && myEntered && (pendingGuests === 0 || !manageGuests)) {
+    const at = toDate(getCheckInState(current.ins, myPerson.id).at)
     return (
       <DoorSuccess
         name={myName}
         eventTitle={current.event?.titulo ?? current.ins.eventoTitulo}
         at={at ? fmtHour(at) : null}
         onClose={onClose}
+        guestsIn={group.filter(r => !r.isMe && r.entered).map(r => r.person.nombre)}
+        pendingGuests={pendingGuests}
+        onManageGuests={() => { setManageGuests(true); setSkipIds(new Set()) }}
       />
     )
   }
@@ -352,7 +418,8 @@ export default function UserWallet({ events, onClose }) {
             event={current.event} ins={current.ins}
             busy={slideBusy} error={slideErr}
             onSlide={handleSlide} onShowAll={() => setShowAll(true)}
-            others={todays} onPick={id => { setPickedId(id); setSlideErr('') }}
+            others={todays} onPick={id => { setPickedId(id); setSlideErr(''); setSkipIds(new Set()); setManageGuests(false) }}
+            group={group} selectedIds={selectedIds} onToggle={toggleSelected} myName={myName}
           />
         ) : tickets.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 16px', background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 20 }}>

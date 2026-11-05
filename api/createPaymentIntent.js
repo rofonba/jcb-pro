@@ -72,9 +72,9 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Falta eventId' })
   }
   // El desglose adulto/niño lo calcula el servidor a partir de las personas y sus fechas de nacimiento
-  let aCount, cCount
+  let aCount, cCount, extA, extC
   try {
-    ;({ adultCount: aCount, childCount: cCount } =
+    ;({ adultCount: aCount, childCount: cCount, externalAdultCount: extA, externalChildCount: extC } =
       await computeBreakdown(getFirestore(adminApp()), uid, companions ?? []))
   } catch (err) {
     if (err instanceof PricingError) return res.status(err.status).json({ error: err.message })
@@ -141,6 +141,8 @@ export default async function handler(req, res) {
         childCount: String(cCount),
         totalNeto:  (totalNetoCent / 100).toFixed(2),
         totalNetoCent: String(totalNetoCent),
+        externalAdultCount: String(extA),   // el webhook comprueba que la inscripción lleva exactamente
+        externalChildCount: String(extC),   // los externos que se cobraron aquí
       },
     })
     return res.status(200).json({

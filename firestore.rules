@@ -75,49 +75,69 @@ service cloud.firestore {
     // Inscripciones: fallero autenticado crea la suya y borra/edita las suyas; admins gestionan todo
     match /inscripciones/{docId} {
       allow read:   if request.auth != null;
-      // Campos que el usuario NUNCA puede escribir: financieros (sólo webhook con Admin SDK,
-      // que ignora estas reglas, o admin/directiva) y de check-in (sólo staff).
+
+      // ¿El evento cobra online (Stripe)? En esos eventos TODA inscripción creada desde la app nace
+      // como 'pendiente': no cuenta como inscrita ni da acceso hasta que el webhook (Admin SDK)
+      // confirme el cobro (pagado:true). Así nadie puede inscribirse —ni meter externos— sin pagar.
+      function eventoCobraOnline(eventId) {
+        return get(/databases/$(database)/documents/eventos/$(eventId)).data.get('pagoApp', false) == true;
+      }
+
+      // Campos que el usuario NUNCA puede escribir: financieros y checkInDelegadoIds (sólo el webhook,
+      // con Admin SDK, que ignora estas reglas, o admin/directiva) y de check-in (ver selfCheckIn).
       // create: el dueño no puede incluirlos; staff sí (inscripciones manuales).
       allow create: if request.auth != null
         && (isPrivileged()
             || (request.resource.data.uid == request.auth.uid
                 && !request.resource.data.keys().hasAny([
                      'pagado', 'pagadoAt', 'stripePaymentId', 'totalNeto',
-                     'totalConComision', 'gastosGestion',
-                     'checkInEstado', 'checkIn', 'checkInAt'])));
-      // Auto check-in (Fast Track): una persona sólo puede marcar SU PROPIA entrada, una sola vez,
-      // en una inscripción pagada de la que es titular o beneficiaria. No puede deshacerla ni tocar
-      // nada más. La fecha de entrada es la del servidor (request.time).
+                     'totalConComision', 'gastosGestion', 'checkInDelegadoIds',
+                     'checkInEstado', 'checkIn', 'checkInAt'])
+                && (!eventoCobraOnline(request.resource.data.eventId)
+                    || request.resource.data.get('estadoPago', '') == 'pendiente')));
+
+      // Check-in desde la app (Fast Track), sobre una inscripción PAGADA:
+      //   · cualquier titular o beneficiario: SU PROPIA entrada;
+      //   · el titular además: la de sus invitados sin app (ids en checkInDelegadoIds, fijados por el webhook).
+      // Sólo se pueden AÑADIR entradas: nunca deshacer ni sobrescribir (eso es del staff).
+      // La hora de la propia entrada es la del servidor (request.time).
       function selfCheckIn() {
-        let me     = request.auth.uid;
-        let before = resource.data.get('checkInEstado', {});
-        let after  = request.resource.data.get('checkInEstado', {});
+        let me      = request.auth.uid;
+        let before  = resource.data.get('checkInEstado', {});
+        let after   = request.resource.data.get('checkInEstado', {});
+        let changed = after.diff(before).affectedKeys();
+        let allowed = resource.data.uid == me
+          ? [me].concat(resource.data.get('checkInDelegadoIds', []))
+          : [me];
         return resource.data.get('pagado', false) == true
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkInEstado'])
-          && !(me in before)
-          && after.diff(before).affectedKeys().hasOnly([me])
-          && after[me].keys().hasOnly(['checkIn', 'checkInAt'])
-          && after[me].checkIn == true
-          && after[me].checkInAt == request.time;
+          && changed.size() > 0
+          && changed.hasOnly(allowed)
+          && before.keys().toSet().intersection(changed).size() == 0
+          && (!changed.hasAny([me])
+              || (after[me].keys().hasOnly(['checkIn', 'checkInAt'])
+                  && after[me].checkIn == true
+                  && after[me].checkInAt == request.time));
       }
-      // update: el dueño no puede añadir, modificar ni borrar esos campos.
+
       allow update: if request.auth != null
         && (isPrivileged()
             || ((resource.data.uid == request.auth.uid
                  || request.auth.uid in resource.data.get('beneficiariosUids', []))
                 && selfCheckIn())
             || (resource.data.uid == request.auth.uid
-                // nunca: campos financieros, de check-in, ni reasignar la inscripción a otro evento/usuario
+                // nunca: campos financieros, de check-in, estadoPago, ni reasignar a otro evento/usuario
                 && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
                      'pagado', 'pagadoAt', 'stripePaymentId', 'totalNeto',
-                     'totalConComision', 'gastosGestion',
+                     'totalConComision', 'gastosGestion', 'checkInDelegadoIds',
                      'checkInEstado', 'checkIn', 'checkInAt',
-                     'uid', 'eventId'])
+                     'estadoPago', 'uid', 'eventId'])
                 // inscripción ya pagada: congelar personas y acompañantes
                 && !(resource.data.get('pagado', false) == true
                      && request.resource.data.diff(resource.data).affectedKeys().hasAny([
                           'totalPersonas', 'beneficiarios', 'beneficiariosUids',
                           'acompañantes', 'acompañantesAdultos', 'acompañantesNinos']))));
+
       // Una inscripción pagada sólo la puede borrar el staff (la directiva gestiona las bajas).
       allow delete: if request.auth != null
         && (isPrivileged()
