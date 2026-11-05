@@ -924,10 +924,13 @@ function HomeTab({
         <div style={{ padding: '12px 20px 0' }}>
           <button
             onClick={onOpenPanel}
-            style={{ width: '100%', minHeight: 'auto', padding: '14px 18px', background: WHITE, border: `1.5px solid ${GOLD}55`, borderRadius: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}
+            style={{ width: '100%', minHeight: 'auto', padding: '20px 18px', background: WHITE, border: `1.5px solid ${GOLD}55`, borderRadius: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}
           >
-            <span style={{ fontSize: 22 }}>🛠️</span>
-            <span style={{ fontSize: 15, fontWeight: 800, color: GOLD, letterSpacing: '0.01em' }}>Panel Control</span>
+            <span style={{ fontSize: 34 }}>📊</span>
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+              <span style={{ fontSize: 22, fontWeight: 900, color: GOLD, letterSpacing: '-0.02em', lineHeight: 1 }}>Control de Accesos</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: TEXT2 }}>Comprobar quién ha pagado</span>
+            </span>
           </button>
         </div>
       )}
