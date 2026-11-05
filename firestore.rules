@@ -85,9 +85,27 @@ service cloud.firestore {
                      'pagado', 'pagadoAt', 'stripePaymentId', 'totalNeto',
                      'totalConComision', 'gastosGestion',
                      'checkInEstado', 'checkIn', 'checkInAt'])));
+      // Auto check-in (Fast Track): una persona sólo puede marcar SU PROPIA entrada, una sola vez,
+      // en una inscripción pagada de la que es titular o beneficiaria. No puede deshacerla ni tocar
+      // nada más. La fecha de entrada es la del servidor (request.time).
+      function selfCheckIn() {
+        let me     = request.auth.uid;
+        let before = resource.data.get('checkInEstado', {});
+        let after  = request.resource.data.get('checkInEstado', {});
+        return resource.data.get('pagado', false) == true
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkInEstado'])
+          && !(me in before)
+          && after.diff(before).affectedKeys().hasOnly([me])
+          && after[me].keys().hasOnly(['checkIn', 'checkInAt'])
+          && after[me].checkIn == true
+          && after[me].checkInAt == request.time;
+      }
       // update: el dueño no puede añadir, modificar ni borrar esos campos.
       allow update: if request.auth != null
         && (isPrivileged()
+            || ((resource.data.uid == request.auth.uid
+                 || request.auth.uid in resource.data.get('beneficiariosUids', []))
+                && selfCheckIn())
             || (resource.data.uid == request.auth.uid
                 // nunca: campos financieros, de check-in, ni reasignar la inscripción a otro evento/usuario
                 && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
