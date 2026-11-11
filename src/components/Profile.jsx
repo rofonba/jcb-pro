@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  collection, query, orderBy, getDocs, getDoc, where,
+  collection, query, orderBy, getDocs, where,
   doc, updateDoc, arrayUnion, arrayRemove, onSnapshot, writeBatch,
 } from 'firebase/firestore'
 import { db } from '../firebase'
@@ -9,6 +9,7 @@ import { syncDirectorio } from '../utils/directorio'
 import { formatDistintivo } from '../utils/distintivo'
 import { useAuth } from '../contexts/AuthContext'
 import { usePushNotifications } from '../hooks/usePushNotifications'
+import { useFamilia } from '../hooks/useFamilia'
 import { enviarNotificacionFCM } from '../services/fcmService'
 import {
   Download, Users, ChevronRight, X, Loader2,
@@ -455,43 +456,18 @@ function normalizeSearch(str) {
 }
 
 function FamiliaSection({ fallero, userId, onUpdate }) {
-  const familiaUids = fallero?.familiaUids ?? []
-  const [familiaData,    setFamiliaData]    = useState([])
-  const [loadingFam,     setLoadingFam]     = useState(false)
+  const ownUids = fallero?.familiaUids ?? []
+  // Familia = mis familiaUids ∪ quienes me han añadido (vínculo automático y bidireccional)
+  const { familiaUids, members: familiaData, addedMeUids, loading: loadingFam } = useFamilia(userId, ownUids)
   const [showSearch,     setShowSearch]     = useState(false)
   const [fallerosList,   setFallerosList]   = useState([])
   const [search,         setSearch]         = useState('')
   const [linking,        setLinking]        = useState(false)
+  const [unlinking,      setUnlinking]      = useState(null)
   const [linkError,      setLinkError]      = useState('')
   const [linkInfo,       setLinkInfo]       = useState('')  // mensaje verde post-vinculación
-  const [listsMe,        setListsMe]        = useState([])    // falleros que me tienen en su familiaUids
-  const [dismissed,      setDismissed]      = useState([])    // invitaciones ocultadas localmente
-  const [accepting,      setAccepting]      = useState(null)
 
   const familiaKey = familiaUids.join(',')
-  // Datos de mis familiares: del `directorio` (nombre, apellidos, nº), NUNCA de `falleros`,
-  // que sólo puede leer su dueño (o quien él mismo haya vinculado).
-  useEffect(() => {
-    if (familiaUids.length === 0) { setFamiliaData([]); return }
-    setLoadingFam(true)
-    Promise.all(familiaUids.map(uid => getDoc(doc(db, 'directorio', uid))))
-      .then(docs => setFamiliaData(docs.filter(d => d.exists()).map(d => ({ uid: d.id, ...d.data() }))))
-      .catch(() => setFamiliaData([]))
-      .finally(() => setLoadingFam(false))
-  }, [familiaKey]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Quién me tiene en su familiaUids. Las reglas permiten leer el doc de quien te ha vinculado
-  // (él lo ha decidido). Sirve para: invitaciones pendientes y saber si un vínculo es mutuo.
-  useEffect(() => {
-    if (!userId) return
-    const q = query(collection(db, 'falleros'), where('familiaUids', 'array-contains', userId))
-    return onSnapshot(q,
-      snap => setListsMe(snap.docs.filter(d => d.id !== userId).map(d => ({ uid: d.id, ...d.data() }))),
-      err => console.warn('[familia] invitaciones', err?.code ?? err))
-  }, [userId])
-
-  const listsMeUids    = new Set(listsMe.map(f => f.uid))
-  const pendingInvites = listsMe.filter(f => !familiaUids.includes(f.uid) && !dismissed.includes(f.uid))
 
   const openSearch = async () => {
     setShowSearch(true); setSearch(''); setLinkError(''); setLinkInfo('')
@@ -514,17 +490,14 @@ function FamiliaSection({ fallero, userId, onUpdate }) {
       .slice(0, 20)
   }, [fallerosList, search, userId, familiaKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Vínculo por CONSENTIMIENTO: cada uno sólo escribe su propio familiaUids.
-  // Al vincular, el otro recibe una invitación y la acepta desde su perfil (nadie puede
-  // meterse en la familia de otro: eso le daría lectura de su ficha completa).
+  // Vincular = añadirlo a MI familiaUids. Con eso basta: el otro me verá automáticamente
+  // como familiar (consulta inversa), sin invitación ni aceptación.
   const linkFamiliar = async (targetId, targetData) => {
     setLinking(true); setLinkError(''); setLinkInfo('')
     try {
       await updateDoc(doc(db, 'falleros', userId), { familiaUids: arrayUnion(targetId) })
-      onUpdate({ familiaUids: [...familiaUids, targetId] })
-      setLinkInfo(listsMeUids.has(targetId)
-        ? `Vinculado con ${targetData.nombre}.`
-        : `Invitación enviada. ${targetData.nombre} la verá en su perfil y deberá aceptarla para completar el vínculo.`)
+      onUpdate({ familiaUids: [...ownUids.filter(u => u !== targetId), targetId] })
+      setLinkInfo(`Vinculado con ${targetData.nombre}.`)
       setShowSearch(false)
     } catch (err) {
       setLinkError('No se pudo guardar el vínculo. ' + (err?.message ?? ''))
@@ -533,38 +506,23 @@ function FamiliaSection({ fallero, userId, onUpdate }) {
     }
   }
 
-  const acceptInvite = async (sender) => {
-    setAccepting(sender.uid)
-    try {
-      await updateDoc(doc(db, 'falleros', userId), { familiaUids: arrayUnion(sender.uid) })
-      onUpdate({ familiaUids: [...familiaUids, sender.uid] })
-    } catch (err) {
-      setLinkError(err?.message || 'No se pudo aceptar la invitación.')
-    } finally { setAccepting(null) }
-  }
-
-  const dismissInvite = async (sender) => {
-    // Rechazar = quitarme de SU familiaUids (las reglas permiten exactamente eso y nada más)
-    setDismissed(prev => [...prev, sender.uid])
-    try {
-      await updateDoc(doc(db, 'falleros', sender.uid), { familiaUids: arrayRemove(userId) })
-    } catch (err) { console.warn('[familia] rechazar invitación', err?.code ?? err) }
-  }
-
+  // Desvincular rompe el vínculo por las DOS vías:
+  //   · si está en mi lista → lo quito de mi familiaUids;
+  //   · si él me añadió     → quito MI uid de su familiaUids (lo único que permiten las reglas).
   const unlinkFamiliar = async (targetId) => {
-    setLinkError('')
+    setUnlinking(targetId); setLinkError(''); setLinkInfo('')
     try {
-      await updateDoc(doc(db, 'falleros', userId), { familiaUids: arrayRemove(targetId) })
-      onUpdate({ familiaUids: familiaUids.filter(uid => uid !== targetId) })
+      if (ownUids.includes(targetId)) {
+        await updateDoc(doc(db, 'falleros', userId), { familiaUids: arrayRemove(targetId) })
+        onUpdate({ familiaUids: ownUids.filter(uid => uid !== targetId) })
+      }
+      if (addedMeUids.has(targetId)) {
+        await updateDoc(doc(db, 'falleros', targetId), { familiaUids: arrayRemove(userId) })
+      }
     } catch (err) {
       setLinkError('No se pudo desvincular. ' + (err?.message ?? ''))
-      return
-    }
-    // Romper también el lado del otro: las reglas sólo permiten quitar MI uid de su lista
-    if (listsMeUids.has(targetId)) {
-      try {
-        await updateDoc(doc(db, 'falleros', targetId), { familiaUids: arrayRemove(userId) })
-      } catch (err) { console.warn('[familia] desvincular en el otro perfil', err?.code ?? err) }
+    } finally {
+      setUnlinking(null)
     }
   }
 
@@ -595,61 +553,27 @@ function FamiliaSection({ fallero, userId, onUpdate }) {
         </p>
       )}
 
-      {/* Invitaciones recibidas (alguien que me ha añadido y yo aún no a él) */}
-      {pendingInvites.length > 0 && (
-        <div style={{ marginBottom: 10 }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: GOLD, margin: '0 0 6px', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            Invitaciones recibidas · {pendingInvites.length}
-          </p>
-          {pendingInvites.map(p => (
-            <div key={p.uid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '9px 11px', background: `${GOLD}0d`, border: `1.5px solid ${GOLD}40`, borderRadius: 12, marginBottom: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                <span style={{ fontSize: 18 }}>📨</span>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: TEXT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {p.nombre} {p.apellidos ?? ''}
-                  </div>
-                  <div style={{ fontSize: 11, color: TEXT2 }}>te ha vinculado como familiar</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-                <button onClick={() => acceptInvite(p)} disabled={accepting === p.uid}
-                  style={{ background: GOLD, color: WHITE, border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 700, cursor: accepting === p.uid ? 'not-allowed' : 'pointer', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  {accepting === p.uid ? <Loader2 size={12} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : <Check size={12} strokeWidth={3} />}
-                  Aceptar
-                </button>
-                <button onClick={() => dismissInvite(p)} title="Ocultar"
-                  style={{ background: BORDER, color: MUTED, border: 'none', borderRadius: 8, padding: '6px 8px', cursor: 'pointer', minHeight: 'auto', display: 'flex', alignItems: 'center' }}>
-                  <X size={12} />
-                </button>
-              </div>
+      {familiaData.map(m => (
+        <div key={m.uid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderTop: `1px solid ${BORDER}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 32, height: 32, background: 'rgba(99,102,241,0.1)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>👫</div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: TEXT }}>{m.nombre} {m.apellidos ?? ''}</div>
+              <div style={{ fontSize: 11, color: GREEN, fontWeight: 600 }}>✅ Familiar activo</div>
             </div>
-          ))}
-        </div>
-      )}
-
-      {familiaData.map(m => {
-        const isMutual = listsMeUids.has(m.uid)
-        return (
-          <div key={m.uid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderTop: `1px solid ${BORDER}` }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 32, height: 32, background: 'rgba(99,102,241,0.1)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>👫</div>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: TEXT }}>{m.nombre} {m.apellidos ?? ''}</div>
-                <div style={{ fontSize: 11, color: isMutual ? GREEN : MUTED, fontWeight: isMutual ? 600 : 400 }}>
-                  {isMutual ? '✅ Vínculo confirmado' : '⏳ Pendiente de aceptación por su parte'}
-                  {m.numero && ` · Nº ${m.numero}`}
-                </div>
-              </div>
-            </div>
-            <button onClick={() => unlinkFamiliar(m.uid)} style={{ background: 'rgba(239,68,68,0.08)', color: '#EF4444', border: '1.5px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '6px', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', display: 'flex', alignItems: 'center' }}>
-              <UserMinus size={13} />
-            </button>
           </div>
-        )
-      })}
+          <button onClick={() => unlinkFamiliar(m.uid)} disabled={unlinking === m.uid} title="Desvincular"
+            style={{ background: 'rgba(239,68,68,0.08)', color: '#EF4444', border: '1.5px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '6px', cursor: unlinking === m.uid ? 'not-allowed' : 'pointer', minHeight: 'auto', minWidth: 'auto', display: 'flex', alignItems: 'center' }}>
+            {unlinking === m.uid
+              ? <Loader2 size={13} style={{ animation: 'falla-spin 0.8s linear infinite' }} />
+              : <UserMinus size={13} />}
+          </button>
+        </div>
+      ))}
 
-      {familiaData.length === 0 && pendingInvites.length === 0 && !showSearch && !loadingFam && (
+      {linkError && !showSearch && <p style={{ fontSize: 12, color: RED, margin: '8px 0 0', fontWeight: 600 }}>⚠️ {linkError}</p>}
+
+      {familiaData.length === 0 && !showSearch && !loadingFam && (
         <p style={{ fontSize: 13, color: MUTED, margin: '8px 0 0' }}>
           Vincula a tu pareja u otros adultos de tu familia para gestionar inscripciones juntos.
         </p>

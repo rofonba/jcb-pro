@@ -19,6 +19,7 @@ import {
   Elements, useStripe, useElements,
   CardElement, PaymentRequestButtonElement,
 } from '@stripe/react-stripe-js'
+import { useFamilia } from '../hooks/useFamilia'
 
 // Singleton Stripe — se carga una sola vez fuera de cualquier render.
 // La publishable key viaja al cliente; nunca la secret.
@@ -1014,11 +1015,11 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
   const [status,     setStatus]     = useState(isRegistered ? 'duplicate' : 'clean')
   const [saving,     setSaving]     = useState(false)
 
-  const familiaUids = fallero?.familiaUids ?? []
+  // Familia = mis familiaUids ∪ quienes me han añadido (vínculo automático y bidireccional)
+  const { familiaUids, members: familiaMembers } = useFamilia(user?.uid, fallero?.familiaUids ?? [])
   const hijosNormalized = (fallero?.hijos ?? []).map(h => typeof h === 'string' ? { nombre: h, fechaNacimiento: null } : h)
 
   const [fallerosList,        setFallerosList]        = useState([])
-  const [familiaFalleros,     setFamiliaFalleros]     = useState({}) // uid → nombre
   const [familyInscribedByUid, setFamilyInscribedByUid] = useState(new Map()) // normalizedName → uid
   const [inscritosCount, setInscritosCount] = useState(null)
   const [takenNames,     setTakenNames]     = useState(new Set())
@@ -1049,17 +1050,11 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
       .catch(() => {})
   }, [])
 
-  useEffect(() => {
-    if (familiaUids.length === 0) return
-    // Nombres de mis familiares: del `directorio`, nunca de `falleros`
-    Promise.all(familiaUids.map(uid => getDoc(doc(db, 'directorio', uid))))
-      .then(docs => {
-        const map = {}
-        docs.forEach(d => { if (d.exists()) map[d.id] = `${d.data().nombre} ${d.data().apellidos ?? ''}`.trim() })
-        setFamiliaFalleros(map)
-      })
-      .catch(() => {})
-  }, [familiaUids.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
+  // uid → nombre completo de cada familiar (del directorio, vía useFamilia)
+  const familiaFalleros = useMemo(
+    () => Object.fromEntries(familiaMembers.map(m => [m.uid, `${m.nombre ?? ''} ${m.apellidos ?? ''}`.trim()])),
+    [familiaMembers],
+  )
 
   useEffect(() => {
     const q = query(collection(db, 'inscripciones'), where('eventId', '==', event.id))
