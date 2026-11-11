@@ -6,6 +6,7 @@ import {
 import { db } from '../firebase'
 import { isPendingPayment } from '../utils/inscripciones'
 import { syncDirectorio } from '../utils/directorio'
+import { formatDistintivo } from '../utils/distintivo'
 import { useAuth } from '../contexts/AuthContext'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { enviarNotificacionFCM } from '../services/fcmService'
@@ -121,7 +122,6 @@ function ContactSection({ fallero, userId, onUpdate }) {
   const [savingPhone,  setSavingPhone]  = useState(false)
   const [savingBirth,  setSavingBirth]  = useState(false)
 
-  const numFallero = fallero?.numeroFallero ?? fallero?.memberNumber ?? fallero?.numero ?? null
 
   const savePhone = async (val) => {
     setSavingPhone(true)
@@ -148,17 +148,6 @@ function ContactSection({ fallero, userId, onUpdate }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
         <Phone size={15} color={GOLD} />
         <span style={{ fontSize: 14, fontWeight: 700, color: TEXT }}>Contacto</span>
-      </div>
-
-      {/* Número de fallero — autogenerado, solo lectura */}
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
-        paddingBottom: '0.65rem', marginBottom: '0.65rem', borderBottom: `1px solid ${BORDER}`,
-      }}>
-        <span style={{ fontSize: 13, color: TEXT2 }}>Nº Fallero</span>
-        <span style={{ fontSize: 13, color: TEXT, fontWeight: 600 }}>
-          {numFallero != null ? `Nº ${String(numFallero).padStart(3, '0')}` : 'S/N'}
-        </span>
       </div>
 
       {/* Teléfono */}
@@ -190,10 +179,11 @@ function ContactSection({ fallero, userId, onUpdate }) {
 }
 
 // ─── Carnet Digital (dark — es un carnet físico) ──────────────────────────────
-function CarnetDigital({ nombre, numFallero, rol, isLoading }) {
+function CarnetDigital({ nombre, numeroCenso, distintivo, rol, isLoading }) {
   const isAdmin   = rol === 'admin'
-  // numFallero: number | null.  null → 'S-000'
-  const numDisplay = numFallero != null ? String(numFallero).padStart(3, '0') : 'S-000'
+  // Nº del censo oficial de la falla (volcado desde el Excel). Sin número todavía → '---'
+  const numDisplay = numeroCenso != null ? String(numeroCenso).padStart(3, '0') : '---'
+  const dist = formatDistintivo(distintivo)
   return (
     <div style={{
       borderRadius: 20, overflow: 'hidden',
@@ -244,7 +234,7 @@ function CarnetDigital({ nombre, numFallero, rol, isLoading }) {
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.2rem' }}>
-              Número de Fallero
+              Nº de Censo
             </div>
             <div style={{
               fontSize: '2.4rem', fontWeight: '900', lineHeight: 1, letterSpacing: '-0.02em',
@@ -283,6 +273,27 @@ function CarnetDigital({ nombre, numFallero, rol, isLoading }) {
               {isAdmin ? 'Administrador' : 'Fallero'}
             </span>
           </span>
+          {/* Distintivo (recompensa) del censo */}
+          {!isLoading && dist && (
+            <div style={{ marginTop: '0.5rem' }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                padding: '0.25rem 0.7rem',
+                background: 'linear-gradient(135deg, rgba(212,175,55,0.22), rgba(212,175,55,0.08))',
+                border: '1px solid rgba(212,175,55,0.55)',
+                borderRadius: '100px',
+                boxShadow: '0 0 12px rgba(212,175,55,0.15)',
+              }}>
+                <span style={{ fontSize: '0.75rem', lineHeight: 1 }}>🏅</span>
+                <span style={{ fontSize: '0.65rem', fontWeight: '800', color: GOLD, letterSpacing: '0.04em' }}>
+                  {dist.label}
+                </span>
+                {dist.year && (
+                  <span style={{ fontSize: '0.6rem', fontWeight: '700', color: 'rgba(212,175,55,0.7)' }}>· {dist.year}</span>
+                )}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1139,7 +1150,6 @@ export default function Profile() {
   const { user, fallero, loading, logout, updateFallero } = useAuth()
 
   // Support all field name variants across app versions
-  const numFallero   = fallero?.numeroFallero ?? fallero?.memberNumber ?? fallero?.numero ?? null
   const nombre       = fallero ? `${fallero.nombre} ${fallero.apellidos ?? ''}`.trim() : user?.displayName || user?.email?.split('@')[0] || 'Fallero'
   const rol          = fallero?.rol ?? 'fallero'
   const isAdmin      = rol === 'admin'
@@ -1152,7 +1162,7 @@ export default function Profile() {
         <p style={{ fontSize: 13, color: TEXT2, margin: 0 }}>Tu carnet digital de fallero</p>
       </div>
 
-      <CarnetDigital nombre={nombre} numFallero={numFallero} rol={rol} isLoading={loading} />
+      <CarnetDigital nombre={nombre} numeroCenso={fallero?.numeroCenso ?? null} distintivo={fallero?.distintivo ?? null} rol={rol} isLoading={loading} />
 
       {/* Info */}
       <Card>

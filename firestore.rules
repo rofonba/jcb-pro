@@ -16,14 +16,19 @@ service cloud.firestore {
     match /falleros/{userId} {
       allow read: if request.auth != null
         && (request.auth.uid == userId || isPrivileged());
-      // El número de fallero solo puede asignarlo el contador atómico (misma transacción)
+      // Alta: el número de fallero sólo lo asigna el contador atómico (misma transacción), el rol
+      // nace como 'fallero' y los datos oficiales del censo (numeroCenso, distintivo) no se pueden
+      // autoasignar: los vuelca la directiva con scripts/syncCenso.js (Admin SDK).
       allow create: if request.auth != null && request.auth.uid == userId
         && request.resource.data.numeroFallero ==
-           getAfter(/databases/$(database)/documents/metadata/counters).data.ultimoNumeroFallero;
-      // El usuario no puede modificar su número de fallero; solo un admin
+           getAfter(/databases/$(database)/documents/metadata/counters).data.ultimoNumeroFallero
+        && request.resource.data.get('rol', 'fallero') == 'fallero'
+        && !request.resource.data.keys().hasAny(['numeroCenso', 'distintivo']);
+      // El usuario edita su perfil, pero NUNCA su número, su rol ni sus datos del censo; sólo un admin
       allow update: if request.auth != null
         && ((request.auth.uid == userId
-             && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['numeroFallero']))
+             && !request.resource.data.diff(resource.data).affectedKeys()
+                   .hasAny(['numeroFallero', 'rol', 'numeroCenso', 'distintivo']))
             || isAdmin());
     }
 

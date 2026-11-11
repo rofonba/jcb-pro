@@ -44,3 +44,6 @@ vite.config.js.timestamp-*
 *.njsproj
 *.sln
 *.sw?
+
+# Censo oficial (datos personales, RGPD): nunca al repositorio
+docs/*.xlsx
