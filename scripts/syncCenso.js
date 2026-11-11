@@ -15,11 +15,30 @@
 //
 // Excel esperado (hoja 1, fila 1 = cabecera): A = N.Censo · B = Cognoms · C = Nom · D = Recompensas
 //
-// Cruce: por nombre + apellidos normalizados (sin tildes, mayúsculas, sin signos). No hay otro campo
-// común entre el Excel y la app. Reglas:
-//   · EXACTO   → nombre y apellidos completos idénticos y únicos en ambos lados.
-//   · PARCIAL  → mismo nombre y los apellidos de la app son el principio de los del Excel
-//                (p. ej. la persona escribió sólo el primer apellido) y hay UN único candidato.
+// Cruce por NOMBRE COMPLETO. En la app se concatenan `nombre` + `apellidos` (fullNameApp): así da igual
+// que el usuario lo escribiera todo en `nombre` y dejara `apellidos` vacío o repetido. En el Excel,
+// Nom + Cognoms (fullNameExcel). Ambos se normalizan: minúsculas, sin tildes, sin signos, sin espacios
+// dobles. Si en la app los apellidos ya estaban escritos al final de `nombre`, no se duplican
+// ("Pilar Gimeno Sabater" + "Gimeno Sabater" → "pilar gimeno sabater").
+//   · EXACTO  → fullNameApp idéntico a fullNameExcel (también en orden "apellidos nombre"),
+//               con un único candidato.
+//   · PARCIAL → fullNameApp está INCLUIDO en fullNameExcel como palabras completas y seguidas
+//               (p. ej. "pilar gimeno" ⊂ "pilar gimeno sabater"), con al menos 2 palabras y UN único
+//               candidato. Nunca por trozos de palabra: "ana" no casa con "juliana".
+//   · PARCIAL por APELLIDOS (apodos: Quique/Enrique, Paco/Francisco) → al menos 2 palabras de la app
+//               coinciden con palabras de los APELLIDOS (Cognoms) del Excel —sin contar partículas
+//               como "de", "la", "y" ni iniciales sueltas— y hay UN único candidato en todo el censo.
+//               Se descartan candidatos cuyo nombre de pila contradiga el de la app según el
+//               diccionario (Paco ≠ José Luis). Se marca "parcial (apellidos)": revísalos igualmente,
+//               un familiar con nombre no reconocido y los mismos apellidos aún podría casar.
+//   · APODOS: antes de cruzar, la primera palabra del nombre se traduce con el diccionario APODOS
+//     (Paco → Francisco, Quique → Enrique, Pepe → José…) en LOS DOS LADOS, porque el propio censo
+//     también usa apodos (FINA, CHELO, NACHO). Se prueba siempre primero el nombre tal cual y, si no
+//     cruza, la versión traducida: "exacto (apodo)" / "parcial (apodo)". También se expanden
+//     abreviaturas (Mª → María, Fco. → Francisco, Vte. → Vicente).
+//   · Orden: exacto → exacto (apodo) → parcial → parcial (apodo) → parcial (apellidos). Cada vía
+//     sólo se usa si la anterior no encontró nada. Con 2+ candidatos → ambiguo.
+//   · Sólo los EXACTOS se escriben con --apply; todo lo demás necesita --partial.
 //   · Ambiguo / sin cruce → no se toca; se lista para revisarlo a mano.
 // Es idempotente: se puede ejecutar varias veces.
 
@@ -34,6 +53,48 @@ const PARTIAL  = args.includes('--partial')
 const PARSE    = args.includes('--parse-only')
 const fileIdx  = args.indexOf('--file')
 const FILE     = fileIdx >= 0 ? args[fileIdx + 1] : 'docs/261111 CENSO JCB.xlsx'
+
+// ─── Diccionario de apodos → nombre formal (en minúsculas y sin tildes) ───────────────────────
+// Un apodo puede venir de varios nombres: se prueban todos y, si hay más de un candidato, es ambiguo.
+// Incluye equivalencias valenciano/catalán ↔ castellano (Josep ↔ José, Vicent ↔ Vicente…).
+const APODOS = {
+  // Francisco/a
+  paco: ['francisco'], paquito: ['francisco'], curro: ['francisco'], fran: ['francisco'],
+  quico: ['francisco'], cisco: ['francisco'], frasco: ['francisco'],
+  paqui: ['francisca'], paca: ['francisca'], fani: ['estefania'],
+  // José / Josefa / Josefina
+  pepe: ['jose'], pepito: ['jose'], pep: ['jose'], josep: ['jose'], jose: ['josep'],
+  chema: ['jose maria'], josema: ['jose maria'], josemi: ['jose miguel'], joselu: ['jose luis'],
+  juanjo: ['juan jose'], juanma: ['juan manuel'], juanvi: ['juan vicente'], juanra: ['juan ramon'],
+  pepa: ['josefa'], pepi: ['josefa'], pepita: ['josefa'],
+  fina: ['josefina', 'serafina'], finita: ['josefina'],
+  // Enrique, Alejandro/a, Ignacio, Antonio…
+  quique: ['enrique'], kike: ['enrique'],
+  alex: ['alejandro', 'alejandra'], ale: ['alejandro', 'alejandra'],
+  nacho: ['ignacio'], toni: ['antonio'], tono: ['antonio'], tonet: ['antonio'], antoni: ['antonio'],
+  manolo: ['manuel'], nelo: ['manuel'], lolo: ['manuel'],
+  rafa: ['rafael'], santi: ['santiago'], nando: ['fernando'], fer: ['fernando'],
+  javi: ['javier'], xavi: ['javier'], xavier: ['javier'], dani: ['daniel'], edu: ['eduardo'],
+  guille: ['guillermo'], nico: ['nicolas'], seba: ['sebastian'], chus: ['jesus', 'maria jesus'],
+  chuso: ['jesus'], suso: ['jesus'], voro: ['salvador'], salva: ['salvador'],
+  ximo: ['joaquin'], quim: ['joaquin'], joaquim: ['joaquin'], vicent: ['vicente'], vicen: ['vicente'],
+  joan: ['juan'], jaume: ['jaime'], pere: ['pedro'], jordi: ['jorge'], miquel: ['miguel'],
+  pau: ['pablo'], bernat: ['bernardo'], albert: ['alberto'], lluis: ['luis'], pascual: ['pasqual'],
+  // María …
+  mari: ['maria'], marita: ['maria'], maribel: ['maria isabel'], marisa: ['maria luisa'],
+  maite: ['maria teresa'], marisol: ['maria soledad'], mayte: ['maria teresa'],
+  maricarmen: ['maria carmen', 'maria del carmen'], mamen: ['maria carmen'], menchu: ['carmen'],
+  pili: ['pilar', 'maria pilar'], lola: ['dolores', 'maria dolores'], loli: ['dolores', 'maria dolores'],
+  dori: ['dorotea'], conchi: ['concepcion'], concha: ['concepcion'], conchita: ['concepcion'],
+  charo: ['rosario', 'maria rosario'], chelo: ['consuelo'], tere: ['teresa'], isa: ['isabel'],
+  merche: ['mercedes'], merxe: ['mercedes'], amparin: ['amparo'], cristi: ['cristina'],
+  bea: ['beatriz'], vero: ['veronica'], patri: ['patricia'], susi: ['susana'], nati: ['natividad', 'natalia'],
+  inma: ['inmaculada'], reme: ['remedios'], rosi: ['rosa'], neus: ['nieves'],
+  angels: ['angeles'], montse: ['montserrat'], nuri: ['nuria'], elo: ['eloisa'], encarna: ['encarnacion'],
+}
+
+// Abreviaturas que se expanden SIEMPRE (Excel: "Mª", "MªCARMEN", "M.", "FCO.VTE.")
+const ABREV = { m: 'maria', ma: 'maria', mª: 'maria', fco: 'francisco', vte: 'vicente', jm: 'jose maria', mj: 'maria jose' }
 
 // ─── Lector mínimo de .xlsx (ZIP + XML) sin dependencias ──────────────────────────────────────
 function unzip(buf) {
@@ -96,10 +157,77 @@ function readSheetRows(path) {
 }
 
 // ─── Normalización y cruce ───────────────────────────────────────────────────────────────────
+// minúsculas · sin tildes (ñ→n) · sólo letras y números · un único espacio entre palabras
 const norm = s => String(s ?? '')
   .normalize('NFD').replace(/[̀-ͯ]/g, '')
-  .toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim()
+  .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 const tokens = s => norm(s).split(' ').filter(Boolean)
+
+// Palabras del NOMBRE DE PILA con las abreviaturas expandidas ("Mª Carmen" → maria carmen) y sin
+// iniciales sueltas ("ENRIQUE P." → enrique), que romperían la búsqueda de palabras seguidas
+const givenTokens = nombre => tokens(nombre).flatMap(t => (ABREV[t] ?? t).split(' ')).filter(t => t.length > 1)
+
+// Palabras de nombre + apellidos.
+function fullNameTokens(nombre, apellidos) {
+  return [...givenTokens(nombre), ...tokens(apellidos)]
+}
+
+// Variantes por apodo: se sustituye la PRIMERA palabra por cada nombre formal del diccionario
+function apodoVariants(toks) {
+  return (APODOS[toks[0]] ?? []).map(formal => [...formal.split(' '), ...toks.slice(1)])
+}
+// Sólo para la APP: si el final de `nombre` repite el principio de `apellidos` (el usuario escribió
+// apellidos en los dos campos), se une el solapamiento en vez de duplicarlo:
+//   "Pilar Gimeno Sabater" + "Gimeno Sabater"     → pilar gimeno sabater
+//   "Óscar Rodríguez"      + "Rodríguez González" → oscar rodriguez gonzalez
+// Siempre queda al menos una palabra de nombre, así que nunca se colapsan apellidos legítimos
+// iguales del Excel como "Pérez Pérez" (el Excel no pasa por aquí).
+function appNameTokens(nombre, apellidos) {
+  const n = givenTokens(nombre), a = tokens(apellidos)
+  for (let k = Math.min(n.length - 1, a.length); k > 0; k--) {
+    if (a.slice(0, k).every((t, i) => n[n.length - k + i] === t)) return [...n, ...a.slice(k)]
+  }
+  return [...n, ...a]
+}
+
+// ¿`needle` aparece dentro de `hay` como palabras completas y consecutivas?
+function containsWords(hay, needle) {
+  if (!needle.length || needle.length > hay.length) return false
+  outer: for (let i = 0; i + needle.length <= hay.length; i++) {
+    for (let j = 0; j < needle.length; j++) if (hay[i + j] !== needle[j]) continue outer
+    return true
+  }
+  return false
+}
+
+// Palabras que no identifican a nadie: partículas de apellidos compuestos e iniciales ("p.")
+const STOPWORDS = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'i', 'e', 'da', 'dos', 'van', 'von'])
+const significant = toks => toks.filter(t => t.length > 1 && !STOPWORDS.has(t))
+
+// Nº de palabras distintas de la app que están entre los apellidos del Excel
+const surnameOverlap = (appTok, c) => new Set(significant(appTok).filter(t => c.surnameSet.has(t))).size
+
+// Todos los nombres de pila conocidos (primeras palabras del censo + apodos y sus formas formales)
+let KNOWN_GIVEN = null
+const firstWords = s => s.split(' ')[0]
+function knownGiven(censo) {
+  if (!KNOWN_GIVEN) {
+    KNOWN_GIVEN = new Set(censo.map(c => c.givenTok[0]).filter(Boolean))
+    for (const [k, vs] of Object.entries(APODOS)) { KNOWN_GIVEN.add(k); for (const v of vs) KNOWN_GIVEN.add(firstWords(v)) }
+  }
+  return KNOWN_GIVEN
+}
+// ¿El primer nombre de la app es compatible con el del Excel? Si la primera palabra de la app no es
+// un nombre de pila conocido (p. ej. empezó por los apellidos), no se puede contradecir → compatible.
+function givenNameCompatible(appFirst, c, censo = CENSO) {
+  const excelFirst = c.givenTok[0]
+  if (!appFirst || !excelFirst || appFirst === excelFirst) return true
+  if (!knownGiven(censo).has(appFirst)) return true
+  const forms = t => new Set([t, ...(APODOS[t] ?? []).map(firstWords)])
+  const a = forms(appFirst), e = forms(excelFirst)
+  return [...a].some(x => e.has(x))
+}
+let CENSO = []
 
 function loadCenso() {
   const rows = readSheetRows(FILE)
@@ -115,33 +243,66 @@ function loadCenso() {
     const apellidos = String(r.B ?? '').trim()
     if (!Number.isInteger(num) || num <= 0 || !nombre) { if (Object.keys(r).length) invalid.push(r); continue }
     const distintivo = String(r.D ?? '').trim() || null
+    const nameTok = fullNameTokens(nombre, apellidos)                       // "nom cognoms"
+    const revTok  = [...tokens(apellidos), ...givenTokens(nombre)]          // "cognoms nom" (listado oficial)
+    // El censo también usa apodos (FINA, CHELO, NACHO…): variantes con el nombre formal
+    const apodoNameToks = apodoVariants(givenTokens(nombre)).map(g => [...g, ...tokens(apellidos)])
+    const apodoRevToks  = apodoVariants(givenTokens(nombre)).map(g => [...tokens(apellidos), ...g])
     censo.push({ numeroCenso: num, nombre, apellidos, distintivo,
-      nomTok: tokens(nombre), apeTok: tokens(apellidos), key: norm(`${nombre} ${apellidos}`) })
+      nameTok, revTok, fullNameExcel: nameTok.join(' '), fullNameExcelRev: revTok.join(' '),
+      apodoNameToks, apodoRevToks, givenTok: givenTokens(nombre),
+      surnameSet: new Set(significant(tokens(apellidos))) })
   }
+  CENSO = censo
   return { censo, invalid }
 }
 
 function match(falleros, censo) {
-  const byKey = new Map()
-  for (const c of censo) (byKey.get(c.key) ?? byKey.set(c.key, []).get(c.key)).push(c)
-
   const proposals = []   // { f, c, kind }
   const ambiguous = []
   const unmatched = []
   for (const f of falleros) {
-    const key = norm(`${f.nombre ?? ''} ${f.apellidos ?? ''}`)
-    const exact = byKey.get(key) ?? []
-    if (exact.length === 1) { proposals.push({ f, c: exact[0], kind: 'exacto' }); continue }
-    if (exact.length > 1) { ambiguous.push({ f, motivo: `${exact.length} personas con el mismo nombre en el Excel` }); continue }
+    const appTok = appNameTokens(f.nombre, f.apellidos)
+    const fullNameApp = appTok.join(' ')
+    if (!fullNameApp) { unmatched.push(f); continue }
 
-    const fNom = tokens(f.nombre), fApe = tokens(f.apellidos)
-    const cands = fApe.length === 0 ? [] : censo.filter(c =>
-      c.nomTok.join(' ') === fNom.join(' ') &&
-      fApe.length <= c.apeTok.length &&
-      fApe.every((t, i) => c.apeTok[i] === t))
-    if (cands.length === 1) proposals.push({ f, c: cands[0], kind: 'parcial' })
-    else if (cands.length > 1) ambiguous.push({ f, motivo: `${cands.length} candidatos parciales` })
-    else unmatched.push(f)
+    const nums = list => `${list.slice(0, 3).map(c => c.numeroCenso).join(', ')}${list.length > 3 ? '…' : ''}`
+    const same = (x, y) => x.length === y.length && x.every((t, i) => t === y[i])
+
+    // Variantes de la app: tal cual + con la primera palabra traducida (Paco → Francisco)
+    const appApodo = apodoVariants(appTok)
+    // Variantes del Excel: tal cual + con su apodo traducido (FINA → Josefina)
+    const excelPlain = c => [c.nameTok, c.revTok]
+    const excelApodo = c => [...c.apodoNameToks, ...c.apodoRevToks]
+
+    // Cada vía devuelve los candidatos; la primera que encuentre algo decide.
+    const tiers = [
+      ['exacto',          () => censo.filter(c => excelPlain(c).some(e => same(e, appTok)))],
+      ['exacto (apodo)',  () => censo.filter(c =>
+        appApodo.some(a => [...excelPlain(c), ...excelApodo(c)].some(e => same(e, a))) ||
+        excelApodo(c).some(e => same(e, appTok)))],
+      ['parcial',         () => appTok.length < 2 ? [] : censo.filter(c => excelPlain(c).some(e => containsWords(e, appTok)))],
+      ['parcial (apodo)', () => censo.filter(c =>
+        appApodo.some(a => a.length >= 2 && [...excelPlain(c), ...excelApodo(c)].some(e => containsWords(e, a))) ||
+        (appTok.length >= 2 && excelApodo(c).some(e => containsWords(e, appTok))))],
+    ]
+    let decided = false
+    for (const [kind, find] of tiers) {
+      const cands = find()
+      if (cands.length === 1) { proposals.push({ f, c: cands[0], kind }); decided = true; break }
+      if (cands.length > 1) {
+        ambiguous.push({ f, motivo: `${cands.length} candidatos en «${kind}» (${nums(cands)})` }); decided = true; break
+      }
+    }
+    if (decided) continue
+
+    // Vía 3: coincidencia de apellidos (≥ 2 palabras en común con los Cognoms del Excel), descartando
+    // candidatos cuyo nombre de pila CONTRADIGA el de la app ("Paco" ≠ "José Luis")
+    const bySurname = censo.filter(c => surnameOverlap(appTok, c) >= 2 && givenNameCompatible(appTok[0], c))
+    if (bySurname.length === 1) { proposals.push({ f, c: bySurname[0], kind: 'parcial (apellidos)' }); continue }
+    if (bySurname.length > 1) { ambiguous.push({ f, motivo: `${bySurname.length} personas comparten esos apellidos (${nums(bySurname)})` }); continue }
+
+    unmatched.push(f)
   }
 
   // Una fila del Excel no puede asignarse a dos usuarios distintos
@@ -180,14 +341,14 @@ console.log(`👥 Firestore: ${falleros.length} falleros con cuenta en la app\n`
 
 const { ok, ambiguous, unmatched } = match(falleros, censo)
 const exact   = ok.filter(p => p.kind === 'exacto')
-const partial = ok.filter(p => p.kind === 'parcial')
+const partial = ok.filter(p => p.kind !== 'exacto')
 const fname   = f => `${f.nombre ?? ''} ${f.apellidos ?? ''}`.trim() || f.email || f.id
 
 const changes = (list) => list.filter(({ f, c }) => f.numeroCenso !== c.numeroCenso || (f.distintivo ?? null) !== c.distintivo)
 
 console.log(`✅ Cruces exactos: ${exact.length} (${changes(exact).length} con cambios)`)
 console.log(`🟡 Cruces parciales: ${partial.length}${PARTIAL ? '' : '  → NO se escriben sin --partial'}`)
-for (const { f, c } of partial) console.log(`   · App "${fname(f)}"  →  Excel nº ${c.numeroCenso} "${c.nombre} ${c.apellidos}"`)
+for (const { f, c, kind } of partial) console.log(`   · [${kind}] App "${fname(f)}"  →  Excel nº ${c.numeroCenso} "${c.nombre} ${c.apellidos}"`)
 console.log(`⚠️  Ambiguos (no se tocan): ${ambiguous.length}`)
 for (const { f, motivo } of ambiguous) console.log(`   · "${fname(f)}": ${motivo}`)
 console.log(`❌ Sin cruce en el Excel (no se tocan): ${unmatched.length}`)

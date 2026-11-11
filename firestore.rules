@@ -14,8 +14,12 @@ service cloud.firestore {
 
     // Falleros: cada fallero lee/actualiza su propio perfil; admins y directiva leen todos
     match /falleros/{userId} {
+      // Lectura: el propio fallero, staff, o alguien a quien ESTE fallero ha vinculado como familiar
+      // (él mismo lo ha decidido al añadirlo a su familiaUids). Nadie más; el resto usa `directorio`.
       allow read: if request.auth != null
-        && (request.auth.uid == userId || isPrivileged());
+        && (request.auth.uid == userId
+            || request.auth.uid in resource.data.get('familiaUids', [])
+            || isPrivileged());
       // Alta: el número de fallero sólo lo asigna el contador atómico (misma transacción), el rol
       // nace como 'fallero' y los datos oficiales del censo (numeroCenso, distintivo) no se pueden
       // autoasignar: los vuelca la directiva con scripts/syncCenso.js (Admin SDK).
@@ -29,7 +33,22 @@ service cloud.firestore {
         && ((request.auth.uid == userId
              && !request.resource.data.diff(resource.data).affectedKeys()
                    .hasAny(['numeroFallero', 'rol', 'numeroCenso', 'distintivo']))
+            || desvincularmeDe(userId)
             || isAdmin());
+
+      // Vínculo familiar en el doc de OTRO: sólo se permite QUITAR tu propio uid de su familiaUids
+      // (rechazar su invitación o desvincularte). Ningún otro campo puede cambiar (ni rol, ni
+      // numeroCenso, ni distintivo, ni numeroFallero) y no se puede AÑADIR a nadie: entrar en una
+      // familia exige que el titular del doc te añada él mismo (consentimiento).
+      function desvincularmeDe(userId) {
+        let me     = request.auth.uid;
+        let before = resource.data.get('familiaUids', []).toSet();
+        let after  = request.resource.data.get('familiaUids', []).toSet();
+        return me != userId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['familiaUids'])
+          && before.difference(after) == [me].toSet()
+          && after.difference(before).size() == 0;
+      }
     }
 
     // Contadores globales: lectura/escritura solo para incrementar en +1 (transacción de registro)

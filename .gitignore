@@ -47,3 +47,4 @@ vite.config.js.timestamp-*
 
 # Censo oficial (datos personales, RGPD): nunca al repositorio
 docs/*.xlsx
+firebase-admin.json

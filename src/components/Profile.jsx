@@ -464,38 +464,41 @@ function FamiliaSection({ fallero, userId, onUpdate }) {
   const [linking,        setLinking]        = useState(false)
   const [linkError,      setLinkError]      = useState('')
   const [linkInfo,       setLinkInfo]       = useState('')  // mensaje verde post-vinculación
-  const [pendingInvites, setPendingInvites] = useState([])  // falleros que me tienen en su familiaUids pero yo no a ellos
+  const [listsMe,        setListsMe]        = useState([])    // falleros que me tienen en su familiaUids
+  const [dismissed,      setDismissed]      = useState([])    // invitaciones ocultadas localmente
   const [accepting,      setAccepting]      = useState(null)
 
   const familiaKey = familiaUids.join(',')
+  // Datos de mis familiares: del `directorio` (nombre, apellidos, nº), NUNCA de `falleros`,
+  // que sólo puede leer su dueño (o quien él mismo haya vinculado).
   useEffect(() => {
     if (familiaUids.length === 0) { setFamiliaData([]); return }
     setLoadingFam(true)
-    Promise.all(familiaUids.map(uid => getDoc(doc(db, 'falleros', uid))))
+    Promise.all(familiaUids.map(uid => getDoc(doc(db, 'directorio', uid))))
       .then(docs => setFamiliaData(docs.filter(d => d.exists()).map(d => ({ uid: d.id, ...d.data() }))))
+      .catch(() => setFamiliaData([]))
       .finally(() => setLoadingFam(false))
   }, [familiaKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Invitaciones recibidas: cualquier fallero que tenga MI uid en su familiaUids,
-  // pero al que yo todavía no he añadido a la mía. Permite vínculo bidireccional
-  // sin que un usuario tenga que escribir en el documento del otro.
+  // Quién me tiene en su familiaUids. Las reglas permiten leer el doc de quien te ha vinculado
+  // (él lo ha decidido). Sirve para: invitaciones pendientes y saber si un vínculo es mutuo.
   useEffect(() => {
     if (!userId) return
     const q = query(collection(db, 'falleros'), where('familiaUids', 'array-contains', userId))
-    const unsub = onSnapshot(q, snap => {
-      const list = snap.docs
-        .map(d => ({ uid: d.id, ...d.data() }))
-        .filter(f => f.uid !== userId && !familiaUids.includes(f.uid))
-      setPendingInvites(list)
-    }, () => { /* silenciamos errores de reglas */ })
-    return unsub
-  }, [userId, familiaKey]) // eslint-disable-line react-hooks/exhaustive-deps
+    return onSnapshot(q,
+      snap => setListsMe(snap.docs.filter(d => d.id !== userId).map(d => ({ uid: d.id, ...d.data() }))),
+      err => console.warn('[familia] invitaciones', err?.code ?? err))
+  }, [userId])
+
+  const listsMeUids    = new Set(listsMe.map(f => f.uid))
+  const pendingInvites = listsMe.filter(f => !familiaUids.includes(f.uid) && !dismissed.includes(f.uid))
 
   const openSearch = async () => {
     setShowSearch(true); setSearch(''); setLinkError(''); setLinkInfo('')
     if (fallerosList.length === 0) {
       try {
-        const snap = await getDocs(collection(db, 'falleros'))
+        // Buscador: `directorio` (copia reducida, legible por todos), nunca la colección `falleros`
+        const snap = await getDocs(collection(db, 'directorio'))
         setFallerosList(snap.docs.map(d => ({ id: d.id, ...d.data() })))
       } catch (err) {
         setLinkError(err?.message || 'No se pudo cargar el censo.')
@@ -511,43 +514,23 @@ function FamiliaSection({ fallero, userId, onUpdate }) {
       .slice(0, 20)
   }, [fallerosList, search, userId, familiaKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Estrategia: escribir SIEMPRE primero el propio documento (operación permitida
-  // para cualquier usuario autenticado bajo reglas estándar "self-write").
-  // Después intentar reflejar el cambio en el documento del otro (puede fallar
-  // si las reglas no permiten escritura cruzada — en ese caso, el otro usuario
-  // verá una invitación recibida en su propio perfil y podrá aceptarla).
+  // Vínculo por CONSENTIMIENTO: cada uno sólo escribe su propio familiaUids.
+  // Al vincular, el otro recibe una invitación y la acepta desde su perfil (nadie puede
+  // meterse en la familia de otro: eso le daría lectura de su ficha completa).
   const linkFamiliar = async (targetId, targetData) => {
-    const targetFamily = targetData.familiaUids ?? []
-    if (targetFamily.length > 0 && !targetFamily.includes(userId)) {
-      setLinkError(`${targetData.nombre} ya pertenece a otro núcleo familiar.`)
-      return
-    }
     setLinking(true); setLinkError(''); setLinkInfo('')
-
-    // Paso 1 — actualizar mi propio documento (garantizado bajo reglas self-write)
     try {
       await updateDoc(doc(db, 'falleros', userId), { familiaUids: arrayUnion(targetId) })
       onUpdate({ familiaUids: [...familiaUids, targetId] })
+      setLinkInfo(listsMeUids.has(targetId)
+        ? `Vinculado con ${targetData.nombre}.`
+        : `Invitación enviada. ${targetData.nombre} la verá en su perfil y deberá aceptarla para completar el vínculo.`)
+      setShowSearch(false)
     } catch (err) {
-      setLinkError('No se pudo guardar en tu perfil. ' + (err?.message ?? ''))
+      setLinkError('No se pudo guardar el vínculo. ' + (err?.message ?? ''))
+    } finally {
       setLinking(false)
-      return
     }
-
-    // Paso 2 — intento "best-effort" de espejar en el doc del otro.
-    let mirrored = false
-    try {
-      await updateDoc(doc(db, 'falleros', targetId), { familiaUids: arrayUnion(userId) })
-      mirrored = true
-    } catch { /* probable rechazo de reglas: se queda como invitación pendiente para el otro */ }
-
-    if (mirrored) {
-      setLinkInfo(`Vinculado con ${targetData.nombre}.`)
-    } else {
-      setLinkInfo(`Vínculo guardado en tu perfil. ${targetData.nombre} recibirá una invitación en su perfil y deberá aceptarla para completarlo.`)
-    }
-    setShowSearch(false)
-    setLinking(false)
   }
 
   const acceptInvite = async (sender) => {
@@ -561,20 +544,28 @@ function FamiliaSection({ fallero, userId, onUpdate }) {
   }
 
   const dismissInvite = async (sender) => {
-    // No tenemos permiso para borrar el campo en el doc del otro;
-    // como gesto, simplemente ocultamos localmente.
-    setPendingInvites(prev => prev.filter(p => p.uid !== sender.uid))
+    // Rechazar = quitarme de SU familiaUids (las reglas permiten exactamente eso y nada más)
+    setDismissed(prev => [...prev, sender.uid])
+    try {
+      await updateDoc(doc(db, 'falleros', sender.uid), { familiaUids: arrayRemove(userId) })
+    } catch (err) { console.warn('[familia] rechazar invitación', err?.code ?? err) }
   }
 
   const unlinkFamiliar = async (targetId) => {
-    // Mismo patrón: primero el propio doc, luego best-effort en el del otro.
+    setLinkError('')
     try {
       await updateDoc(doc(db, 'falleros', userId), { familiaUids: arrayRemove(targetId) })
       onUpdate({ familiaUids: familiaUids.filter(uid => uid !== targetId) })
-    } catch { /* no debería fallar bajo self-write */ }
-    try {
-      await updateDoc(doc(db, 'falleros', targetId), { familiaUids: arrayRemove(userId) })
-    } catch { /* el otro tendrá que desvincularse desde su perfil si las reglas lo impiden */ }
+    } catch (err) {
+      setLinkError('No se pudo desvincular. ' + (err?.message ?? ''))
+      return
+    }
+    // Romper también el lado del otro: las reglas sólo permiten quitar MI uid de su lista
+    if (listsMeUids.has(targetId)) {
+      try {
+        await updateDoc(doc(db, 'falleros', targetId), { familiaUids: arrayRemove(userId) })
+      } catch (err) { console.warn('[familia] desvincular en el otro perfil', err?.code ?? err) }
+    }
   }
 
   return (
@@ -638,7 +629,7 @@ function FamiliaSection({ fallero, userId, onUpdate }) {
       )}
 
       {familiaData.map(m => {
-        const isMutual = (m.familiaUids ?? []).includes(userId)
+        const isMutual = listsMeUids.has(m.uid)
         return (
           <div key={m.uid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderTop: `1px solid ${BORDER}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

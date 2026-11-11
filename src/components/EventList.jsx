@@ -1051,12 +1051,14 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
 
   useEffect(() => {
     if (familiaUids.length === 0) return
-    Promise.all(familiaUids.map(uid => getDoc(doc(db, 'falleros', uid))))
+    // Nombres de mis familiares: del `directorio`, nunca de `falleros`
+    Promise.all(familiaUids.map(uid => getDoc(doc(db, 'directorio', uid))))
       .then(docs => {
         const map = {}
         docs.forEach(d => { if (d.exists()) map[d.id] = `${d.data().nombre} ${d.data().apellidos ?? ''}`.trim() })
         setFamiliaFalleros(map)
       })
+      .catch(() => {})
   }, [familiaUids.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
