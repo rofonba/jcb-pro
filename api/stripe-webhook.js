@@ -17,6 +17,7 @@ import Stripe from 'stripe'
 import { initializeApp, cert, getApps, getApp } from 'firebase-admin/app'
 import { getFirestore, FieldValue }             from 'firebase-admin/firestore'
 import { computeBreakdown, netCents, companionsFromInscription } from './_lib/pricing.js'
+import { sumNeto, tarifaInversa } from './_lib/pedidos.js'
 
 // Necesario para poder verificar la firma: Vercel no debe parsear el body.
 export const config = { api: { bodyParser: false } }
@@ -52,7 +53,58 @@ function readRawBody(req) {
 
 const round2 = n => Math.round(n * 100) / 100
 
+// ── Modelo v2: checkout de GRUPO (pedidos/{pedidoId} + N inscripciones) ─────────────────────
+// Verifica que lo cobrado coincide con el pedido que escribió createGroupCheckout, recalculando
+// el neto con los precios ACTUALES del evento, y marca pagadas todas las inscripciones del
+// pedido en la misma transacción. Cualquier discrepancia → pagosPendientesRevision.
+async function handleGroupSucceeded(pi) {
+  const db = getFirestore(adminApp())
+  const { pedidoId, eventId, pagadorUid } = pi.metadata
+  const pedidoRef   = db.collection('pedidos').doc(pedidoId)
+  const revisionRef = db.collection('pagosPendientesRevision').doc(pi.id)
+  const cobradoCent = pi.amount_received ?? pi.amount
+
+  await db.runTransaction(async (tx) => {
+    const pSnap = await tx.get(pedidoRef)
+    const revisar = (motivo, extra = {}) => tx.set(revisionRef, {
+      modelo: 2, motivo, pedidoId, eventId, userId: pagadorUid, stripePaymentId: pi.id,
+      totalConComision: round2(cobradoCent / 100), createdAt: FieldValue.serverTimestamp(), ...extra,
+    })
+    if (!pSnap.exists) return revisar('pedido-inexistente')
+    const pedido = pSnap.data()
+    if (pedido.estado === 'pagado' && pedido.stripePaymentId === pi.id) return   // reenvío: ya procesado
+    if (pedido.stripePaymentId && pedido.stripePaymentId !== pi.id) return revisar('payment-intent-no-coincide', { esperado: pedido.stripePaymentId })
+
+    // Importe: recalculado desde las líneas del pedido y los precios actuales del evento
+    const evSnap = await tx.get(db.collection('eventos').doc(eventId))
+    if (!evSnap.exists) return revisar('evento-inexistente')
+    const ev = evSnap.data()
+    const precioA = Math.round(Number(ev.precio ?? 0) * 100)
+    const precioN = ev.precioNino != null ? Math.round(Number(ev.precioNino) * 100) : precioA
+    const esperadoNeto = sumNeto(pedido.lineas.map(l => ({ precioNetoCent: l.categoria === 'nino' ? precioN : precioA })))
+    const { totalConComisionCent } = tarifaInversa(esperadoNeto)
+    if (esperadoNeto !== pedido.totalNetoCent || esperadoNeto !== Number(pi.metadata.totalNetoCent) || cobradoCent !== totalConComisionCent) {
+      return revisar('importe-no-coincide', { cobradoCent, esperadoNeto, esperadoConComision: totalConComisionCent, pedidoNeto: pedido.totalNetoCent })
+    }
+
+    // Todas las inscripciones del pedido deben seguir existiendo y pertenecer a este pedido
+    const insRefs = pedido.lineas.map(l => db.collection('inscripciones').doc(l.inscripcionId))
+    const insSnaps = await tx.getAll(...insRefs)
+    const perdidas = insSnaps.filter(s => !s.exists || s.data().pedidoId !== pedidoId).map(s => s.id)
+    if (perdidas.length) return revisar('inscripciones-perdidas', { perdidas })
+
+    const pagadoAt = FieldValue.serverTimestamp()
+    insRefs.forEach(ref => tx.update(ref, { pagado: true, estadoPago: 'pagado', pagadoAt, stripePaymentId: pi.id }))
+    tx.update(pedidoRef, {
+      estado: 'pagado', stripePaymentId: pi.id, pagadoAt,
+      totalConComision: round2(cobradoCent / 100), totalNeto: round2(esperadoNeto / 100),
+      gastosGestion: round2((cobradoCent - esperadoNeto) / 100),
+    })
+  })
+}
+
 async function handleSucceeded(pi) {
+  if (pi.metadata?.pedidoId) return handleGroupSucceeded(pi)
   const db = getFirestore(adminApp())
   const { eventId, userId } = pi.metadata ?? {}
   if (!eventId || !userId) {

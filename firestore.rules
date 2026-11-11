@@ -112,6 +112,7 @@ service cloud.firestore {
       // create: el dueño no puede incluirlos; staff sí (inscripciones manuales).
       allow create: if request.auth != null
         && (isPrivileged()
+            || crearV2()
             || (request.resource.data.uid == request.auth.uid
                 && !request.resource.data.keys().hasAny([
                      'pagado', 'pagadoAt', 'stripePaymentId', 'totalNeto',
@@ -146,6 +147,7 @@ service cloud.firestore {
 
       allow update: if request.auth != null
         && (isPrivileged()
+            || actualizarV2()
             || ((resource.data.uid == request.auth.uid
                  || request.auth.uid in resource.data.get('beneficiariosUids', []))
                 && selfCheckIn())
@@ -166,7 +168,77 @@ service cloud.firestore {
       allow delete: if request.auth != null
         && (isPrivileged()
             || (resource.data.uid == request.auth.uid
-                && resource.data.get('pagado', false) != true));
+                && resource.data.get('pagado', false) != true)
+            || borrarV2());
+
+      // ── Modelo v2: checkout de GRUPO ─────────────────────────────────────────────────────
+      // Un documento por asistente (modelo: 2), agrupados por pedidoId y con pagadorUid = quien
+      // los creó. Ids deterministas: `${eventId}_${asistenteKey}` (persona del censo) o
+      // `${eventId}_${pedidoId}_${n}` (sin app / invitado) → Firestore impide duplicados.
+      function esV2(d) { return d.get('modelo', 0) == 2; }
+
+      // CREAR para otros: sólo en eventos que NO se cobran online (los de pago los crea el
+      // servidor en /api/createGroupCheckout, que además comprueba aforo y duplicados).
+      // Nace sin pagar, sin check-in y con la hora del servidor; pagadorUid = yo.
+      function crearV2() {
+        let d = request.resource.data;
+        return esV2(d)
+          && d.pagadorUid == request.auth.uid
+          && !eventoCobraOnline(d.eventId)
+          && d.keys().hasOnly(['modelo', 'eventId', 'pedidoId', 'pagadorUid', 'pagadorNombre', 'tipo',
+                               'asistenteUid', 'asistenteKey', 'asistenteNombre', 'categoria',
+                               'precioNetoCent', 'pagado', 'estadoPago', 'checkIn', 'createdAt', 'nota', 'alergias'])
+          && d.tipo in ['titular', 'familiar', 'fallero', 'hijo', 'invitado']
+          && d.categoria in ['adulto', 'nino']
+          && ((d.tipo == 'titular') == (d.get('asistenteUid', null) == request.auth.uid))
+          && d.pagado == false
+          && d.get('estadoPago', null) == null
+          && d.checkIn == false
+          && d.createdAt == request.time
+          && (d.get('asistenteKey', null) == null
+                ? docId.matches(d.eventId + '_' + d.pedidoId + '_[0-9]+')
+                : docId == d.eventId + '_' + d.asistenteKey);
+      }
+
+      // EDITAR: pagador o asistente → sólo nota/alergias. Check-in Fast Track (inscripción pagada):
+      // el propio asistente, o el pagador para quien no tiene app (hijos, sin app, invitados).
+      // Nunca campos financieros ni deshacer un check-in (eso es del staff).
+      function actualizarV2() {
+        let r = resource.data;
+        let n = request.resource.data;
+        let changed = n.diff(r).affectedKeys();
+        let soyPagador   = r.pagadorUid == request.auth.uid;
+        let soyAsistente = r.get('asistenteUid', null) == request.auth.uid;
+        return esV2(r)
+          && (((soyPagador || soyAsistente) && changed.hasOnly(['nota', 'alergias']))
+              || (r.get('pagado', false) == true
+                  && r.get('checkIn', false) != true
+                  && (soyAsistente || (soyPagador && r.get('asistenteUid', null) == null))
+                  && changed.hasOnly(['checkIn', 'checkInAt'])
+                  && n.checkIn == true
+                  && n.checkInAt == request.time));
+      }
+
+      // BORRAR: nunca si está pagada (política de no devolución; sólo staff). Si no lo está:
+      // el pagador, el propio asistente (nadie puede apuntarme sin que pueda quitarme), o
+      // cualquiera si es una reserva pendiente caducada (>15 min) que bloquea la plaza.
+      function borrarV2() {
+        let r = resource.data;
+        return esV2(r)
+          && r.get('pagado', false) != true
+          && (r.pagadorUid == request.auth.uid
+              || r.get('asistenteUid', null) == request.auth.uid
+              || (r.get('estadoPago', null) == 'pendiente'
+                  && request.time > r.createdAt + duration.value(15, 'm')));
+      }
+    }
+
+    // Pedidos (checkout de grupo): los escribe sólo el servidor. El pagador lee el suyo
+    // (la app espera a que el webhook lo ponga en estado 'pagado').
+    match /pedidos/{pedidoId} {
+      allow read: if request.auth != null
+        && (isPrivileged() || resource.data.pagadorUid == request.auth.uid);
+      allow write: if false;
     }
 
     // Cobros que requieren revisión manual (los escribe sólo el webhook con Admin SDK)

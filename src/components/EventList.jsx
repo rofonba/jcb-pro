@@ -20,6 +20,7 @@ import {
   CardElement, PaymentRequestButtonElement,
 } from '@stripe/react-stripe-js'
 import { useFamilia } from '../hooks/useFamilia'
+import EventRegistrationModal from './EventRegistrationModal'
 
 // Singleton Stripe — se carga una sola vez fuera de cualquier render.
 // La publishable key viaja al cliente; nunca la secret.
@@ -2086,7 +2087,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
   const isPrivileged = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
   const [form, setForm] = useState(() => {
-    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: initialFecha, hora: '', fechaLimite: '', notificarFechaLimite: false, lugar: '', precio: '', precioNino: '', pagoApp: false, plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: initialDelegacion }
+    if (!editEvent) return { titulo: '', tipo: 'comida', fecha: initialFecha, hora: '', fechaLimite: '', notificarFechaLimite: false, lugar: '', precio: '', precioNino: '', pagoApp: false, inscripcionGrupo: false, plazasTotal: '', descripcion: '', imagenUrl: '', videoUrl: '', menu: '', notificar: false, delegacion: initialDelegacion }
     const d = editEvent.fecha?.toDate ? editEvent.fecha.toDate() : editEvent.fecha ? new Date(editEvent.fecha) : null
     const pad = n => String(n).padStart(2, '0')
     return {
@@ -2097,6 +2098,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
       fechaLimite:          editEvent.fechaLimite ?? '',
       notificarFechaLimite: editEvent.notificarFechaLimite ?? false,
       pagoApp:              editEvent.pagoApp === true,
+      inscripcionGrupo:     editEvent.inscripcionGrupo === true,
       lugar:                editEvent.lugar ?? '',
       precio:               editEvent.precio != null ? String(editEvent.precio) : '',
       precioNino:           editEvent.precioNino != null ? String(editEvent.precioNino) : '',
@@ -2145,6 +2147,7 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
         fechaLimite:          form.fechaLimite || null,
         notificarFechaLimite: Boolean(form.notificarFechaLimite),
         pagoApp:              Boolean(form.pagoApp),
+        inscripcionGrupo:     Boolean(form.inscripcionGrupo),
         lugar:                form.lugar.trim() || null,
         precio:               form.precio !== '' ? parseFloat(form.precio) : null,
         precioNino:           form.precioNino !== '' ? parseFloat(form.precioNino) : null,
@@ -2323,6 +2326,26 @@ function EventFormModal({ onClose, onCreated, event: editEvent = null, initialDe
             </button>
           </div>
         )}
+
+        {/* Toggle: inscripción de GRUPO (modelo v2: un asistente por documento, un solo pago).
+            Mientras conviven los dos modelos, se activa evento a evento. */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1rem', background: form.inscripcionGrupo ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.03)', border: `1.5px solid ${form.inscripcionGrupo ? 'rgba(99,102,241,0.45)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '14px', transition: 'all 0.2s' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <span style={{ fontSize: '1.15rem' }}>👨‍👩‍👧</span>
+            <div>
+              <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: '700', color: 'white', lineHeight: 1.2 }}>Inscripción de grupo (nuevo)</p>
+              <p style={{ margin: '2px 0 0', fontSize: '0.67rem', color: 'rgba(255,255,255,0.4)', lineHeight: 1.4 }}>
+                {form.inscripcionGrupo
+                  ? 'Familia, otros falleros e invitados en un solo pago. Sin duplicados.'
+                  : 'Formulario clásico de titular + acompañantes.'}
+              </p>
+            </div>
+          </div>
+          <button type="button" onClick={() => set('inscripcionGrupo', !form.inscripcionGrupo)} role="switch" aria-checked={form.inscripcionGrupo}
+            style={{ width: '46px', height: '26px', flexShrink: 0, background: form.inscripcionGrupo ? '#6366f1' : 'rgba(255,255,255,0.18)', border: 'none', borderRadius: '13px', position: 'relative', cursor: 'pointer', transition: 'background 0.22s', minHeight: 'auto', minWidth: 'auto' }}>
+            <div style={{ position: 'absolute', top: '3px', left: form.inscripcionGrupo ? '23px' : '3px', width: '20px', height: '20px', background: 'white', borderRadius: '50%', transition: 'left 0.22s', boxShadow: '0 1px 4px rgba(0,0,0,0.35)' }} />
+          </button>
+        </div>
 
         <div>
           <label style={sharedLabel}>Descripción</label>
@@ -2567,7 +2590,13 @@ export default function EventList() {
   useEffect(() => {
     if (!user?.uid) return
     // En vivo: confirmadas (registeredIds) y, dentro de ellas, las pagadas (paidIds: sólo la directiva puede anularlas)
-    return onSnapshot(query(collection(db, 'inscripciones'), where('uid', '==', user.uid)), snap => {
+    // Dos fuentes: inscripciones clásicas (uid) y del modelo de grupo (asistenteUid = yo).
+    let v1 = { reg: new Set(), paid: new Set() }, v2 = { reg: new Set(), paid: new Set() }
+    const publish = () => {
+      setRegisteredIds(new Set([...v1.reg, ...v2.reg]))
+      setPaidIds(new Set([...v1.paid, ...v2.paid]))
+    }
+    const collect = snap => {
       const reg = new Set(), paid = new Set()
       for (const d of snap.docs) {
         const x = d.data()
@@ -2575,9 +2604,11 @@ export default function EventList() {
         reg.add(x.eventId)
         if (x.pagado === true) paid.add(x.eventId)
       }
-      setRegisteredIds(reg)
-      setPaidIds(paid)
-    }, () => {})
+      return { reg, paid }
+    }
+    const u1 = onSnapshot(query(collection(db, 'inscripciones'), where('uid', '==', user.uid)), snap => { v1 = collect(snap); publish() }, () => {})
+    const u2 = onSnapshot(query(collection(db, 'inscripciones'), where('asistenteUid', '==', user.uid)), snap => { v2 = collect(snap); publish() }, () => {})
+    return () => { u1(); u2() }
   }, [user?.uid])
 
   // Real-time inscription counts + "already-inscribed-by-someone-else" detector.
@@ -2599,6 +2630,21 @@ export default function EventList() {
         if (isPendingPayment(data)) continue   // pendientes de pago no cuentan como confirmados
         if (eventId) map[eventId] = (map[eventId] ?? 0) + (totalPersonas ?? 1)
         if (!eventId) continue
+
+        // Modelo de grupo: un doc por asistente. "Me han apuntado" = soy el asistente y no el pagador.
+        if (data.modelo === 2) {
+          if (!myUid || data.asistenteUid !== myUid || data.pagadorUid === myUid) continue
+          const createdRaw = data.createdAt?.toDate ? data.createdAt.toDate() : null
+          const existing = inscByOther[eventId]
+          if (!existing || (createdRaw && existing._rawDate && createdRaw < existing._rawDate)) {
+            inscByOther[eventId] = {
+              byName: (data.pagadorNombre ?? '').split(' ')[0] || 'Alguien',
+              byDate: createdRaw ? createdRaw.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }) : null,
+              _rawDate: createdRaw,
+            }
+          }
+          continue
+        }
 
         // Si la inscripción principal soy YO mismo, no es un caso de "me han apuntado"
         if (myUid && data.uid === myUid && !data.esManual) continue
@@ -2753,7 +2799,14 @@ export default function EventList() {
         </button>
       )}
 
-      {selectedEvent && (
+      {selectedEvent && selectedEvent.inscripcionGrupo === true && (
+        <EventRegistrationModal
+          event={selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+          onSuccess={() => handleRegistered(selectedEvent.id)}
+        />
+      )}
+      {selectedEvent && selectedEvent.inscripcionGrupo !== true && (
         <RegistrationModal
           event={selectedEvent}
           isRegistered={registeredIds.has(selectedEvent.id)}
