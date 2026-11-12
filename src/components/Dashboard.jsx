@@ -827,8 +827,14 @@ function PushModal({ permission, tokenSaved, loading, onEnable }) {
 
 // ─── Home Tab ─────────────────────────────────────────────────────────────────
 
+const ROLE_BADGE = {
+  admin:     '👑 ADMIN',
+  directiva: '⭐ DIRECTIVA',
+  fallero:   '🔥 FALLERO',
+}
+
 function HomeTab({
-  nombre, numFallero, isAdmin,
+  nombre, rol, numeroCenso, isAdmin,
   announcements, loadingAnns,
   events, registeredIds, pendingIds, paidIds, inscCountMap,
   onNavigate, onMetrics, onCreateAviso, onOpenWallet, onOpenPanel,
@@ -896,11 +902,11 @@ function HomeTab({
         <h1 style={{ fontSize: 26, fontWeight: 700, color: TEXT, margin: 0, lineHeight: 1.15 }}>
           ¡Hola, {firstName}! 👋
         </h1>
-        {isAdmin && (
-          <span style={{ display: 'inline-block', marginTop: 7, background: `${GOLD}14`, border: `1.5px solid ${GOLD}40`, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: '0.08em' }}>
-            👑 ADMIN{numFallero != null ? ` · Nº ${String(numFallero).padStart(3, '0')}` : ''}
-          </span>
-        )}
+        {/* Rol + nº de censo oficial (3 dígitos). Sin numeroCenso todavía → sólo el rol. */}
+        <span style={{ display: 'inline-block', marginTop: 7, background: `${GOLD}14`, border: `1.5px solid ${GOLD}40`, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: '0.08em' }}>
+          {ROLE_BADGE[rol] ?? ROLE_BADGE.fallero}
+          {Number.isInteger(numeroCenso) && ` · Nº ${String(numeroCenso).padStart(3, '0')}`}
+        </span>
       </div>
 
       {/* ── Check-in / Wallet de entradas ───────────────────────── */}
@@ -1346,7 +1352,6 @@ export default function Dashboard() {
   }, [cancelTarget, deleting, user?.uid])
 
   const nombre     = fallero ? `${fallero.nombre}${fallero.apellidos ? ' ' + fallero.apellidos : ''}` : user?.displayName || user?.email?.split('@')[0] || 'Fallero'
-  const numFallero = fallero?.numeroFallero ?? fallero?.memberNumber ?? fallero?.numero ?? null
   const isAdmin    = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
 
   const {
@@ -1397,7 +1402,7 @@ export default function Dashboard() {
       <main style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain' }}>
         {activeTab === 'home' && (
           <HomeTab
-            nombre={nombre} numFallero={numFallero} isAdmin={isAdmin}
+            nombre={nombre} rol={fallero?.rol ?? 'fallero'} numeroCenso={fallero?.numeroCenso ?? null} isAdmin={isAdmin}
             announcements={announcements} loadingAnns={loadingAnns}
             events={events} registeredIds={registeredIds} pendingIds={pendingIds} paidIds={paidIds} inscCountMap={inscCountMap}
             onNavigate={handleTabChange}
