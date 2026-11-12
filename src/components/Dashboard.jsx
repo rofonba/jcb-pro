@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
-  collection, query, orderBy, limit, onSnapshot,
+  collection, query, orderBy, onSnapshot,
   getDocs, where, deleteDoc, addDoc, updateDoc, serverTimestamp, doc,
 } from 'firebase/firestore'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
@@ -22,6 +22,7 @@ import { RegistrationModal, SuccessToast, CancelConfirmModal, PaidNotice } from 
 import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X, Loader2, Trash2, Pencil } from 'lucide-react'
 import logoFalla from '../assets/logo-falla.png'
 import { usePushNotifications } from '../hooks/usePushNotifications'
+import { useAnuncios } from '../hooks/useAnuncios'
 
 const LAST_READ_KEY  = 'jcb_last_read_avisos'
 const getLastRead    = () => parseInt(localStorage.getItem(LAST_READ_KEY) || '0', 10)
@@ -533,6 +534,7 @@ function AnnCard({ ann, isAdmin = false, onDelete, onEdit }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
           <h3 style={{ fontSize: 15, fontWeight: 600, color: TEXT, margin: 0, flex: 1, lineHeight: 1.35 }}>{ann.titulo}</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+            {ann.pineado === true && <span title="Aviso fijado" style={{ background: `${GOLD}1f`, color: GOLD, border: `1px solid ${GOLD}55`, fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 20, letterSpacing: '0.05em' }}>📌 FIJADO</span>}
             {isUrgent && <span style={{ background: RED, color: WHITE, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 20, letterSpacing: '0.05em' }}>URGENTE</span>}
             {isAdmin && (
               <>
@@ -848,6 +850,8 @@ function HomeTab({
     const base = pool.length >= 2 ? pool : announcements.slice(0, 5)
     return [...base]
       .sort((a, b) => {
+        const ap = a.pineado === true ? 1 : 0, bp = b.pineado === true ? 1 : 0
+        if (ap !== bp) return bp - ap
         const au = (a.esUrgente || a.importante) ? 1 : 0
         const bu = (b.esUrgente || b.importante) ? 1 : 0
         if (au !== bu) return bu - au
@@ -1047,6 +1051,7 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
   const [titulo,        setTitulo]        = useState('')
   const [cuerpo,        setCuerpo]        = useState('')
   const [esUrgente,     setEsUrgente]     = useState(false)
+  const [pineado,       setPineado]       = useState(false)
   const [delegacion,    setDelegacion]    = useState('General')
   const [enlace,        setEnlace]        = useState('')
   const [imageFile,     setImageFile]     = useState(null)
@@ -1055,7 +1060,7 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
   const [formError,     setFormError]     = useState('')
 
   const resetForm = () => {
-    setTitulo(''); setCuerpo(''); setEsUrgente(false); setDelegacion('General')
+    setTitulo(''); setCuerpo(''); setEsUrgente(false); setPineado(false); setDelegacion('General')
     setEnlace(''); setImageFile(null); setImagePreview(null); setEditTarget(null); setFormError('')
   }
 
@@ -1064,6 +1069,7 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
     setTitulo(ann.titulo ?? '')
     setCuerpo(ann.cuerpo ?? '')
     setEsUrgente(ann.esUrgente ?? false)
+    setPineado(ann.pineado === true)
     setDelegacion(ann.delegacion ?? 'General')
     setEnlace(ann.enlace ?? '')
     setImageFile(null)
@@ -1093,7 +1099,7 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
       }
       const payload = {
         titulo: titulo.trim(), cuerpo: cuerpo.trim() || null,
-        esUrgente, delegacion, enlace: enlace.trim() || null, imageUrl,
+        esUrgente, pineado, delegacion, enlace: enlace.trim() || null, imageUrl,
       }
       if (editTarget) {
         await updateDoc(doc(db, 'anuncios', editTarget.id), payload)
@@ -1198,6 +1204,19 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
               />
             </div>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: pineado ? `${GOLD}0d` : BG, border: `1.5px solid ${pineado ? `${GOLD}66` : BORDER}`, borderRadius: 12, marginBottom: 10, transition: 'all 0.2s' }}>
+            <div>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: TEXT }}>📌 Fijar arriba</p>
+              <p style={{ margin: '2px 0 0', fontSize: 11, color: TEXT2 }}>Siempre visible y el primero, aunque pasen más de 30 días</p>
+            </div>
+            <button
+              type="button" onClick={() => setPineado(v => !v)}
+              style={{ width: 46, height: 26, background: pineado ? GOLD : 'rgba(0,0,0,0.12)', border: 'none', borderRadius: 13, position: 'relative', cursor: 'pointer', transition: 'background 0.22s', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}
+              aria-checked={pineado} role="switch"
+            >
+              <div style={{ position: 'absolute', top: 3, left: pineado ? 23 : 3, width: 20, height: 20, background: WHITE, borderRadius: '50%', transition: 'left 0.22s', boxShadow: '0 1px 3px rgba(0,0,0,0.22)' }} />
+            </button>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: esUrgente ? 'rgba(206,17,38,0.04)' : BG, border: `1.5px solid ${esUrgente ? 'rgba(206,17,38,0.32)' : BORDER}`, borderRadius: 12, marginBottom: 16, transition: 'all 0.2s' }}>
             <div>
               <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: TEXT }}>⚡ Marcar como urgente</p>
@@ -1235,8 +1254,8 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
 
 export default function Dashboard() {
   const { user, fallero } = useAuth()
-  const [announcements, setAnnouncements] = useState([])
-  const [loadingAnns, setLoadingAnns]     = useState(true)
+  // Avisos: últimos 30 días + fijados (siempre), fijados arriba. Ver hooks/useAnuncios.js
+  const { anuncios: announcements, loading: loadingAnns } = useAnuncios()
   const [activeTab, setActiveTab]         = useState('home')
   const [lastReadTs, setLastReadTs]       = useState(getLastRead)
   const [showMetrics, setShowMetrics]     = useState(false)
@@ -1254,14 +1273,6 @@ export default function Dashboard() {
   const [openAvisosForm, setOpenAvisosForm]   = useState(false)
   const [showWallet, setShowWallet]           = useState(false)
   const [showPanel, setShowPanel]             = useState(false)
-
-  useEffect(() => {
-    const q = query(collection(db, 'anuncios'), orderBy('createdAt', 'desc'), limit(10))
-    return onSnapshot(q,
-      snap => { setAnnouncements(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoadingAnns(false) },
-      () => setLoadingAnns(false),
-    )
-  }, [])
 
   useEffect(() => {
     const q = query(collection(db, 'eventos'), orderBy('fecha', 'asc'))

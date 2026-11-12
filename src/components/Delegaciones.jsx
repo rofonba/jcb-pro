@@ -8,6 +8,7 @@ import { db, storage } from '../firebase'
 import { isPendingPayment } from '../utils/inscripciones'
 import { getDirectImageUrl } from '../utils/imageUtils'
 import { useAuth } from '../contexts/AuthContext'
+import { useAnuncios } from '../hooks/useAnuncios'
 import { ChevronLeft, Plus, X, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { RegistrationModal, CancelConfirmModal, SuccessToast, EventFormModal, PaidNotice } from './EventList'
 
@@ -154,6 +155,7 @@ function AvisoFormSheet({ initialDelegacion, editData = null, onClose, onCreated
   const [titulo,       setTitulo]       = useState(editData?.titulo ?? '')
   const [cuerpo,       setCuerpo]       = useState(editData?.cuerpo ?? '')
   const [esUrgente,    setEsUrgente]    = useState(editData?.esUrgente ?? false)
+  const [pineado,      setPineado]      = useState(editData?.pineado === true)
   const [delegacion,   setDelegacion]   = useState(editData?.delegacion ?? initialDelegacion)
   const [enlace,       setEnlace]       = useState(editData?.enlace ?? '')
   const [imageFile,    setImageFile]    = useState(null)
@@ -180,7 +182,7 @@ function AvisoFormSheet({ initialDelegacion, editData = null, onClose, onCreated
       }
       const payload = {
         titulo: titulo.trim(), cuerpo: cuerpo.trim() || null,
-        esUrgente, delegacion, enlace: enlace.trim() || null, imageUrl,
+        esUrgente, pineado, delegacion, enlace: enlace.trim() || null, imageUrl,
       }
       if (editData) {
         await updateDoc(doc(db, 'anuncios', editData.id), payload)
@@ -273,6 +275,19 @@ function AvisoFormSheet({ initialDelegacion, editData = null, onClose, onCreated
               />
             </div>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: pineado ? `${GOLD}0d` : BG, border: `1.5px solid ${pineado ? `${GOLD}66` : BORDER}`, borderRadius: 12, transition: 'all 0.2s' }}>
+            <div>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: TEXT }}>📌 Fijar arriba</p>
+              <p style={{ margin: '2px 0 0', fontSize: 11, color: TEXT2 }}>Siempre visible y el primero, aunque pasen más de 30 días</p>
+            </div>
+            <button
+              type="button" onClick={() => setPineado(v => !v)}
+              style={{ width: 46, height: 26, background: pineado ? GOLD : 'rgba(0,0,0,0.12)', border: 'none', borderRadius: 13, position: 'relative', cursor: 'pointer', transition: 'background 0.22s', minHeight: 'auto', minWidth: 'auto', flexShrink: 0 }}
+              aria-checked={pineado} role="switch"
+            >
+              <div style={{ position: 'absolute', top: 3, left: pineado ? 23 : 3, width: 20, height: 20, background: WHITE, borderRadius: '50%', transition: 'left 0.22s', boxShadow: '0 1px 3px rgba(0,0,0,0.22)' }} />
+            </button>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: esUrgente ? 'rgba(206,17,38,0.04)' : BG, border: `1.5px solid ${esUrgente ? 'rgba(206,17,38,0.32)' : BORDER}`, borderRadius: 12, transition: 'all 0.2s' }}>
             <div>
               <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: TEXT }}>⚡ Marcar como urgente</p>
@@ -318,6 +333,7 @@ function AvisoCard({ a, isUrgent, date, delColor, imgUrl, isAdmin, onEdit, onDel
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
           <h3 style={{ fontSize: 14, fontWeight: 600, color: TEXT, margin: 0, flex: 1, lineHeight: 1.35 }}>{a.titulo}</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+            {a.pineado === true && <span title="Aviso fijado" style={{ background: `${GOLD}1f`, color: GOLD, border: `1px solid ${GOLD}55`, fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 20, letterSpacing: '0.05em' }}>📌 FIJADO</span>}
             {isUrgent && <span style={{ background: RED, color: WHITE, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 20, letterSpacing: '0.05em' }}>URGENTE</span>}
             {isAdmin && (
               <>
@@ -372,7 +388,9 @@ function AvisoCard({ a, isUrgent, date, delColor, imgUrl, isAdmin, onEdit, onDel
 function DelegacionDetail({ delegacion, onBack, isAdmin }) {
   const { user } = useAuth()
   const [events,        setEvents]        = useState([])
-  const [announcements, setAnn]           = useState([])
+  // Avisos de la delegación: últimos 30 días + fijados, fijados arriba (hooks/useAnuncios.js)
+  const { anuncios } = useAnuncios()
+  const announcements = useMemo(() => anuncios.filter(a => a.delegacion === delegacion.key), [anuncios, delegacion.key])
   const [registeredIds, setRegisteredIds] = useState(new Set())
   const [paidIds, setPaidIds]             = useState(new Set())
   const [inscCountMap,  setInscCountMap]  = useState({})
@@ -393,14 +411,6 @@ function DelegacionDetail({ delegacion, onBack, isAdmin }) {
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       setEvents(all.filter(ev => ev.delegacion === delegacion.key))
       setLoading(false)
-    })
-  }, [delegacion.key])
-
-  useEffect(() => {
-    const q = query(collection(db, 'anuncios'), orderBy('createdAt', 'desc'))
-    return onSnapshot(q, snap => {
-      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      setAnn(all.filter(a => a.delegacion === delegacion.key))
     })
   }, [delegacion.key])
 
