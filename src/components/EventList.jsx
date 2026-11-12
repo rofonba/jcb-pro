@@ -995,6 +995,11 @@ export function PaymentReceipt({ inscription, variant = 'dark' }) {
 // (CalendarView, Delegaciones, EventList) lo importan tal cual, sin saber
 // que se está usando Stripe internamente.
 function RegistrationModal(props) {
+  // Punto ÚNICO de decisión: todos los callers (Dashboard, Calendario, Delegaciones,
+  // DetalleEvento, lista) pasan por aquí. Evento con inscripción de grupo → modal nuevo.
+  if (props.event?.inscripcionGrupo === true) {
+    return <EventRegistrationModal event={props.event} onClose={props.onClose} onSuccess={props.onSuccess} />
+  }
   return (
     <Elements stripe={stripePromise}>
       <RegistrationModalContent {...props} />
@@ -2799,14 +2804,7 @@ export default function EventList() {
         </button>
       )}
 
-      {selectedEvent && selectedEvent.inscripcionGrupo === true && (
-        <EventRegistrationModal
-          event={selectedEvent}
-          onClose={() => setSelectedEvent(null)}
-          onSuccess={() => handleRegistered(selectedEvent.id)}
-        />
-      )}
-      {selectedEvent && selectedEvent.inscripcionGrupo !== true && (
+      {selectedEvent && (
         <RegistrationModal
           event={selectedEvent}
           isRegistered={registeredIds.has(selectedEvent.id)}
