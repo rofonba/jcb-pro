@@ -6,7 +6,7 @@ import {
 import { db } from '../firebase'
 import { isPendingPayment } from '../utils/inscripciones'
 import { syncDirectorio } from '../utils/directorio'
-import { formatDistintivo } from '../utils/distintivo'
+import { formatDistintivo, nextBunyolFromDistintivo, calculateNextBunyol } from '../utils/distintivo'
 import { useAuth } from '../contexts/AuthContext'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { useFamilia } from '../hooks/useFamilia'
@@ -180,11 +180,16 @@ function ContactSection({ fallero, userId, onUpdate }) {
 }
 
 // ─── Carnet Digital (dark — es un carnet físico) ──────────────────────────────
-function CarnetDigital({ nombre, numeroCenso, distintivo, rol, isLoading }) {
+function CarnetDigital({ nombre, numeroCenso, distintivo, altaYear, rol, isLoading }) {
   const isAdmin   = rol === 'admin'
   // Nº del censo oficial de la falla (volcado desde el Excel). Sin número todavía → '---'
   const numDisplay = numeroCenso != null ? String(numeroCenso).padStart(3, '0') : '---'
   const dist = formatDistintivo(distintivo)
+  // Gamificación: próxima recompensa por antigüedad. Fuente preferente: altaYear oficial del censo;
+  // si no existe, se deduce del distintivo actual. null → ya tiene Brillants o no hay dato (se oculta).
+  const nextBunyol = Number.isInteger(altaYear)
+    ? calculateNextBunyol(altaYear)
+    : nextBunyolFromDistintivo(distintivo)
   return (
     <div style={{
       borderRadius: 20, overflow: 'hidden',
@@ -292,6 +297,22 @@ function CarnetDigital({ nombre, numeroCenso, distintivo, rol, isLoading }) {
                 {dist.year && (
                   <span style={{ fontSize: '0.6rem', fontWeight: '700', color: 'rgba(212,175,55,0.7)' }}>· {dist.year}</span>
                 )}
+              </span>
+            </div>
+          )}
+          {/* Próximo Bunyol: logro BLOQUEADO (fuera del chip: también lo ven quienes aún no tienen
+              distintivo pero sí altaYear). Inactivo pero legible sobre el fondo oscuro del carnet. */}
+          {!isLoading && nextBunyol && (
+            <div className="mt-2">
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-neutral-500/60 bg-neutral-500/10 px-2.5 py-1 text-[0.62rem] font-semibold tracking-wide text-neutral-400 opacity-90 grayscale"
+                title={nextBunyol.overdue ? 'Según tu último distintivo ya te correspondería: consulta con la directiva' : undefined}
+              >
+                <span aria-hidden="true">🔒</span>
+                <span>
+                  Próximo: <span className="font-bold text-neutral-300">{nextBunyol.label}</span>
+                  {!nextBunyol.overdue && <> en {nextBunyol.year}</>}
+                </span>
               </span>
             </div>
           )}
@@ -1077,7 +1098,7 @@ export default function Profile() {
         <p style={{ fontSize: 13, color: TEXT2, margin: 0 }}>Tu carnet digital de fallero</p>
       </div>
 
-      <CarnetDigital nombre={nombre} numeroCenso={fallero?.numeroCenso ?? null} distintivo={fallero?.distintivo ?? null} rol={rol} isLoading={loading} />
+      <CarnetDigital nombre={nombre} numeroCenso={fallero?.numeroCenso ?? null} distintivo={fallero?.distintivo ?? null} altaYear={fallero?.altaYear ?? null} rol={rol} isLoading={loading} />
 
       {/* Info */}
       <Card>

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* global process */
-// Volcado del censo oficial (Excel) a Firestore: añade `numeroCenso` y `distintivo` a falleros/{uid}.
+// Volcado del censo oficial (Excel) a Firestore: añade `numeroCenso`, `distintivo` y `altaYear` a falleros/{uid}.
 //
 // Uso (desde la raíz del repo):
 //   node scripts/syncCenso.js                       → SIMULACRO: muestra qué haría, no escribe nada
@@ -14,6 +14,10 @@
 //   · o GOOGLE_APPLICATION_CREDENTIALS=/ruta/serviceAccount.json
 //
 // Excel esperado (hoja 1, fila 1 = cabecera): A = N.Censo · B = Cognoms · C = Nom · D = Recompensas
+// Opcional: una columna (en cualquier posición) con cabecera 'AÑO ALTA' / 'ANY ALTA' → `altaYear`
+// (número de 4 cifras). Se localiza por el nombre de la cabecera, no por la letra. Acepta un año
+// (1998), una fecha de texto (15/03/1998, 1998-03-15) o una fecha de Excel. Si la columna NO existe,
+// `altaYear` no se toca en Firestore; si existe y la celda está vacía, se guarda null.
 //
 // Cruce por NOMBRE COMPLETO. En la app se concatenan `nombre` + `apellidos` (fullNameApp): así da igual
 // que el usuario lo escribiera todo en `nombre` y dejara `apellidos` vacío o repetido. En el Excel,
@@ -229,9 +233,38 @@ function givenNameCompatible(appFirst, c, censo = CENSO) {
 }
 let CENSO = []
 
+// Columna del año de alta: se busca por cabecera ("AÑO ALTA", "ANY ALTA", "Año de alta"…)
+function findAltaColumn(header) {
+  for (const [col, title] of Object.entries(header)) {
+    const t = norm(title)   // "año alta" → "ano alta"
+    if (/^(ano|any|anyo)( de| d)? alta$/.test(t)) return col
+  }
+  return null
+}
+
+// Celda → año entero (o null). Excel guarda las fechas como nº de días desde 1899-12-30.
+const THIS_YEAR = new Date().getFullYear()
+function parseAltaYear(raw) {
+  if (raw == null) return null
+  const s = String(raw).trim()
+  if (!s) return null
+  let year = null
+  if (/^\d{4}$/.test(s)) year = Number(s)
+  else if (/^\d+(\.\d+)?$/.test(s) && Number(s) > 3000) {
+    year = new Date(Date.UTC(1899, 11, 30) + Number(s) * 86400000).getUTCFullYear()
+  } else {
+    const m = /\b(\d{4})\b/.exec(s)   // 15/03/1998 · 1998-03-15
+    if (m) year = Number(m[1])
+  }
+  return year != null && year >= 1900 && year <= THIS_YEAR ? year : NaN   // NaN = valor no válido
+}
+
+let ALTA_COL = null
+
 function loadCenso() {
   const rows = readSheetRows(FILE)
   const header = rows.shift() ?? {}
+  ALTA_COL = findAltaColumn(header)
   if (!/censo/i.test(header.A ?? '') || !/recompens|distint/i.test(header.D ?? '')) {
     console.warn(`⚠️  Cabecera inesperada: A="${header.A}" D="${header.D}". Revisa que las columnas sean A=N.Censo, D=Recompensas.`)
   }
@@ -243,12 +276,17 @@ function loadCenso() {
     const apellidos = String(r.B ?? '').trim()
     if (!Number.isInteger(num) || num <= 0 || !nombre) { if (Object.keys(r).length) invalid.push(r); continue }
     const distintivo = String(r.D ?? '').trim() || null
+    let altaYear = ALTA_COL ? parseAltaYear(r[ALTA_COL]) : undefined
+    if (Number.isNaN(altaYear)) {
+      console.warn(`⚠️  Nº ${num}: año de alta no válido "${r[ALTA_COL]}" → se ignora`)
+      altaYear = null
+    }
     const nameTok = fullNameTokens(nombre, apellidos)                       // "nom cognoms"
     const revTok  = [...tokens(apellidos), ...givenTokens(nombre)]          // "cognoms nom" (listado oficial)
     // El censo también usa apodos (FINA, CHELO, NACHO…): variantes con el nombre formal
     const apodoNameToks = apodoVariants(givenTokens(nombre)).map(g => [...g, ...tokens(apellidos)])
     const apodoRevToks  = apodoVariants(givenTokens(nombre)).map(g => [...tokens(apellidos), ...g])
-    censo.push({ numeroCenso: num, nombre, apellidos, distintivo,
+    censo.push({ numeroCenso: num, nombre, apellidos, distintivo, altaYear,
       nameTok, revTok, fullNameExcel: nameTok.join(' '), fullNameExcelRev: revTok.join(' '),
       apodoNameToks, apodoRevToks, givenTok: givenTokens(nombre),
       surnameSet: new Set(significant(tokens(apellidos))) })
@@ -320,6 +358,7 @@ function match(falleros, censo) {
 const { censo, invalid } = loadCenso()
 const repeatedNums = censo.filter((c, i) => censo.findIndex(x => x.numeroCenso === c.numeroCenso) !== i)
 console.log(`📄 Excel: ${censo.length} personas · ${censo.filter(c => c.distintivo).length} con distintivo` +
+  (ALTA_COL ? ` · ${censo.filter(c => c.altaYear != null).length} con año de alta (columna ${ALTA_COL})` : ' · sin columna de año de alta (altaYear no se toca)') +
   (invalid.length ? ` · ${invalid.length} filas ignoradas (sin nº o sin nombre)` : ''))
 if (repeatedNums.length) console.warn(`⚠️  Números de censo repetidos en el Excel: ${[...new Set(repeatedNums.map(c => c.numeroCenso))].join(', ')}`)
 
@@ -344,7 +383,14 @@ const exact   = ok.filter(p => p.kind === 'exacto')
 const partial = ok.filter(p => p.kind !== 'exacto')
 const fname   = f => `${f.nombre ?? ''} ${f.apellidos ?? ''}`.trim() || f.email || f.id
 
-const changes = (list) => list.filter(({ f, c }) => f.numeroCenso !== c.numeroCenso || (f.distintivo ?? null) !== c.distintivo)
+// Campos que se escriben. altaYear sólo si el Excel trae la columna (si no, no se pisa lo que haya).
+const payload = c => ({
+  numeroCenso: c.numeroCenso,
+  distintivo:  c.distintivo,
+  ...(c.altaYear !== undefined && { altaYear: c.altaYear }),
+})
+const changes = (list) => list.filter(({ f, c }) =>
+  Object.entries(payload(c)).some(([k, v]) => (f[k] ?? null) !== v))
 
 console.log(`✅ Cruces exactos: ${exact.length} (${changes(exact).length} con cambios)`)
 console.log(`🟡 Cruces parciales: ${partial.length}${PARTIAL ? '' : '  → NO se escriben sin --partial'}`)
@@ -363,8 +409,8 @@ if (!APPLY) {
 for (let i = 0; i < toWrite.length; i += 400) {
   const batch = db.batch()
   for (const { f, c } of toWrite.slice(i, i + 400)) {
-    batch.update(db.collection('falleros').doc(f.id), { numeroCenso: c.numeroCenso, distintivo: c.distintivo })
+    batch.update(db.collection('falleros').doc(f.id), payload(c))
   }
   await batch.commit()
 }
-console.log(`\n💾 Guardado: ${toWrite.length} falleros actualizados con numeroCenso y distintivo.`)
+console.log(`\n💾 Guardado: ${toWrite.length} falleros actualizados con numeroCenso, distintivo${ALTA_COL ? ' y altaYear' : ''}.`)
