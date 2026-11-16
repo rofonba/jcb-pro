@@ -4,6 +4,12 @@ import Login from './components/Login'
 import Dashboard from './components/Dashboard'
 import CompletarPerfil from './components/CompletarPerfil'
 import SplashScreen from './components/SplashScreen'
+import Privacy from './components/Privacy'
+
+// Rutas públicas (sin login ni splash). La app no usa router: Vercel reescribe toda ruta a
+// index.html (vercel.json) y aquí se decide por pathname. Las tiendas exigen una URL pública
+// con la política de privacidad → /privacidad
+const PUBLIC_ROUTES = { '/privacidad': Privacy }
 
 function LoadingScreen() {
   return (
@@ -34,6 +40,9 @@ export default function App() {
     const t3 = setTimeout(() => { setSplashVisible(false); setShowSplash(false) }, 5000)
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
   }, [])
+
+  const PublicPage = PUBLIC_ROUTES[window.location.pathname.replace(/\/+$/, '') || '/']
+  if (PublicPage) return <PublicPage />
 
   return (
     <>

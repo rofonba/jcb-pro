@@ -514,6 +514,12 @@ export default function Login() {
       }}>
         Falla Joaquín Costa · Burriana · {new Date().getFullYear()}
       </p>
+      <a href="/privacidad" style={{
+        color: 'rgba(201,168,76,0.45)', fontSize: '0.68rem', marginTop: '0.5rem',
+        textDecoration: 'underline', textDecorationColor: 'rgba(201,168,76,0.2)', textUnderlineOffset: '3px',
+      }}>
+        Política de privacidad
+      </a>
     </div>
   )
 }

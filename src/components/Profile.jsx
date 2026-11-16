@@ -1160,6 +1160,13 @@ export default function Profile() {
       >
         Cerrar sesión
       </button>
+
+      {/* Legal: enlace discreto a la política de privacidad (ruta pública /privacidad) */}
+      <p style={{ textAlign: 'center', margin: '14px 0 0', fontSize: 11, color: MUTED }}>
+        <a href="/privacidad" style={{ color: MUTED, textDecoration: 'underline', textDecorationColor: `${MUTED}66`, textUnderlineOffset: 3 }}>
+          Política de privacidad
+        </a>
+      </p>
     </div>
   )
 }
