@@ -502,7 +502,7 @@ export default function Login() {
           textAlign: 'center', marginTop: '1.5rem', marginBottom: 0,
         }}>
           ¿Problemas para acceder?{' '}
-          <a href="mailto:comision@fallajc.es" style={{ color: '#C9A84C', textDecoration: 'none' }}>
+          <a href="mailto:mediosjcb@gmail.com" style={{ color: '#C9A84C', textDecoration: 'none' }}>
             Contacta con la comisión
           </a>
         </p>
