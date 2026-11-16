@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { collection, getDocs } from 'firebase/firestore'
 import { db } from '../firebase'
-import { ChevronLeft, RefreshCw, Loader2, TrendingUp, BarChart2, Users } from 'lucide-react'
+import { ChevronLeft, RefreshCw, Loader2, TrendingUp, BarChart2, Users, Cake, HeartHandshake } from 'lucide-react'
 
 const GOLD   = '#D4AF37'
 const WHITE  = '#FFFFFF'
@@ -28,6 +28,39 @@ function tsToDate(ts) {
   return isNaN(d.getTime()) ? null : d
 }
 
+// ─── Edad ─────────────────────────────────────────────────────────────────────
+// Misma regla que la tarifa (api/_lib/pricing.js): ≤ 14 años cumplidos → infantil.
+const CHILD_MAX_AGE = 14
+const YEAR_MS = 365.2425 * 24 * 3600 * 1000
+
+// fechaNacimiento → Date (medianoche UTC) · acepta 'AAAA-MM-DD' (input date), 'DD/MM/AAAA' o Timestamp.
+function parseBirth(raw) {
+  if (!raw) return null
+  if (raw.toDate) return raw.toDate()
+  const s = String(raw).trim()
+  let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]))
+  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s)
+  if (m) return new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]))
+  return null
+}
+
+// Edad a día de hoy (Madrid). null si falta o no es plausible.
+//   exact     → años con decimales (para la MEDIA)
+//   completed → años cumplidos por calendario (para Mayor/Infantil: no falla el día del cumpleaños)
+function ageInfo(raw, todayUtcMs) {
+  const b = parseBirth(raw)
+  if (!b || isNaN(b.getTime())) return null
+  const exact = (todayUtcMs - b.getTime()) / YEAR_MS
+  if (!(exact >= 0 && exact < 110)) return null
+  const t = new Date(todayUtcMs)
+  let completed = t.getUTCFullYear() - b.getUTCFullYear()
+  if (t.getUTCMonth() < b.getUTCMonth() || (t.getUTCMonth() === b.getUTCMonth() && t.getUTCDate() < b.getUTCDate())) completed--
+  return { exact, completed }
+}
+
+const mean = arr => (arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : null)
+
 // ─── Data fetcher ─────────────────────────────────────────────────────────────
 
 async function fetchMetrics() {
@@ -37,7 +70,7 @@ async function fetchMetrics() {
   ])
 
   const inscriptions = insSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-  const fallerosList = fallerosSnap.docs.map(d => d.data())
+  const fallerosList = fallerosSnap.docs.map(d => ({ id: d.id, ...d.data() }))
 
   // 1. Top 3 falleros — ranking del ciclo fallero en curso (1-abr → 1-abr)
   const yearStart  = getFalleroYearStart()
@@ -92,7 +125,50 @@ async function fetchMetrics() {
   const totalNinos    = fallerosList.reduce((sum, f) => sum + (Array.isArray(f.hijos) ? f.hijos.length : 0), 0)
   const totalPersonas = totalAdultos + totalNinos
 
-  return { topFalleros, eventVolume, demographics: { totalAdultos, totalNinos, totalPersonas }, yearStart }
+  // 4. Edad media — falleros ACTIVOS (cuenta en la app) + sus hijos del censo, sólo con fecha válida.
+  //    El Excel del censo no trae fecha de nacimiento: la fuente es falleros.fechaNacimiento y
+  //    falleros.hijos[].fechaNacimiento (lo que cada fallero introduce en la app).
+  const activos = fallerosList.filter(f => f.estaActivo !== false)
+  const [ty, tm, td] = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Madrid' }).split('-').map(Number)
+  const todayUtcMs = Date.UTC(ty, tm - 1, td)
+  const ages = []
+  let personasTotal = 0
+  for (const f of activos) {
+    personasTotal++
+    const a = ageInfo(f.fechaNacimiento, todayUtcMs)
+    if (a) ages.push(a)
+    for (const h of Array.isArray(f.hijos) ? f.hijos : []) {
+      personasTotal++
+      const ah = ageInfo(typeof h === 'object' ? h?.fechaNacimiento : null, todayUtcMs)
+      if (ah) ages.push(ah)
+    }
+  }
+  const mayores    = ages.filter(a => a.completed >  CHILD_MAX_AGE).map(a => a.exact)
+  const infantiles = ages.filter(a => a.completed <= CHILD_MAX_AGE).map(a => a.exact)
+  const edad = {
+    media:         mean(ages.map(a => a.exact)),
+    mediaMayor:    mean(mayores),
+    mediaInfantil: mean(infantiles),
+    nMayor: mayores.length, nInfantil: infantiles.length,
+    conDato: ages.length, total: personasTotal,
+  }
+
+  // 5. Falleros con familiares — vínculo OFICIAL de la app: familiaUids, bidireccional (basta con que
+  //    uno de los dos añada al otro, igual que useFamilia). Sólo cuentan vínculos entre activos.
+  const activoIds = new Set(activos.map(f => f.id))
+  const conFamilia = new Set()
+  for (const f of activos) {
+    for (const uid of Array.isArray(f.familiaUids) ? f.familiaUids : []) {
+      if (uid !== f.id && activoIds.has(uid)) { conFamilia.add(f.id); conFamilia.add(uid) }
+    }
+  }
+  const familia = {
+    conFamilia: conFamilia.size,
+    total:      activos.length,
+    pct:        activos.length ? (conFamilia.size / activos.length) * 100 : null,
+  }
+
+  return { topFalleros, eventVolume, demographics: { totalAdultos, totalNinos, totalPersonas }, edad, familia, yearStart }
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -292,12 +368,91 @@ function Demographics({ data }) {
   )
 }
 
+// ─── Section: Edad media ──────────────────────────────────────────────────────
+
+const fmt1 = n => n.toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+
+function BigStat({ value, label, note }) {
+  return (
+    <div style={{ textAlign: 'center' }}>
+      <div style={{ fontSize: 56, fontWeight: 900, color: GOLD, lineHeight: 1, letterSpacing: '-0.03em' }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 13, color: TEXT2, marginTop: 6, fontWeight: 500 }}>{label}</div>
+      {note && <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>{note}</div>}
+    </div>
+  )
+}
+
+function EdadMedia({ data }) {
+  const { media, mediaMayor, mediaInfantil, nMayor, nInfantil, conDato, total } = data
+  if (media == null) return (
+    <p style={{ fontSize: 13, color: MUTED, margin: 0, textAlign: 'center', padding: '12px 0' }}>
+      Ningún fallero tiene todavía fecha de nacimiento registrada.
+    </p>
+  )
+  return (
+    <div>
+      <div style={{ marginBottom: 20 }}>
+        <BigStat
+          value={fmt1(media)}
+          label="años de media"
+          note={`Calculado con ${conDato} de ${total} personas · el resto no tiene fecha de nacimiento`}
+        />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {[
+          { label: 'Mayores',    value: mediaMayor,    n: nMayor,    color: GOLD },
+          { label: 'Infantiles', value: mediaInfantil, n: nInfantil, color: INDIGO },
+        ].map(s => (
+          <div key={s.label} style={{ background: BG, borderRadius: 14, padding: '14px 16px', border: `1.5px solid ${BORDER}`, textAlign: 'center' }}>
+            <div style={{ fontSize: 28, fontWeight: 800, color: s.color, lineHeight: 1, letterSpacing: '-0.02em' }}>
+              {s.value != null ? fmt1(s.value) : '—'}
+            </div>
+            <div style={{ fontSize: 12, color: TEXT2, marginTop: 4, fontWeight: 500 }}>{s.label} · años</div>
+            <div style={{
+              display: 'inline-block', marginTop: 6, padding: '2px 10px',
+              background: `${s.color}14`, border: `1px solid ${s.color}30`,
+              borderRadius: 20, fontSize: 11, fontWeight: 700, color: s.color,
+            }}>
+              {s.n} {s.n === 1 ? 'persona' : 'personas'}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Section: Falleros con familia ────────────────────────────────────────────
+
+function FamiliaStat({ data }) {
+  const { conFamilia, total, pct } = data
+  if (pct == null) return (
+    <p style={{ fontSize: 13, color: MUTED, margin: 0, textAlign: 'center', padding: '12px 0' }}>
+      Sin falleros registrados todavía.
+    </p>
+  )
+  const pctRound = Math.round(pct)
+  return (
+    <div>
+      <div style={{ marginBottom: 16 }}>
+        <BigStat value={`${pctRound}%`} label="tienen al menos un familiar vinculado" note={`${conFamilia} de ${total} falleros`} />
+      </div>
+      <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', height: 10 }}>
+        <div style={{ width: `${pct}%`, background: GOLD, transition: 'width 0.6s ease' }} />
+        <div style={{ flex: 1, background: BORDER }} />
+      </div>
+    </div>
+  )
+}
+
 // ─── Skeleton loaders ─────────────────────────────────────────────────────────
 
 function LoadingSkeleton() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {[120, 280, 180].map((h, i) => (
+      {[120, 280, 180, 200, 150].map((h, i) => (
         <div key={i} style={{
           background: WHITE, borderRadius: 20, border: `1.5px solid ${BORDER}`,
           height: h, animation: 'falla-pulse 1.6s ease-in-out infinite',
@@ -330,7 +485,15 @@ export default function AdminMetrics({ onClose }) {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  // Carga inicial (loading ya arranca en true): el estado sólo se toca al resolver la promesa.
+  useEffect(() => {
+    let alive = true
+    fetchMetrics()
+      .then(result => { if (alive) setData(result) })
+      .catch(() => { if (alive) setError('No se pudieron cargar las métricas. Comprueba la conexión.') })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [])
 
   return (
     <div style={{
@@ -448,6 +611,22 @@ export default function AdminMetrics({ onClose }) {
               title="Desglose Demográfico"
             >
               <Demographics data={data.demographics} />
+            </SectionCard>
+
+            {/* Section 4: Edad media */}
+            <SectionCard
+              icon={<Cake size={16} color={GOLD} />}
+              title="Edad Media"
+            >
+              <EdadMedia data={data.edad} />
+            </SectionCard>
+
+            {/* Section 5: Falleros con familia en la falla */}
+            <SectionCard
+              icon={<HeartHandshake size={16} color={GOLD} />}
+              title="Falleros con Familia en la Falla"
+            >
+              <FamiliaStat data={data.familia} />
             </SectionCard>
 
           </div>
