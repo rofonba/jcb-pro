@@ -38,8 +38,10 @@
     --sar: env(safe-area-inset-right);
   }
 
+  /* Scroll táctil nativo (PWA Android instalada): el body es el ÚNICO scroller de la app.
+     Nada de overscroll-behavior:none / touch-action:none / overflow:hidden en html, body o #root:
+     congelan la inercia de un dedo en Chrome Android en modo standalone. */
   html {
-    overscroll-behavior: none;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
@@ -51,7 +53,9 @@
 
   body {
     margin: 0;
-    overscroll-behavior: none;
+    /* manipulation = pan vertical + horizontal (carruseles) + pinch; sólo quita el zoom por doble tap.
+       No usar pan-y: rompería el scroll horizontal de los avisos. */
+    touch-action: manipulation;
     background-color: #F9FAFB;
     color: #111827;
     font-family: Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI',

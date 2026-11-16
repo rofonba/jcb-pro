@@ -1399,7 +1399,8 @@ export default function Dashboard() {
       <UrgentNotification events={events} onView={(ev) => setDetailEventId(ev.id)} />
 
       {/* Content */}
-      <main style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain' }}>
+      {/* Sin overflow/overscroll propios: el scroll vertical lo hace el body (nativo, un dedo) */}
+      <main style={{ flex: 1 }}>
         {activeTab === 'home' && (
           <HomeTab
             nombre={nombre} rol={fallero?.rol ?? 'fallero'} numeroCenso={fallero?.numeroCenso ?? null} isAdmin={isAdmin}
