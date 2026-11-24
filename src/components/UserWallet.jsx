@@ -3,7 +3,7 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { ChevronLeft, MapPin } from 'lucide-react'
-import { getPersons, getCheckInState, markCheckInGroup, getDelegatedPersons } from '../utils/checkIn'
+import { getPersons, getCheckInState, markCheckInGroup, markCheckInDocs, getDelegatedPersons } from '../utils/checkIn'
 
 const GOLD   = '#D4AF37'
 const BG     = '#F9FAFB'
@@ -301,13 +301,14 @@ export default function UserWallet({ events, onClose }) {
   useEffect(() => {
     if (!user?.uid) return
     const col = collection(db, 'inscripciones')
-    const unsubA = onSnapshot(query(col, where('uid', '==', user.uid)),
-      s => { setPaidByMe(s.docs.map(d => ({ id: d.id, ...d.data() }))); setLoadingA(false) },
-      () => setLoadingA(false))
-    const unsubB = onSnapshot(query(col, where('beneficiariosUids', 'array-contains', user.uid)),
-      s => { setPaidForMe(s.docs.map(d => ({ id: d.id, ...d.data() }))); setLoadingB(false) },
-      () => setLoadingB(false))
-    return () => { unsubA(); unsubB() }
+    const rows = s => s.docs.map(d => ({ id: d.id, ...d.data() }))
+    // Pagadas por mí: clásicas (uid) + modelo de grupo (pagadorUid). Pagadas para mí: beneficiario (clásico) + asistente (grupo).
+    let a1 = [], a2 = [], b1 = [], b2 = []
+    const unsubA  = onSnapshot(query(col, where('uid', '==', user.uid)),                          s => { a1 = rows(s); setPaidByMe([...a1, ...a2]); setLoadingA(false) }, () => setLoadingA(false))
+    const unsubA2 = onSnapshot(query(col, where('pagadorUid', '==', user.uid)),                   s => { a2 = rows(s); setPaidByMe([...a1, ...a2]) }, () => {})
+    const unsubB  = onSnapshot(query(col, where('beneficiariosUids', 'array-contains', user.uid)), s => { b1 = rows(s); setPaidForMe([...b1, ...b2]); setLoadingB(false) }, () => setLoadingB(false))
+    const unsubB2 = onSnapshot(query(col, where('asistenteUid', '==', user.uid)),                 s => { b2 = rows(s); setPaidForMe([...b1, ...b2]) }, () => {})
+    return () => { unsubA(); unsubA2(); unsubB(); unsubB2() }
   }, [user?.uid])
 
   const [startOfToday] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime() })
@@ -322,20 +323,22 @@ export default function UserWallet({ events, onClose }) {
   // Sólo entradas pagadas de eventos de hoy en adelante. Si pagué yo → soy pagador.
   const tickets = useMemo(() => {
     const byId = new Map()
-    for (const i of paidForMe) byId.set(i.id, { ins: i, isPayer: false })
+    for (const i of paidForMe) byId.set(i.id, { ins: i, isPayer: i.modelo === 2 && i.pagadorUid === user.uid })
     for (const i of paidByMe)  byId.set(i.id, { ins: i, isPayer: true })
     return [...byId.values()]
       .filter(({ ins }) => ins.pagado === true && !ins.esManual)
       .map(t => ({ ...t, event: eventsById.get(t.ins.eventId) }))
       .filter(t => { const d = toDate(t.event?.fecha); return d && d.getTime() >= startOfToday })
       .sort((a, b) => toDate(a.event.fecha) - toDate(b.event.fecha))
-  }, [paidByMe, paidForMe, eventsById, startOfToday])
+  }, [paidByMe, paidForMe, eventsById, startOfToday, user.uid])
 
-  // Fast Track: eventos pagados cuya fecha es HOY
+  // Fast Track: eventos pagados cuya fecha es HOY. En el modelo de grupo sólo cuentan MIS entradas
+  // (asistenteUid = yo); las de mis invitados sin app se gestionan desde la mía (grupo).
   const todays = useMemo(() => tickets.filter(t => {
     const d = toDate(t.event.fecha)
+    if (t.ins.modelo === 2 && t.ins.asistenteUid !== user.uid) return false
     return d.getTime() >= startOfToday && d.getTime() < startOfToday + 86400000
-  }), [tickets, startOfToday])
+  }), [tickets, startOfToday, user.uid])
 
   const stateOf = (t) => getCheckInState(t.ins, user.uid)
   // Por defecto: el elegido; si no, el primero de hoy que aún no ha entrado; si todos entraron, el primero.
@@ -351,13 +354,23 @@ export default function UserWallet({ events, onClose }) {
     if (!current) return []
     const rows = []
     if (myPerson) rows.push({ person: myPerson, isMe: true, entered: getCheckInState(current.ins, myPerson.id).entered })
+    if (current.ins.modelo === 2) {
+      // Grupo: mis invitados sin app son OTROS documentos del mismo pedido
+      if (current.isPayer) for (const t of tickets) {
+        const x = t.ins
+        if (x.modelo === 2 && x.pedidoId === current.ins.pedidoId && x.id !== current.ins.id && !x.asistenteUid) {
+          rows.push({ person: getPersons(x)[0], isMe: false, entered: x.checkIn === true })
+        }
+      }
+      return rows
+    }
     if (current.isPayer) {
       for (const p of getDelegatedPersons(current.ins)) {
         rows.push({ person: p, isMe: false, entered: getCheckInState(current.ins, p.id).entered })
       }
     }
     return rows
-  }, [current, myPerson])
+  }, [current, myPerson, tickets])
   const pendingGroup = group.filter(r => !r.entered)
   const selectedIds  = new Set(pendingGroup.filter(r => !skipIds.has(r.person.id)).map(r => r.person.id))
   const toggleSelected = (id) => setSkipIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -369,7 +382,8 @@ export default function UserWallet({ events, onClose }) {
     if (!persons.length) { setSlideErr(myPerson ? 'Selecciona a quién entregas el ticket.' : 'No apareces en esta inscripción. Habla con la directiva.'); return }
     setSlideBusy(true); setSlideErr('')
     try {
-      await markCheckInGroup(current.ins.id, persons)
+      if (current.ins.modelo === 2) await markCheckInDocs(persons.map(p => p.docId))
+      else await markCheckInGroup(current.ins.id, persons)
       setSkipIds(new Set())
     } catch (err) {
       const msg = err?.message ?? ''

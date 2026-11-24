@@ -5,6 +5,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { isPendingPayment, countsForCapacity } from '../utils/inscripciones'
+import { getPersons } from '../utils/checkIn'
 import { enviarNotificacionFCM } from '../services/fcmService'
 import { useAuth } from '../contexts/AuthContext'
 import {
@@ -979,13 +980,27 @@ export function PaymentReceipt({ inscription, variant = 'dark' }) {
   const total = inscription.totalConComision != null
     ? Number(inscription.totalConComision).toFixed(2).replace('.', ',')
     : '—'
+  const gastos = Number(inscription.gastosGestion ?? 0)
+  // Pagado por + personas apuntadas: modelo de grupo (pedidoResumen) o clásico (titular + acompañantes)
+  const resumen  = inscription.pedidoResumen ?? null
+  const pagadoPor = resumen?.pagadorNombre ?? inscription.pagadorNombre ?? inscription.nombre ?? '—'
+  const personas = resumen
+    ? resumen.asistentes.map(a => ({ nombre: a.nombre, detalle: `${a.tipo === 'invitado' ? 'invitado' : a.tipo === 'hijo' ? 'hijo/a' : 'fallero/a'} · ${a.categoria === 'nino' ? 'infantil' : 'adulto'}` }))
+    : getPersons(inscription).map(p => ({ nombre: p.nombre, detalle: p.isPayer ? 'titular' : p.tipo === 'censo_hijo' ? 'hijo/a' : p.tipo === 'manual' ? 'invitado' : 'fallero/a' }))
   return (
     <div style={{ padding: '0.9rem 1rem', background: 'rgba(16,185,129,0.1)', border: '1.5px solid rgba(16,185,129,0.45)', borderRadius: 14, marginBottom: '0.75rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
         <span style={{ fontSize: '1.5rem', lineHeight: 1 }}>✅</span>
         <span style={{ fontSize: '1rem', fontWeight: 800, color: GREEN }}>Pagado: {total} €</span>
+        <span style={{ fontSize: '0.68rem', color: muted }}>· gastos de gestión {gastos.toFixed(2).replace('.', ',')} €</span>
       </div>
+      {inscription.eventoTitulo && <div style={{ fontSize: '0.8rem', fontWeight: 700, color: txt, marginBottom: 4 }}>🎟️ {inscription.eventoTitulo}</div>}
       <div style={{ fontSize: '0.75rem', color: muted, lineHeight: 1.6 }}>
+        <div>👤 Pagado por: <span style={{ color: txt, fontWeight: 600 }}>{pagadoPor}</span></div>
+        <div style={{ marginTop: 2 }}>👥 Personas apuntadas ({personas.length}):</div>
+        <ul style={{ margin: '2px 0 4px', paddingLeft: '1.1rem' }}>
+          {personas.map((p, i) => <li key={i}><span style={{ color: txt }}>{p.nombre}</span> <span style={{ opacity: 0.7 }}>· {p.detalle}</span></li>)}
+        </ul>
         <div>📅 {fecha}</div>
         {inscription.stripePaymentId && (
           <div style={{ wordBreak: 'break-all' }}>🧾 ID transacción: <span style={{ fontFamily: 'monospace', color: txt }}>{inscription.stripePaymentId}</span></div>
@@ -1731,6 +1746,26 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
         </div>
       )}
 
+      {/* ── Pago confirmado (webhook) ─── */}
+      {status === 'paid' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '1.25rem 0 0.25rem', gap: '0.85rem' }}>
+          <div style={{ width: '58px', height: '58px', background: `${GREEN}18`, border: `1px solid ${GREEN}35`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Check size={28} color={GREEN} strokeWidth={2.5} />
+          </div>
+          <p style={{ margin: 0, fontWeight: '800', fontSize: '1.05rem', color: GREEN }}>Pago confirmado 🎉</p>
+          <p style={{ margin: 0, fontSize: '0.8rem', color: 'rgba(255,255,255,0.55)', textAlign: 'center' }}>
+            Tu inscripción a <strong style={{ color: 'white' }}>{event.titulo}</strong> está confirmada. La tienes en «Check-in».
+          </p>
+          <div style={{ width: '100%' }}>
+            {myIns ? <PaymentReceipt inscription={myIns} /> : <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)', textAlign: 'center' }}>Justificante disponible en unos instantes…</p>}
+          </div>
+          <button type="button" onClick={onSuccess}
+            style={{ width: '100%', minHeight: 50, background: `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: 14, color: 'white', fontSize: '1rem', fontWeight: 800, cursor: 'pointer' }}>
+            Entendido
+          </button>
+        </div>
+      )}
+
       {/* ── Saved ─── */}
       {status === 'saved' && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '2rem 1rem', gap: '0.75rem' }}>
@@ -1999,7 +2034,13 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
                   isReady={!saving && !wouldExceed && !isAforoFull && !hasCompanionErrors && !isPast}
                   onPrepare={() => writeInscription({ pending: true })}
                   onAbort={abortPendingInscription}
-                  onConfirmed={() => { setSaving(false); setStatus('saved'); setTimeout(onSuccess, 900) }}
+                  onConfirmed={async () => {
+                    // Pago confirmado por el webhook: releo la inscripción (ya con importes y justificante)
+                    // y muestro una pantalla explícita de confirmación; el modal NO se cierra solo.
+                    setSaving(false)
+                    try { const s = await getDoc(doc(db, 'inscripciones', `${user.uid}_${event.id}`)); if (s.exists()) setMyIns({ id: s.id, ...s.data() }) } catch { /* se muestra sin detalle */ }
+                    setStatus('paid')
+                  }}
                 />
               ) : (
                 <button type="submit" disabled={saving || wouldExceed || hasCompanionErrors}

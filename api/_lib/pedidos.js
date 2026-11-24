@@ -109,10 +109,12 @@ export async function resolveLineas(db, payerUid, asistentes, ev) {
 
 export const sumNeto = lineas => lineas.reduce((s, l) => s + l.precioNetoCent, 0)
 
-export function buildInscripcion({ eventId, pedidoId, pagadorUid, pagadorNombre, linea, cobraOnline }) {
+export function buildInscripcion({ eventId, eventoTitulo = '', pedidoId, pagadorUid, pagadorNombre, linea, cobraOnline }) {
   return {
     modelo: 2,
-    eventId, pedidoId, pagadorUid, pagadorNombre,
+    eventId, eventoTitulo, pedidoId, pagadorUid, pagadorNombre,
+    // Compatibilidad con las vistas del modelo clásico: `nombre` = quien paga ("Entrada pagada por…")
+    nombre: pagadorNombre,
     tipo:            linea.tipo,
     asistenteUid:    linea.asistenteUid,
     asistenteKey:    linea.asistenteKey,

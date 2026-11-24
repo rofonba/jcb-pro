@@ -102,7 +102,7 @@ export default function DetalleEvento({ eventId, onClose, onRegistered, onCancel
   }, [eventId])
 
   const isRegistered = useMemo(
-    () => inscripciones.some(i => i.uid === userId && !i.esManual),
+    () => inscripciones.some(i => (i.uid === userId || i.asistenteUid === userId) && !i.esManual),
     [inscripciones, userId],
   )
 

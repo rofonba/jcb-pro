@@ -1289,7 +1289,9 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user?.uid) return
     // En vivo: confirmadas → registeredIds; pagos sin confirmar → pendingIds (con botón Anular)
-    return onSnapshot(query(collection(db, 'inscripciones'), where('uid', '==', user.uid)), snap => {
+    // Dos fuentes: inscripciones clásicas (uid = yo) y del modelo de grupo (asistenteUid = yo, aunque pague otro)
+    let v1 = null, v2 = null
+    const collect = snap => {
       const confirmed = new Set(), pending = new Set(), paid = new Set()
       for (const d of snap.docs) {
         const x = d.data()
@@ -1297,10 +1299,16 @@ export default function Dashboard() {
         ;(isPendingPayment(x) ? pending : confirmed).add(x.eventId)
         if (x.pagado === true) paid.add(x.eventId)
       }
-      setPaidIds(paid)
-      setRegisteredIds(confirmed)
-      setPendingIds(pending)
-    }, () => {})
+      return { confirmed, pending, paid }
+    }
+    const publish = () => {
+      const u = k => new Set([...(v1?.[k] ?? []), ...(v2?.[k] ?? [])])
+      setPaidIds(u('paid')); setRegisteredIds(u('confirmed')); setPendingIds(u('pending'))
+    }
+    const col = collection(db, 'inscripciones')
+    const u1 = onSnapshot(query(col, where('uid', '==', user.uid)),          s => { v1 = collect(s); publish() }, () => {})
+    const u2 = onSnapshot(query(col, where('asistenteUid', '==', user.uid)), s => { v2 = collect(s); publish() }, () => {})
+    return () => { u1(); u2() }
   }, [user?.uid])
 
   // Reservas de pago ABANDONADAS (app cerrada a mitad del cobro de Stripe): pasados 15 min ya no

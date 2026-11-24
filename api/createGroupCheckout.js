@@ -124,9 +124,9 @@ export default async function handler(req, res) {
       }
       // Mis reservas pendientes anteriores que no forman parte del nuevo grupo: se liberan
       for (const id of ownPendingIds) if (!ids.includes(id)) tx.delete(insCol.doc(id))
-      lineas.forEach((l, i) => tx.set(insCol.doc(ids[i]), buildInscripcion({ eventId, pedidoId, pagadorUid: uid, pagadorNombre, linea: l, cobraOnline: true })))
+      lineas.forEach((l, i) => tx.set(insCol.doc(ids[i]), buildInscripcion({ eventId, eventoTitulo: ev.titulo ?? '', pedidoId, pagadorUid: uid, pagadorNombre, linea: l, cobraOnline: true })))
       tx.set(pedidoRef, {
-        eventId, pagadorUid: uid, pagadorNombre, estado: 'pendiente', stripePaymentId: null,
+        eventId, eventoTitulo: ev.titulo ?? '', pagadorUid: uid, pagadorNombre, estado: 'pendiente', stripePaymentId: null,
         lineas: lineas.map((l, i) => ({ inscripcionId: ids[i], ...l })),
         adultCount, childCount, totalNetoCent, totalConComisionCent, gastosGestionCent,
         createdAt: FieldValue.serverTimestamp(),

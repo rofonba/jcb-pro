@@ -16,8 +16,10 @@
 import Stripe from 'stripe'
 import { initializeApp, cert, getApps, getApp } from 'firebase-admin/app'
 import { getFirestore, FieldValue }             from 'firebase-admin/firestore'
+import { getMessaging }                         from 'firebase-admin/messaging'
 import { computeBreakdown, netCents, companionsFromInscription } from './_lib/pricing.js'
 import { sumNeto, tarifaInversa } from './_lib/pedidos.js'
+import { buildMessage, sendToTokens } from './sendPush.js'
 
 // Necesario para poder verificar la firma: Vercel no debe parsear el body.
 export const config = { api: { bodyParser: false } }
@@ -53,6 +55,28 @@ function readRawBody(req) {
 
 const round2 = n => Math.round(n * 100) / 100
 
+// Push "plaza confirmada" al pagador y a cada asistente con app. Best-effort: nunca hace fallar el
+// webhook (el pago ya está confirmado en Firestore). Reutiliza los lotes/limpieza de /api/sendPush.
+async function notifyPaid(db, uids, eventoTitulo, pi) {
+  try {
+    const ids = [...new Set(uids.filter(u => typeof u === 'string' && u))]
+    if (!ids.length) return
+    const snaps = await db.getAll(...ids.map(u => db.collection('falleros').doc(u)))
+    const tokens = [...new Set(snaps.map(s => s.exists ? s.data().fcmToken : null).filter(t => typeof t === 'string' && t))]
+    const title = '✅ Plaza confirmada'
+    const body  = `Tu plaza en "${eventoTitulo || 'el evento'}" está confirmada. Ya la tienes en Check-in.`
+    let r = { sent: 0, failed: 0, stale: new Set(), errors: {} }
+    if (tokens.length) r = await sendToTokens(getMessaging(adminApp()), tokens, buildMessage(title, body, `pago_${pi.id}`))
+    await db.collection('push_logs').add({
+      tipo: 'pago', title, body, adminUid: 'sistema', adminNombre: 'Webhook de Stripe', adminEmail: null,
+      stripePaymentId: pi.id, destinatarios: ids.length, tokens: tokens.length,
+      sent: r.sent, failed: r.failed, staleRemoved: 0, errors: r.errors, createdAt: FieldValue.serverTimestamp(),
+    })
+  } catch (err) {
+    console.error('[stripe-webhook] push de confirmación:', err.message)
+  }
+}
+
 // ── Modelo v2: checkout de GRUPO (pedidos/{pedidoId} + N inscripciones) ─────────────────────
 // Verifica que lo cobrado coincide con el pedido que escribió createGroupCheckout, recalculando
 // el neto con los precios ACTUALES del evento, y marca pagadas todas las inscripciones del
@@ -63,6 +87,7 @@ async function handleGroupSucceeded(pi) {
   const pedidoRef   = db.collection('pedidos').doc(pedidoId)
   const revisionRef = db.collection('pagosPendientesRevision').doc(pi.id)
   const cobradoCent = pi.amount_received ?? pi.amount
+  let notify = null   // { uids, eventoTitulo } si el pedido se marca pagado en esta ejecución
 
   await db.runTransaction(async (tx) => {
     const pSnap = await tx.get(pedidoRef)
@@ -94,13 +119,26 @@ async function handleGroupSucceeded(pi) {
     if (perdidas.length) return revisar('inscripciones-perdidas', { perdidas })
 
     const pagadoAt = FieldValue.serverTimestamp()
-    insRefs.forEach(ref => tx.update(ref, { pagado: true, estadoPago: 'pagado', pagadoAt, stripePaymentId: pi.id }))
+    // Resumen del pedido en CADA inscripción (justificante: "pagado por" + personas apuntadas) e
+    // importes totales del pedido, para que las vistas clásicas ("pagó X €") y el recibo funcionen.
+    const pedidoResumen = {
+      pagadorNombre: pedido.pagadorNombre ?? null,
+      asistentes: pedido.lineas.map(l => ({ nombre: l.asistenteNombre, tipo: l.tipo, categoria: l.categoria, precioNetoCent: l.precioNetoCent })),
+      totalNetoCent: esperadoNeto, totalConComisionCent: cobradoCent,
+    }
+    insRefs.forEach(ref => tx.update(ref, {
+      pagado: true, estadoPago: 'pagado', pagadoAt, stripePaymentId: pi.id,
+      eventoTitulo: ev.titulo ?? '', pedidoResumen,
+      totalNeto: round2(esperadoNeto / 100), totalConComision: round2(cobradoCent / 100), gastosGestion: round2((cobradoCent - esperadoNeto) / 100),
+    }))
+    notify = { uids: [pagadorUid, ...pedido.lineas.map(l => l.asistenteUid)], eventoTitulo: ev.titulo ?? '' }
     tx.update(pedidoRef, {
       estado: 'pagado', stripePaymentId: pi.id, pagadoAt,
       totalConComision: round2(cobradoCent / 100), totalNeto: round2(esperadoNeto / 100),
       gastosGestion: round2((cobradoCent - esperadoNeto) / 100),
     })
   })
+  if (notify) await notifyPaid(db, notify.uids, notify.eventoTitulo, pi)
 }
 
 async function handleSucceeded(pi) {
@@ -118,6 +156,7 @@ async function handleSucceeded(pi) {
   const personasPagadas  = Number(pi.metadata.adultCount) + Number(pi.metadata.childCount)
 
   const ref = db.collection('inscripciones').doc(`${userId}_${eventId}`)
+  let notify = null
 
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref)
@@ -176,6 +215,7 @@ async function handleSucceeded(pi) {
       return
     }
 
+    notify = { uids: [userId, ...(Array.isArray(ins.beneficiariosUids) ? ins.beneficiariosUids : [])], eventoTitulo: ins.eventoTitulo ?? '' }
     tx.update(ref, {
       pagado:           true,
       pagadoAt:         FieldValue.serverTimestamp(),
@@ -191,6 +231,7 @@ async function handleSucceeded(pi) {
         .map(b => b.id),
     })
   })
+  if (notify) await notifyPaid(db, notify.uids, notify.eventoTitulo, pi)
 }
 
 export default async function handler(req, res) {

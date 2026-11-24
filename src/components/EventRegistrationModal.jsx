@@ -168,7 +168,8 @@ function Content({ event, onClose, onSuccess }) {
           const asistenteKey = l.key && (l.uid || l.tipo === 'hijo') ? l.key : null
           const id = asistenteKey ? `${event.id}_${asistenteKey}` : `${event.id}_${pedidoId}_${i}`
           batch.set(doc(db, 'inscripciones', id), {
-            modelo: 2, eventId: event.id, pedidoId, pagadorUid: uid, pagadorNombre: fullName(fallero),
+            modelo: 2, eventId: event.id, eventoTitulo: event.titulo ?? '', pedidoId, pagadorUid: uid, pagadorNombre: fullName(fallero),
+            nombre: fullName(fallero),   // compatibilidad con las vistas clásicas ("pagada por")
             tipo: l.tipo, asistenteUid: l.uid ?? null, asistenteKey,
             asistenteNombre: l.uid || l.tipo === 'hijo' ? l.nombre : `${l.nombreLibre} ${l.apellidosLibre}`,
             categoria: l.categoria, precioNetoCent: paid ? priceOf(l.categoria) : 0,
@@ -256,7 +257,8 @@ function Content({ event, onClose, onSuccess }) {
 
         {step === 'awaiting' && checkout && (
           <Awaiting pedidoId={checkout.pedidoId} paymentIntentId={checkout.paymentIntentId}
-            onConfirmed={() => { setStep('done'); onSuccess?.() }} />
+            onConfirmed={() => { setStep('done'); onSuccess?.() }}
+            onGiveUp={onClose} />
         )}
 
         {step === 'done' && (
@@ -264,13 +266,19 @@ function Content({ event, onClose, onSuccess }) {
             <div style={{ width: 58, height: 58, background: `${GREEN}18`, border: `1px solid ${GREEN}35`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Check size={28} color={GREEN} strokeWidth={2.5} />
             </div>
-            <p style={{ margin: 0, fontWeight: 800, fontSize: '1rem', color: GREEN }}>
-              ¡{cart.length > 1 ? `${cart.length} personas inscritas` : 'Inscripción confirmada'}! 🎉
+            <p style={{ margin: 0, fontWeight: 800, fontSize: '1.05rem', color: GREEN }}>
+              {cobraOnline ? 'Pago confirmado 🎉' : `¡${cart.length > 1 ? `${cart.length} personas inscritas` : 'Inscripción confirmada'}! 🎉`}
             </p>
+            {cobraOnline && checkout && (
+              <p style={{ margin: 0, fontSize: '0.82rem', color: 'rgba(255,255,255,0.6)', textAlign: 'center' }}>
+                <strong style={{ color: 'white' }}>{event.titulo}</strong> · {fmtEur(checkout.totalConComision)} · {cart.length} {cart.length === 1 ? 'plaza' : 'plazas'}<br />
+                <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.4)' }}>Ref. {checkout.paymentIntentId} · Las entradas ya están en «Check-in».</span>
+              </p>
+            )}
             <ul style={{ margin: 0, padding: 0, listStyle: 'none', fontSize: '0.82rem', color: 'rgba(255,255,255,0.6)', textAlign: 'center' }}>
               {cart.map((l, i) => <li key={i}>{l.uid || l.tipo === 'hijo' ? l.nombre : `${l.nombreLibre} ${l.apellidosLibre}`}</li>)}
             </ul>
-            <button onClick={onClose} style={{ marginTop: 6, width: '100%', minHeight: 48, background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 12, color: 'white', fontWeight: 700, cursor: 'pointer' }}>Cerrar</button>
+            <button onClick={onClose} style={{ marginTop: 6, width: '100%', minHeight: 50, background: `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, border: 'none', borderRadius: 14, color: 'white', fontSize: '1rem', fontWeight: 800, cursor: 'pointer' }}>Entendido</button>
           </div>
         )}
       </div>
@@ -563,7 +571,7 @@ function PayStep({ event, user, fallero, checkout, onBack, onPaid }) {
 }
 
 // ─── Esperando la confirmación del webhook (pedidos/{id}.estado === 'pagado') ─
-function Awaiting({ pedidoId, paymentIntentId, onConfirmed }) {
+function Awaiting({ pedidoId, paymentIntentId, onConfirmed, onGiveUp }) {
   const [delayed, setDelayed] = useState(false)
   const cb = useRef(onConfirmed)
   useEffect(() => { cb.current = onConfirmed })
@@ -585,6 +593,11 @@ function Awaiting({ pedidoId, paymentIntentId, onConfirmed }) {
         <p style={{ margin: '0.75rem 0 0', fontSize: '0.76rem', color: '#fbbf24', lineHeight: 1.5 }}>
           ⚠️ Está tardando más de lo normal. Tu pago está registrado en Stripe (ID <span style={{ fontFamily: 'monospace' }}>{paymentIntentId}</span>) y la inscripción se confirmará sola en cuanto llegue. Si en unos minutos no aparece en «Check-in», contacta con la directiva con ese ID.
         </p>
+      )}
+      {delayed && (
+        <button type="button" onClick={onGiveUp} style={{ marginTop: 12, width: '100%', minHeight: 44, background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 12, color: 'white', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+          Entendido, lo compruebo más tarde
+        </button>
       )}
     </div>
   )

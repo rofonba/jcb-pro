@@ -10,6 +10,19 @@ import { db } from '../firebase'
 
 // Todas las personas cubiertas por una inscripción: titular + acompañantes.
 export function getPersons(ins) {
+  // Modelo de grupo (v2): UN documento por persona. Su "titular" es el pagador (puede ser otro doc).
+  if (ins.modelo === 2) {
+    const tipo = ins.tipo === 'invitado' ? 'manual'
+      : ins.tipo === 'hijo' ? 'censo_hijo'
+      : ins.asistenteUid ? 'censo_app' : 'censo_sinapp'
+    return [{
+      id: ins.asistenteKey ?? ins.id ?? 'asistente',
+      nombre: ins.asistenteNombre || ins.nombre || 'Fallero',
+      tipo, appUid: ins.asistenteUid ?? null,
+      isPayer: !!ins.asistenteUid && ins.asistenteUid === ins.pagadorUid,
+      docId: ins.id ?? null, v2: true,
+    }]
+  }
   const payer = { id: ins.uid, nombre: ins.nombre ?? 'Fallero', tipo: 'pagador', appUid: ins.uid, isPayer: true }
   const comps = Array.isArray(ins.beneficiarios)
     ? ins.beneficiarios
@@ -58,6 +71,11 @@ export async function markCheckInGroup(inscriptionId, persons) {
     const snap = await tx.get(ref)
     if (!snap.exists()) throw new Error('La inscripción ya no existe.')
     const data = snap.data()
+    if (data.modelo === 2) {   // v2: un check-in por documento
+      if (data.checkIn === true) throw new Error(`${persons[0]?.nombre ?? 'Esta persona'} ya ha entrado.`)
+      tx.update(ref, { checkIn: true, checkInAt: serverTimestamp() })
+      return
+    }
     const upd  = {}
     for (const p of persons) {
       if (!getCheckInState(data, p.id).entered) {
@@ -73,6 +91,22 @@ export async function markCheckInGroup(inscriptionId, persons) {
 
 export const markCheckIn = (inscriptionId, person) => markCheckInGroup(inscriptionId, [person])
 
+// v2: marca la entrada de VARIOS documentos (yo + mis invitados sin app) en una sola transacción.
+export async function markCheckInDocs(docIds) {
+  const ids = [...new Set(docIds.filter(Boolean))]
+  if (!ids.length) throw new Error('No hay nadie seleccionado.')
+  await runTransaction(db, async (tx) => {
+    const refs  = ids.map(id => doc(db, 'inscripciones', id))
+    const snaps = await Promise.all(refs.map(r => tx.get(r)))
+    let n = 0
+    snaps.forEach((s, i) => {
+      if (!s.exists() || s.data().checkIn === true) return
+      tx.update(refs[i], { checkIn: true, checkInAt: serverTimestamp() }); n++
+    })
+    if (!n) throw new Error(ids.length === 1 ? 'Ya ha entrado.' : 'Ya han entrado todos.')
+  })
+}
+
 // Deshacer la entrada de una persona (sólo staff: las reglas no lo permiten a nadie más).
 export async function undoCheckIn(inscriptionId, person) {
   await runTransaction(db, async (tx) => {
@@ -80,6 +114,7 @@ export async function undoCheckIn(inscriptionId, person) {
     const snap = await tx.get(ref)
     if (!snap.exists()) throw new Error('La inscripción ya no existe.')
     const data = snap.data()
+    if (data.modelo === 2) { tx.update(ref, { checkIn: false, checkInAt: deleteField() }); return }
     const upd  = {}
     // Datos antiguos con checkIn global: se desglosa a individual antes de anular a uno.
     if (data.checkIn === true) {

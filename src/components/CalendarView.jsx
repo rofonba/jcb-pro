@@ -180,7 +180,9 @@ export default function CalendarView({ onDetailPress }) {
   useEffect(() => {
     if (!user?.uid) return
     // En vivo: confirmadas (registeredIds) y, dentro de ellas, las pagadas (paidIds: sólo la directiva puede anularlas)
-    return onSnapshot(query(collection(db, 'inscripciones'), where('uid', '==', user.uid)), snap => {
+    // Clásico (uid = yo) + modelo de grupo (asistenteUid = yo)
+    let v1 = { reg: new Set(), paid: new Set() }, v2 = { reg: new Set(), paid: new Set() }
+    const collect = snap => {
       const reg = new Set(), paid = new Set()
       for (const d of snap.docs) {
         const x = d.data()
@@ -188,9 +190,13 @@ export default function CalendarView({ onDetailPress }) {
         reg.add(x.eventId)
         if (x.pagado === true) paid.add(x.eventId)
       }
-      setRegisteredIds(reg)
-      setPaidIds(paid)
-    }, () => {})
+      return { reg, paid }
+    }
+    const publish = () => { setRegisteredIds(new Set([...v1.reg, ...v2.reg])); setPaidIds(new Set([...v1.paid, ...v2.paid])) }
+    const col = collection(db, 'inscripciones')
+    const u1 = onSnapshot(query(col, where('uid', '==', user.uid)),          s => { v1 = collect(s); publish() }, () => {})
+    const u2 = onSnapshot(query(col, where('asistenteUid', '==', user.uid)), s => { v2 = collect(s); publish() }, () => {})
+    return () => { u1(); u2() }
   }, [user?.uid])
 
   useEffect(() => {

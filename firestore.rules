@@ -187,7 +187,8 @@ service cloud.firestore {
           && !eventoCobraOnline(d.eventId)
           && d.keys().hasOnly(['modelo', 'eventId', 'pedidoId', 'pagadorUid', 'pagadorNombre', 'tipo',
                                'asistenteUid', 'asistenteKey', 'asistenteNombre', 'categoria',
-                               'precioNetoCent', 'pagado', 'estadoPago', 'checkIn', 'createdAt', 'nota', 'alergias'])
+                               'precioNetoCent', 'pagado', 'estadoPago', 'checkIn', 'createdAt', 'nota', 'alergias',
+                               'nombre', 'eventoTitulo'])
           && d.tipo in ['titular', 'familiar', 'fallero', 'hijo', 'invitado']
           && d.categoria in ['adulto', 'nino']
           && ((d.tipo == 'titular') == (d.get('asistenteUid', null) == request.auth.uid))
