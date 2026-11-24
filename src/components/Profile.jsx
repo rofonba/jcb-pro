@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  collection, query, orderBy, getDocs, where,
+  collection, query, orderBy, getDocs, getDoc, where,
   doc, updateDoc, arrayUnion, arrayRemove, onSnapshot, writeBatch,
 } from 'firebase/firestore'
 import { db } from '../firebase'
@@ -10,6 +10,9 @@ import { formatDistintivo, nextBunyolFromDistintivo, calculateNextBunyol } from 
 import { useAuth } from '../contexts/AuthContext'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { useFamilia } from '../hooks/useFamilia'
+import { QRCodeSVG } from 'qrcode.react'
+import QrPass from './QrPass'
+import { getCheckInState } from '../utils/checkIn'
 import { enviarNotificacionFCM } from '../services/fcmService'
 import {
   Download, Users, ChevronRight, X, Loader2,
@@ -176,6 +179,66 @@ function ContactSection({ fallero, userId, onUpdate }) {
         last
       />
     </Card>
+  )
+}
+
+// ─── Pase de Fallero: QR permanente fijo en el perfil ─────────────────────────
+// El mismo QR que en Check-in (`JCB-USER:<uid>`): identifica a la persona, no a una entrada.
+// Blanco puro y alto contraste para poder escanearlo directamente desde aquí.
+function PaseQrCard({ uid, nombre, rol, numeroCenso }) {
+  const [open,   setOpen]   = useState(false)
+  const [events, setEvents] = useState([])
+  const value = `JCB-USER:${uid}`
+  const ROLE = { admin: '👑 Admin', directiva: '⭐ Directiva', fallero: '🔥 Fallero' }
+
+  // Entradas vinculadas (para el modal ampliado): mías o pagadas por otro, de hoy en adelante
+  useEffect(() => {
+    if (!open || !uid) return
+    let alive = true
+    ;(async () => {
+      try {
+        const col = collection(db, 'inscripciones')
+        const snaps = await Promise.all([
+          getDocs(query(col, where('asistenteUid', '==', uid))),
+          getDocs(query(col, where('uid', '==', uid))),
+          getDocs(query(col, where('beneficiariosUids', 'array-contains', uid))),
+        ])
+        const byId = new Map()
+        for (const s of snaps) for (const d of s.docs) byId.set(d.id, { id: d.id, ...d.data() })
+        const paid = [...byId.values()].filter(i => i.pagado === true && !i.esManual && i.eventId)
+        const eventIds = [...new Set(paid.map(i => i.eventId))]
+        const evs = await Promise.all(eventIds.map(id => getDoc(doc(db, 'eventos', id)).catch(() => null)))
+        const evById = new Map(evs.filter(e => e?.exists()).map(e => [e.id, e.data()]))
+        const start = new Date(); start.setHours(0, 0, 0, 0)
+        const list = paid.map(i => {
+          const ev = evById.get(i.eventId)
+          const isPayer = i.modelo === 2 ? i.pagadorUid === uid : i.uid === uid
+          return { id: i.id, titulo: ev?.titulo ?? i.eventoTitulo ?? 'Evento', fecha: ev?.fecha ?? null,
+            entered: getCheckInState(i, uid).entered, pagadoPor: isPayer ? null : (i.pagadorNombre ?? i.nombre ?? null) }
+        }).filter(e => { const d = e.fecha?.toDate ? e.fecha.toDate() : null; return !d || d.getTime() >= start.getTime() })
+        if (alive) setEvents(list)
+      } catch { if (alive) setEvents([]) }
+    })()
+    return () => { alive = false }
+  }, [open, uid])
+
+  return (
+    <div style={{ background: '#ffffff', border: '2px solid #111', borderRadius: 20, padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+      <p style={{ margin: '0 0 12px', fontSize: 11, fontWeight: 900, letterSpacing: '0.16em', textTransform: 'uppercase', color: '#B8860B' }}>🪪 Pase de fallero · QR permanente</p>
+      <div style={{ padding: 10, background: '#fff', border: '2px solid #000', borderRadius: 16 }}>
+        <QRCodeSVG value={value} size={210} level="M" bgColor="#ffffff" fgColor="#000000" />
+      </div>
+      <p style={{ margin: '12px 0 0', fontSize: 20, fontWeight: 900, color: '#000', textAlign: 'center', lineHeight: 1.15 }}>{nombre}</p>
+      <p style={{ margin: '3px 0 0', fontSize: 13, fontWeight: 700, color: '#374151' }}>
+        {ROLE[rol] ?? ROLE.fallero}{Number.isInteger(numeroCenso) ? ` · Nº ${String(numeroCenso).padStart(3, '0')}` : ''}
+      </p>
+      <p style={{ margin: '6px 0 12px', fontSize: 11, color: '#6B7280', textAlign: 'center' }}>Enséñalo en la puerta: vale para todos tus eventos pagados.</p>
+      <button onClick={() => setOpen(true)}
+        style={{ width: '100%', minHeight: 46, background: '#111827', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>
+        🔍 Ampliar QR
+      </button>
+      {open && <QrPass uid={uid} nombre={nombre} rol={rol} numeroCenso={numeroCenso} events={events} onClose={() => setOpen(false)} />}
+    </div>
   )
 }
 
@@ -1255,6 +1318,9 @@ export default function Profile() {
       </div>
 
       <CarnetDigital nombre={nombre} numeroCenso={fallero?.numeroCenso ?? null} distintivo={fallero?.distintivo ?? null} altaYear={fallero?.altaYear ?? null} rol={rol} isLoading={loading} />
+
+      {/* Pase de fallero: QR permanente, siempre visible */}
+      {user && <PaseQrCard uid={user.uid} nombre={nombre} rol={rol} numeroCenso={fallero?.numeroCenso ?? null} />}
 
       {/* Info */}
       <Card>
