@@ -320,22 +320,27 @@ export default function UserWallet({ events, onClose }) {
   const [manageGuests, setManageGuests] = useState(false)       // yo ya entré: entregar tickets de invitados
   const eventsById = useMemo(() => new Map(events.map(e => [e.id, e])), [events])
 
-  // Sólo entradas pagadas de eventos de hoy en adelante. Si pagué yo → soy pagador.
-  const tickets = useMemo(() => {
+  // Todas mis entradas pagadas (pagador o asistente). Si pagué yo → soy pagador.
+  // No se descarta ninguna por falta de evento cargado ni por fecha: se separan en próximas / anteriores.
+  const allTickets = useMemo(() => {
     const byId = new Map()
     for (const i of paidForMe) byId.set(i.id, { ins: i, isPayer: i.modelo === 2 && i.pagadorUid === user.uid })
     for (const i of paidByMe)  byId.set(i.id, { ins: i, isPayer: true })
     return [...byId.values()]
       .filter(({ ins }) => ins.pagado === true && !ins.esManual)
-      .map(t => ({ ...t, event: eventsById.get(t.ins.eventId) }))
-      .filter(t => { const d = toDate(t.event?.fecha); return d && d.getTime() >= startOfToday })
-      .sort((a, b) => toDate(a.event.fecha) - toDate(b.event.fecha))
-  }, [paidByMe, paidForMe, eventsById, startOfToday, user.uid])
+      .map(t => ({ ...t, event: eventsById.get(t.ins.eventId) ?? { id: t.ins.eventId, titulo: t.ins.eventoTitulo ?? 'Evento', fecha: null } }))
+      .sort((a, b) => (toDate(a.event.fecha)?.getTime() ?? Infinity) - (toDate(b.event.fecha)?.getTime() ?? Infinity))
+  }, [paidByMe, paidForMe, eventsById, user.uid])
+  // Próximas: de HOY (00:00 local) en adelante, o sin fecha conocida
+  const tickets = useMemo(() => allTickets.filter(t => !(toDate(t.event.fecha)?.getTime() < startOfToday)), [allTickets, startOfToday])
+  const pastTickets = useMemo(() => allTickets.filter(t => toDate(t.event.fecha)?.getTime() < startOfToday).reverse(), [allTickets, startOfToday])
+  const [showPast, setShowPast] = useState(false)
 
   // Fast Track: eventos pagados cuya fecha es HOY. En el modelo de grupo sólo cuentan MIS entradas
   // (asistenteUid = yo); las de mis invitados sin app se gestionan desde la mía (grupo).
   const todays = useMemo(() => tickets.filter(t => {
     const d = toDate(t.event.fecha)
+    if (!d) return false
     if (t.ins.modelo === 2 && t.ins.asistenteUid !== user.uid) return false
     return d.getTime() >= startOfToday && d.getTime() < startOfToday + 86400000
   }), [tickets, startOfToday, user.uid])
@@ -444,6 +449,22 @@ export default function UserWallet({ events, onClose }) {
         ) : tickets.map(({ ins, event, isPayer }) => (
           <Ticket key={ins.id} ins={ins} event={event} isPayer={isPayer} holderName={myName} myUid={user.uid} />
         ))}
+
+        {!loading && pastTickets.length > 0 && (
+          <div>
+            <button onClick={() => setShowPast(v => !v)}
+              style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: `1.5px dashed ${BORDER}`, borderRadius: 14, color: MUTED, fontSize: 12, fontWeight: 700, cursor: 'pointer', minHeight: 'auto' }}>
+              {showPast ? '▾' : '▸'} Entradas de eventos anteriores · {pastTickets.length}
+            </button>
+            {showPast && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 18, marginTop: 14, opacity: 0.8 }}>
+                {pastTickets.map(({ ins, event, isPayer }) => (
+                  <Ticket key={ins.id} ins={ins} event={event} isPayer={isPayer} holderName={myName} myUid={user.uid} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

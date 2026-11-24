@@ -182,16 +182,24 @@ export default function AdminPanelControl({ events, onClose }) {
       () => { setError('No se pudieron cargar las inscripciones.'); setLoading(false) })
   }, [isStaff])
 
-  // Eventos activos/próximos (hoy en adelante), sin festivos
-  const upcoming = useMemo(() => events
-    .filter(ev => ev.tipo !== 'festivo' && toDate(ev.fecha)?.getTime() >= startOfToday)
-    .sort((a, b) => toDate(a.fecha) - toDate(b.fecha)), [events, startOfToday])
-
   const insByEvent = useMemo(() => {
     const m = new Map()
     for (const i of all) { if (i.eventId) (m.get(i.eventId) ?? m.set(i.eventId, []).get(i.eventId)).push(i) }
     return m
   }, [all])
+
+  // Próximos = de HOY (00:00 local) en adelante, o sin fecha válida (mejor listarlos que ocultarlos).
+  // Los festivos no se gestionan en puerta… salvo que tengan inscripciones.
+  const upcoming = useMemo(() => events
+    .filter(ev => (ev.tipo !== 'festivo' || insByEvent.has(ev.id)) && !(toDate(ev.fecha)?.getTime() < startOfToday))
+    .sort((a, b) => (toDate(a.fecha)?.getTime() ?? Infinity) - (toDate(b.fecha)?.getTime() ?? Infinity)), [events, startOfToday, insByEvent])
+
+  // Pasados con inscripciones (los más recientes primero): un evento de prueba de hace días, un
+  // acto que se alarga pasada la medianoche… siguen siendo gestionables.
+  const pastWithIns = useMemo(() => events
+    .filter(ev => toDate(ev.fecha)?.getTime() < startOfToday && insByEvent.has(ev.id))
+    .sort((a, b) => toDate(b.fecha) - toDate(a.fecha)), [events, startOfToday, insByEvent])
+  const [showPast, setShowPast] = useState(false)
 
   const selected = eventId ? events.find(e => e.id === eventId) : null
 
@@ -252,7 +260,7 @@ export default function AdminPanelControl({ events, onClose }) {
                 const people = peopleOf(insByEvent.get(ev.id) ?? [], ev)
                 const inCount = people.filter(p => p.entered).length
                 const d = toDate(ev.fecha)
-                const isToday = d.getTime() < startOfToday + 86400000
+                const isToday = !!d && d.getTime() < startOfToday + 86400000
                 return (
                   <button key={ev.id} onClick={() => setEventId(ev.id)}
                     style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 14px', background: WHITE, border: `1.5px solid ${isToday ? `${GOLD}88` : BORDER}`, borderRadius: 18, cursor: 'pointer', textAlign: 'left', minHeight: 'auto' }}>
@@ -274,6 +282,34 @@ export default function AdminPanelControl({ events, onClose }) {
                   </button>
                 )
               })}
+            </div>
+          )}
+
+          {pastWithIns.length > 0 && (
+            <div style={{ marginTop: 18 }}>
+              <button onClick={() => setShowPast(v => !v)}
+                style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: `1.5px dashed ${BORDER}`, borderRadius: 14, color: TEXT2, fontSize: 12, fontWeight: 700, cursor: 'pointer', minHeight: 'auto' }}>
+                {showPast ? '▾' : '▸'} Eventos pasados con inscripciones · {pastWithIns.length}
+              </button>
+              {showPast && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                  {pastWithIns.map(ev => {
+                    const people = peopleOf(insByEvent.get(ev.id) ?? [], ev)
+                    const inCount = people.filter(p => p.entered).length
+                    return (
+                      <button key={ev.id} onClick={() => setEventId(ev.id)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 14, cursor: 'pointer', textAlign: 'left', minHeight: 'auto', opacity: 0.85 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: TEXT, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{ev.titulo}</div>
+                          <div style={{ fontSize: 11, color: MUTED, textTransform: 'capitalize' }}>{fmtDate(toDate(ev.fecha))}</div>
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: TEXT2, fontVariantNumeric: 'tabular-nums' }}>{inCount}/{people.length}</div>
+                        <ChevronRight size={16} color={MUTED} />
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
 
