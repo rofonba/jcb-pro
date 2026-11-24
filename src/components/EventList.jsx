@@ -1537,6 +1537,10 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
 
   const handleModify = async () => {
     if (!myIns || updating) return
+    if (paidEvent && !isAdmin) {
+      setCancelErr('En los eventos de pago no se puede modificar el número de asistentes sin pasar por el pago. Contacta con la directiva.')
+      return
+    }
     if (myIns.pagado === true) {
       setCancelErr('Esta inscripción ya está pagada: no se pueden modificar los asistentes. Contacta con la directiva.')
       return
@@ -1567,6 +1571,7 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
         eventId: event.id, eventoTitulo: event.titulo,
         uid: 'manual', nombre, numFallero: '—',
         esHijo: extEsHijo, esManual: true,
+        ...(paidEvent && { pagoManual: true }),   // alta por admin en evento de pago: pago manual / efectivo
         acompañantes: 0, totalPersonas: 1,
         nota: null, alergias: null, createdAt: serverTimestamp(),
       })
@@ -1699,11 +1704,12 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
               {!modMode && !isPast && myIns.pagado === true && <PaidNotice variant="dark" />}
               {!modMode && !isPast && myIns.pagado !== true && (
                 <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                  <button type="button" onClick={() => { setNewAcomp(myIns.acompañantes ?? 0); setModMode(true) }}
+                  {/* Evento de pago: sumar asistentes exige pasar por el pago (sólo admin lo cambia a mano) */}
+                  {(!paidEvent || isAdmin) && <button type="button" onClick={() => { setNewAcomp(myIns.acompañantes ?? 0); setModMode(true) }}
                     style={{ flex: 1, minHeight: '44px', background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: '10px', color: GOLD, fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
                   >
                     ✏️ Modificar número
-                  </button>
+                  </button>}
                   <button type="button" onClick={handleCancel} disabled={cancelling}
                     style={{ flex: 1, minHeight: '44px', background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.28)', borderRadius: '10px', color: RED, fontSize: '0.82rem', fontWeight: '700', cursor: cancelling ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
                   >
@@ -2079,7 +2085,7 @@ function RegistrationModalContent({ event, isRegistered, inscribedByOther = null
               transition: 'all 0.2s',
             }}
           >
-            ➕ Inscribir externo
+            ➕ Inscribir externo{paidEvent ? ' · Pago manual / Efectivo' : ''}
           </button>
           {showExt && (
             <form

@@ -116,6 +116,7 @@ export default function AdminEventControl({ event, onClose }) {
         eventId: event.id, eventoTitulo: event.titulo,
         uid: 'manual', nombre, numFallero: '—',
         esHijo: manualEsHijo, esManual: true,
+        ...(event.precio > 0 && { pagoManual: true }),   // evento de pago: alta por staff = pago manual / efectivo
         acompañantes: 0, totalPersonas: 1,
         nota: null, alergias: null, createdAt: serverTimestamp(),
       })
@@ -332,7 +333,7 @@ export default function AdminEventControl({ event, onClose }) {
             }}
           >
             <UserPlus size={15} />
-            Inscribir fallero / invitado manualmente
+            Inscribir fallero / invitado manualmente{event.precio > 0 ? ' · Pago manual / Efectivo' : ''}
           </button>
 
           {showManual && (

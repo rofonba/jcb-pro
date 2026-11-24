@@ -106,6 +106,11 @@ service cloud.firestore {
       function eventoCobraOnline(eventId) {
         return get(/databases/$(database)/documents/eventos/$(eventId)).data.get('pagoApp', false) == true;
       }
+      // ¿Evento con coste (precio > 0)? En ellos un fallero normal nunca da de alta plazas de
+      // invitados/sin app desde el cliente ni modifica los asistentes de su inscripción sin pagar.
+      function eventoDePago(eventId) {
+        return get(/databases/$(database)/documents/eventos/$(eventId)).data.get('precio', 0) > 0;
+      }
 
       // Campos que el usuario NUNCA puede escribir: financieros y checkInDelegadoIds (sólo el webhook,
       // con Admin SDK, que ignora estas reglas, o admin/directiva) y de check-in (ver selfCheckIn).
@@ -158,8 +163,8 @@ service cloud.firestore {
                      'totalConComision', 'gastosGestion', 'checkInDelegadoIds',
                      'checkInEstado', 'checkIn', 'checkInAt',
                      'estadoPago', 'uid', 'eventId'])
-                // inscripción ya pagada: congelar personas y acompañantes
-                && !(resource.data.get('pagado', false) == true
+                // inscripción pagada O evento con coste: congelar personas y acompañantes (sumar plazas = pasar por el pago)
+                && !((resource.data.get('pagado', false) == true || eventoDePago(resource.data.eventId))
                      && request.resource.data.diff(resource.data).affectedKeys().hasAny([
                           'totalPersonas', 'beneficiarios', 'beneficiariosUids',
                           'acompañantes', 'acompañantesAdultos', 'acompañantesNinos']))));
@@ -190,6 +195,9 @@ service cloud.firestore {
                                'precioNetoCent', 'pagado', 'estadoPago', 'checkIn', 'createdAt', 'nota', 'alergias',
                                'nombre', 'eventoTitulo'])
           && d.tipo in ['titular', 'familiar', 'fallero', 'hijo', 'invitado']
+          // evento con coste: invitados y falleros sin app SÓLO vía /api (Stripe) o staff
+          && (!eventoDePago(d.eventId)
+              || (d.tipo != 'invitado' && !(d.tipo == 'fallero' && d.get('asistenteUid', null) == null)))
           && d.categoria in ['adulto', 'nino']
           && ((d.tipo == 'titular') == (d.get('asistenteUid', null) == request.auth.uid))
           && d.pagado == false

@@ -97,6 +97,7 @@ export default function EventRegistrationModal(props) {
 function Content({ event, onClose, onSuccess }) {
   const { user, fallero } = useAuth()
   const uid = user?.uid
+  const isStaff = fallero?.rol === 'admin' || fallero?.rol === 'directiva'
   const { members: familia } = useFamilia(uid, fallero?.familiaUids ?? [])
   const taken = useTaken(event.id, uid)
   const [cancelling, setCancelling] = useState(false)
@@ -106,6 +107,12 @@ function Content({ event, onClose, onSuccess }) {
 
   const paid        = event.precio != null && event.precio > 0
   const cobraOnline = paid && event.pagoApp === true
+  // SEGURIDAD: en un evento con coste, las plazas de invitados y de falleros sin app sólo pueden
+  // darse de alta pasando por Stripe. Si el evento no cobra online, únicamente el staff puede
+  // apuntarlas (pago manual / efectivo en el casal); un fallero normal ve el bloque bloqueado.
+  const manualBlocked = paid && !cobraOnline && !isStaff
+  const manualStaff   = paid && !cobraOnline && isStaff     // se marca pagoManual: true
+  const esManualLine  = l => l.tipo === 'invitado' || (l.tipo === 'fallero' && !l.uid)
   const precioA     = Math.round((event.precio ?? 0) * 100)
   const precioN     = event.precioNino != null ? Math.round(event.precioNino * 100) : precioA
   const priceOf     = cat => (cat === 'nino' ? precioN : precioA)
@@ -141,6 +148,7 @@ function Content({ event, onClose, onSuccess }) {
   // ── Confirmar ──
   const confirm = async () => {
     if (cart.length === 0 || busy) return
+    if (manualBlocked && cart.some(esManualLine)) { setError('Los invitados y los falleros sin app sólo pueden inscribirse en eventos con pago online. Contacta con la directiva.'); return }
     setBusy(true); setError('')
     const asistentes = cart.map(l =>
       l.tipo === 'titular' ? { tipo: 'titular' }
@@ -174,6 +182,7 @@ function Content({ event, onClose, onSuccess }) {
             asistenteNombre: l.uid || l.tipo === 'hijo' ? l.nombre : `${l.nombreLibre} ${l.apellidosLibre}`,
             categoria: l.categoria, precioNetoCent: paid ? priceOf(l.categoria) : 0,
             pagado: false, estadoPago: null, checkIn: false, createdAt: serverTimestamp(),
+            ...(manualStaff && esManualLine(l) && { pagoManual: true }),   // alta por staff: pago manual / efectivo
           })
         })
         await batch.commit()
@@ -228,8 +237,8 @@ function Content({ event, onClose, onSuccess }) {
               </div>
             )}
             <Block1 rows={block1} taken={taken} inCart={inCart} onToggle={toggle} />
-            <BlockFalleros uid={uid} exclude={block1Keys} cart={cart} taken={taken} onAdd={addLine} />
-            <BlockInvitados onAdd={addLine} taken={taken} />
+            <BlockFalleros uid={uid} exclude={block1Keys} cart={cart} taken={taken} onAdd={addLine} manualBlocked={manualBlocked} manualStaff={manualStaff} />
+            <BlockInvitados onAdd={addLine} taken={taken} manualBlocked={manualBlocked} manualStaff={manualStaff} />
             <Resumen cart={cart} paid={paid} priceOf={priceOf} onRemove={removeAt} block1Keys={block1Keys} />
 
             {error && <ErrorBox msg={error} />}
@@ -318,7 +327,7 @@ function Block1({ rows, taken, inCart, onToggle }) {
 }
 
 // ─── Bloques 2/3: otros falleros (directorio o sin app) ──────────────────────
-function BlockFalleros({ uid, exclude, cart, taken, onAdd }) {
+function BlockFalleros({ uid, exclude, cart, taken, onAdd, manualBlocked = false, manualStaff = false }) {
   const [dir, setDir]       = useState(null)   // directorio cargado bajo demanda
   const [q, setQ]           = useState('')
   const [open, setOpen]     = useState(false)
@@ -387,7 +396,9 @@ function BlockFalleros({ uid, exclude, cart, taken, onAdd }) {
           {dir && norm(q).length >= 2 && results.length === 0 && !manual && (
             <div style={{ padding: '0.75rem 0.85rem', background: 'rgba(255,255,255,0.03)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: 10 }}>
               <p style={{ margin: '0 0 8px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)' }}>No está en el directorio (aún no tiene la app).</p>
-              <OutlineButton onClick={() => setManual({ nombre: q.trim(), apellidos: '', categoria: 'adulto' })}><UserPlus size={14} /> Añadir fallero sin app</OutlineButton>
+              {manualBlocked
+                ? <LockedNotice />
+                : <OutlineButton onClick={() => setManual({ nombre: q.trim(), apellidos: '', categoria: 'adulto' })}><UserPlus size={14} /> Añadir fallero sin app{manualStaff ? ' · Pago manual / Efectivo' : ''}</OutlineButton>}
             </div>
           )}
           {manual && (
@@ -401,7 +412,7 @@ function BlockFalleros({ uid, exclude, cart, taken, onAdd }) {
 }
 
 // ─── Bloque 4: invitados ─────────────────────────────────────────────────────
-function BlockInvitados({ onAdd, taken }) {
+function BlockInvitados({ onAdd, taken, manualBlocked = false, manualStaff = false }) {
   const [form, setForm] = useState(null)
   const submit = () => {
     const nombre = form.nombre.trim(), apellidos = form.apellidos.trim()
@@ -413,8 +424,8 @@ function BlockInvitados({ onAdd, taken }) {
   return (
     <section style={{ marginBottom: '1rem' }}>
       <SectionTitle icon={<UserPlus size={13} />} n={4}>Añadir no fallero (invitados)</SectionTitle>
-      {!form
-        ? <OutlineButton onClick={() => setForm({ nombre: '', apellidos: '', categoria: 'adulto' })}><UserPlus size={14} /> Añadir invitado</OutlineButton>
+      {manualBlocked ? <LockedNotice /> : !form
+        ? <OutlineButton onClick={() => setForm({ nombre: '', apellidos: '', categoria: 'adulto' })}><UserPlus size={14} /> Añadir invitado{manualStaff ? ' · Pago manual / Efectivo' : ''}</OutlineButton>
         : <PersonForm title="Invitado/a de fuera de la falla" value={form} onChange={setForm} onCancel={() => setForm(null)} onSubmit={submit}
             warn={warn ? `Ojo: ya hay un/a "${form.nombre} ${form.apellidos}" inscrito por ${warn.por}.` : null} />}
     </section>
@@ -611,6 +622,14 @@ function SectionTitle({ icon, n, children }) {
     <p style={{ margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.68rem', fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
       <span style={{ background: 'rgba(212,175,55,0.15)', color: GOLD, borderRadius: 6, padding: '1px 6px', fontSize: '0.62rem' }}>{n}</span>{icon}{children}
     </p>
+  )
+}
+// Evento con coste sin cobro online: un fallero normal no puede dar de alta plazas sin pagar.
+function LockedNotice() {
+  return (
+    <div style={{ padding: '0.7rem 0.85rem', background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 10, fontSize: '0.74rem', color: '#fbbf24', lineHeight: 1.45 }}>
+      🔒 En este evento de pago las plazas de invitados y de falleros sin app sólo se pueden dar de alta con pago online. Para apuntarlos con pago en el casal, habla con la directiva.
+    </div>
   )
 }
 function OutlineButton({ onClick, children }) {
