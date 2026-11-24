@@ -43,6 +43,8 @@
 //     también usa apodos (FINA, CHELO, NACHO). Se prueba siempre primero el nombre tal cual y, si no
 //     cruza, la versión traducida: "exacto (apodo)" / "parcial (apodo)". También se expanden
 //     abreviaturas (Mª → María, Fco. → Francisco, Vte. → Vicente).
+//   · APELLIDOS EXACTOS: si el nombre no coincide ni por apodo pero los dos apellidos son exactamente los
+//     de UNA sola persona del Excel → "parcial (apellidos)"; si hay 2+ con esos apellidos → ambiguo.
 //   · Orden: exacto → exacto (apodo) → parcial → parcial (apodo) → parcial (apellidos). Cada vía
 //     sólo se usa si la anterior no encontró nada. Con 2+ candidatos → ambiguo.
 //   · Sólo los EXACTOS se escriben con --apply; todo lo demás necesita --partial.
@@ -75,7 +77,7 @@ const APODOS = {
   chema: ['jose maria'], josema: ['jose maria'], josemi: ['jose miguel'], joselu: ['jose luis'],
   juanjo: ['juan jose'], juanma: ['juan manuel'], juanvi: ['juan vicente'], juanra: ['juan ramon'],
   pepa: ['josefa'], pepi: ['josefa'], pepita: ['josefa'],
-  fina: ['josefina', 'serafina'], finita: ['josefina'],
+  fina: ['josefina', 'serafina', 'maria jose'], finita: ['josefina'], majo: ['maria jose'], marijose: ['maria jose'],
   // Enrique, Alejandro/a, Ignacio, Antonio…
   quique: ['enrique'], kike: ['enrique'],
   alex: ['alejandro', 'alejandra'], ale: ['alejandro', 'alejandra'],
@@ -209,6 +211,7 @@ function appNameTokens(nombre, apellidos) {
 }
 
 // ¿`needle` aparece dentro de `hay` como palabras completas y consecutivas?
+const containsAligned = (hay, needle) => needle.length >= 2 && hay[0] === needle[0] && containsWords(hay, needle)
 function containsWords(hay, needle) {
   if (!needle.length || needle.length > hay.length) return false
   outer: for (let i = 0; i + needle.length <= hay.length; i++) {
@@ -334,9 +337,11 @@ function match(falleros, censo) {
         appApodo.some(a => [...excelPlain(c), ...excelApodo(c)].some(e => same(e, a))) ||
         excelApodo(c).some(e => same(e, appTok)))],
       ['parcial',         () => appTok.length < 2 ? [] : censo.filter(c => excelPlain(c).some(e => containsWords(e, appTok)))],
+      // Con apodo de por medio, la inclusión debe ir ALINEADA por el nombre de pila (misma 1ª palabra):
+      // si no, "Pepe" → "jose gisbert meri" se daría por incluido en "maria jose gisbert meri" (Fina).
       ['parcial (apodo)', () => censo.filter(c =>
-        appApodo.some(a => a.length >= 2 && [...excelPlain(c), ...excelApodo(c)].some(e => containsWords(e, a))) ||
-        (appTok.length >= 2 && excelApodo(c).some(e => containsWords(e, appTok))))],
+        appApodo.some(a => [...excelPlain(c), ...excelApodo(c)].some(e => containsAligned(e, a))) ||
+        excelApodo(c).some(e => containsAligned(e, appTok)))],
     ]
     let decided = false
     for (const [kind, find] of tiers) {
@@ -353,6 +358,16 @@ function match(falleros, censo) {
     const bySurname = censo.filter(c => surnameOverlap(appTok, c) >= 2 && givenNameCompatible(appTok[0], c))
     if (bySurname.length === 1) { proposals.push({ f, c: bySurname[0], kind: 'parcial (apellidos)' }); continue }
     if (bySurname.length > 1) { ambiguous.push({ f, motivo: `${bySurname.length} personas comparten esos apellidos (${nums(bySurname)})` }); continue }
+
+    // Vía 4: el nombre NO coincide (ni por apodo) pero los DOS apellidos son EXACTAMENTE los mismos y en
+    // todo el Excel sólo hay una persona con ellos → se cruza igualmente como "parcial (apellidos)"
+    // (nombre distinto en la app: "Fina" vs "MARÍA JOSÉ"). Con 2+ personas (hermanos/familia) → ambiguo.
+    const appSur = significant(tokens(f.apellidos))
+    if (appSur.length >= 2) {
+      const sameSur = censo.filter(c => same(significant(tokens(c.apellidos)), appSur))
+      if (sameSur.length === 1) { proposals.push({ f, c: sameSur[0], kind: 'parcial (apellidos)' }); continue }
+      if (sameSur.length > 1) { ambiguous.push({ f, motivo: `${sameSur.length} personas con los apellidos "${appSur.join(' ')}" (${nums(sameSur)}): el nombre no coincide con ninguna` }); continue }
+    }
 
     unmatched.push(f)
   }
@@ -385,13 +400,17 @@ if (PARSE) {
 // Prueba de cruce de un solo nombre, sin credenciales: --test "Nombre|Apellidos"
 const testIdx = args.indexOf('--test')
 if (testIdx >= 0) {
-  const [nombre = '', apellidos = ''] = String(args[testIdx + 1] ?? '').split('|')
-  const { ok, ambiguous } = match([{ id: 'test', nombre: nombre.trim(), apellidos: apellidos.trim() }], censo)
-  if (ok.length) {
-    const { kind, c } = ok[0]
-    console.log(`🔎 "${nombre.trim()}|${apellidos.trim()}" → [${kind}] nº ${c.numeroCenso} "${c.nombre} ${c.apellidos}"${c.distintivo ? ' · ' + c.distintivo : ''}${kind !== 'exacto' ? '  (se escribe con --apply --partial)' : ''}`)
-  } else if (ambiguous.length) console.log(`🔎 "${nombre.trim()}|${apellidos.trim()}" → AMBIGUO: ${ambiguous[0].motivo}`)
-  else console.log(`🔎 "${nombre.trim()}|${apellidos.trim()}" → sin cruce (vincúlalo a mano desde el panel de admin)`)
+  // Varios nombres separados por ';'  → --test "Fina|Perez Torres; Ferran|Romero Iglesias"
+  for (const item of String(args[testIdx + 1] ?? '').split(';').map(x => x.trim()).filter(Boolean)) {
+    const [nombre = '', apellidos = ''] = item.split('|')
+    const label = `"${nombre.trim()}|${apellidos.trim()}"`
+    const { ok, ambiguous } = match([{ id: 'test', nombre: nombre.trim(), apellidos: apellidos.trim() }], censo)
+    if (ok.length) {
+      const { kind, c } = ok[0]
+      console.log(`🔎 ${label} → [${kind}] nº ${c.numeroCenso} "${c.nombre} ${c.apellidos}"${c.distintivo ? ' · ' + c.distintivo : ''}${kind !== 'exacto' ? '  (se escribe con --apply --partial)' : ''}`)
+    } else if (ambiguous.length) console.log(`🔎 ${label} → AMBIGUO: ${ambiguous[0].motivo}`)
+    else console.log(`🔎 ${label} → sin cruce (vincúlalo a mano desde el panel de admin)`)
+  }
   process.exit(0)
 }
 
