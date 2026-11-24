@@ -998,6 +998,162 @@ function AttendeesModal({ event, onClose }) {
   )
 }
 
+// ─── Admin: vinculación manual con el censo oficial ───────────────────────────
+// Para los casos que el cruce automático (scripts/syncCenso.js) no resuelve: variantes de nombre,
+// apellidos distintos, etc. Sólo ADMIN (las reglas permiten a admin editar numeroCenso/distintivo/altaYear).
+// Si el censo está subido a Firestore (--upload-censo), se puede buscar la fila y vincularla con un toque.
+function CensoAdminCard() {
+  const [open,    setOpen]    = useState(false)
+  const [users,   setUsers]   = useState(null)   // todos los falleros (admin los lee)
+  const [censo,   setCenso]   = useState(null)   // censo/{nº} (si está subido)
+  const [search,  setSearch]  = useState('')
+  const [sel,     setSel]     = useState(null)
+  const [form,    setForm]    = useState({ numeroCenso: '', distintivo: '', altaYear: '' })
+  const [censoQ,  setCensoQ]  = useState('')
+  const [saving,  setSaving]  = useState(false)
+  const [msg,     setMsg]     = useState('')
+
+  const load = async () => {
+    setOpen(true)
+    if (users) return
+    try {
+      const [u, c] = await Promise.all([
+        getDocs(collection(db, 'falleros')),
+        getDocs(collection(db, 'censo')).catch(() => null),
+      ])
+      setUsers(u.docs.map(d => ({ id: d.id, ...d.data() })))
+      setCenso(c ? c.docs.map(d => ({ id: d.id, ...d.data() })) : [])
+    } catch (e) { setMsg('❌ ' + (e?.message || 'No se pudo cargar la lista de falleros')) }
+  }
+
+  const filtered = useMemo(() => {
+    const k = normalizeSearch(search)
+    if (!users || k.length < 2) return []
+    return users.filter(f => normalizeSearch(`${f.nombre ?? ''} ${f.apellidos ?? ''} ${f.email ?? ''}`).includes(k)).slice(0, 8)
+  }, [users, search])
+
+  const censoHits = useMemo(() => {
+    const k = normalizeSearch(censoQ)
+    if (!censo || k.length < 2) return []
+    return censo.filter(c => normalizeSearch(`${c.nombre ?? ''} ${c.apellidos ?? ''} ${c.numeroCenso ?? ''}`).includes(k)).slice(0, 6)
+  }, [censo, censoQ])
+
+  const pick = f => {
+    setSel(f); setMsg('')
+    setForm({ numeroCenso: f.numeroCenso ?? '', distintivo: f.distintivo ?? '', altaYear: f.altaYear ?? '' })
+    setCensoQ((f.apellidos ?? '').trim())
+  }
+  const link = c => { setForm({ numeroCenso: c.numeroCenso ?? '', distintivo: c.distintivo ?? '', altaYear: c.altaYear ?? '' }); setMsg('') }
+
+  const save = async () => {
+    if (!sel || saving) return
+    const numeroCenso = form.numeroCenso === '' ? null : Number(form.numeroCenso)
+    const altaYear    = form.altaYear    === '' ? null : Number(form.altaYear)
+    if ((numeroCenso != null && !(Number.isInteger(numeroCenso) && numeroCenso > 0)) ||
+        (altaYear != null && !(Number.isInteger(altaYear) && altaYear >= 1900 && altaYear <= new Date().getFullYear()))) {
+      setMsg('❌ Nº de censo o año de alta no válido'); return
+    }
+    setSaving(true); setMsg('')
+    try {
+      const patch = { numeroCenso, distintivo: String(form.distintivo).trim() || null, altaYear }
+      await updateDoc(doc(db, 'falleros', sel.id), patch)
+      setUsers(u => u.map(f => f.id === sel.id ? { ...f, ...patch } : f))
+      setSel(s => ({ ...s, ...patch }))
+      setMsg('✅ Guardado. El fallero lo verá en su carnet al recargar.')
+    } catch (e) { setMsg('❌ ' + (e?.message || 'Error al guardar')) }
+    finally { setSaving(false) }
+  }
+
+  const input = { width: '100%', padding: '9px 12px', background: BG, border: `1.5px solid ${BORDER}`, borderRadius: 10, fontSize: 13, color: TEXT, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }
+  const dist = sel ? formatDistintivo(form.distintivo) : null
+
+  return (
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: open ? 12 : 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Shield size={15} color={GOLD} fill={`${GOLD}40`} />
+          <span style={{ fontSize: 14, fontWeight: 700, color: TEXT }}>Censo oficial · vincular a mano</span>
+        </div>
+        {!open && (
+          <button onClick={load} style={{ background: `${GOLD}14`, color: GOLD, border: `1.5px solid ${GOLD}40`, borderRadius: 10, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Search size={13} /> Abrir
+          </button>
+        )}
+      </div>
+      {open && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <p style={{ margin: 0, fontSize: 11, color: TEXT2, lineHeight: 1.45 }}>
+            Para quien el cruce automático no encuentra (Ferran / Fernando, apellidos distintos…). Busca al fallero, rellena o vincula su fila del censo y guarda.
+          </p>
+          {users == null && !msg && <p style={{ margin: 0, fontSize: 12, color: MUTED }}>Cargando falleros…</p>}
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar fallero por nombre o email…" style={input} />
+          {filtered.map(f => (
+            <button key={f.id} type="button" onClick={() => pick(f)}
+              style={{ textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', background: sel?.id === f.id ? `${GOLD}14` : WHITE, border: `1.5px solid ${sel?.id === f.id ? GOLD : BORDER}`, borderRadius: 10, cursor: 'pointer', minHeight: 'auto', fontFamily: 'inherit' }}>
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: TEXT }}>{f.nombre} {f.apellidos ?? ''}</span>
+                <span style={{ display: 'block', fontSize: 11, color: MUTED }}>{f.email}</span>
+              </span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: f.numeroCenso != null ? GREEN : MUTED, flexShrink: 0 }}>
+                {f.numeroCenso != null ? `Nº ${String(f.numeroCenso).padStart(3, '0')}` : 'sin censo'}
+              </span>
+            </button>
+          ))}
+
+          {sel && (
+            <div style={{ padding: '12px', background: BG, border: `1.5px solid ${GOLD}40`, borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: GOLD }}>{sel.nombre} {sel.apellidos ?? ''}</p>
+
+              {censo && censo.length > 0 ? (
+                <>
+                  <input value={censoQ} onChange={e => setCensoQ(e.target.value)} placeholder="Buscar en el censo oficial (apellidos, nombre o nº)…" style={{ ...input, background: WHITE }} />
+                  {censoHits.map(c => (
+                    <button key={c.id} type="button" onClick={() => link(c)}
+                      style={{ textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '7px 10px', background: WHITE, border: `1px solid ${BORDER}`, borderRadius: 9, cursor: 'pointer', minHeight: 'auto', fontFamily: 'inherit' }}>
+                      <span style={{ fontSize: 12, color: TEXT }}>
+                        <strong>Nº {c.numeroCenso}</strong> · {c.nombre} {c.apellidos}{c.distintivo ? <span style={{ color: MUTED }}> · {c.distintivo}</span> : null}
+                      </span>
+                      <span style={{ fontSize: 11, color: GOLD, fontWeight: 700, flexShrink: 0 }}>Vincular →</span>
+                    </button>
+                  ))}
+                </>
+              ) : censo && (
+                <p style={{ margin: 0, fontSize: 11, color: MUTED }}>
+                  El censo no está subido a Firestore: rellena los campos a mano (o ejecuta <code>node scripts/syncCenso.js --upload-censo</code>).
+                </p>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div>
+                  <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 600, color: TEXT2 }}>Nº de censo</p>
+                  <input type="number" min="1" value={form.numeroCenso} onChange={e => setForm(f => ({ ...f, numeroCenso: e.target.value }))} placeholder="—" style={{ ...input, background: WHITE }} />
+                </div>
+                <div>
+                  <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 600, color: TEXT2 }}>Año de alta</p>
+                  <input type="number" min="1900" max={new Date().getFullYear()} value={form.altaYear} onChange={e => setForm(f => ({ ...f, altaYear: e.target.value }))} placeholder="—" style={{ ...input, background: WHITE }} />
+                </div>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 600, color: TEXT2 }}>Distintivo (formato del censo: <code>2024-BUN.OR</code>)</p>
+                <input value={form.distintivo} onChange={e => setForm(f => ({ ...f, distintivo: e.target.value }))} placeholder="Vacío = sin distintivo" style={{ ...input, background: WHITE }} />
+                {dist && <p style={{ margin: '4px 0 0', fontSize: 11, color: GOLD }}>🏅 {dist.label}{dist.year ? ` · ${dist.year}` : ''}</p>}
+              </div>
+              {msg && <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: msg.startsWith('✅') ? GREEN : RED }}>{msg}</p>}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" onClick={() => { setSel(null); setMsg('') }} style={{ flex: 1, minHeight: 40, background: BORDER, color: MUTED, border: 'none', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Cerrar</button>
+                <button type="button" onClick={save} disabled={saving} style={{ flex: 2, minHeight: 40, background: saving ? `${GOLD}50` : `linear-gradient(135deg, ${GOLD}, #8a6f1a)`, color: WHITE, border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  {saving ? <Loader2 size={14} style={{ animation: 'falla-spin 0.8s linear infinite' }} /> : <><Check size={14} /> Guardar en su ficha</>}
+                </button>
+              </div>
+            </div>
+          )}
+          {msg && !sel && <p style={{ margin: 0, fontSize: 12, color: RED }}>{msg}</p>}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 // ─── Panel de Admin ───────────────────────────────────────────────────────────
 function AdminPanel() {
   const [events, setEvents]          = useState([])
@@ -1146,6 +1302,7 @@ export default function Profile() {
       {/* Admin quick actions + panel */}
       {isPrivileged && <AdminQuickActions />}
       {isPrivileged && <AdminPanel />}
+      {isAdmin && <CensoAdminCard />}
 
       {/* Logout */}
       <button

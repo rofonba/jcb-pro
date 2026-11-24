@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { collection, getDocs } from 'firebase/firestore'
+import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore'
 import { db } from '../firebase'
-import { ChevronLeft, RefreshCw, Loader2, TrendingUp, BarChart2, Users, Cake, HeartHandshake } from 'lucide-react'
+import { ChevronLeft, RefreshCw, Loader2, TrendingUp, BarChart2, Users, Cake, HeartHandshake, Bell } from 'lucide-react'
 
 const GOLD   = '#D4AF37'
 const WHITE  = '#FFFFFF'
@@ -64,10 +64,13 @@ const mean = arr => (arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : 
 // ─── Data fetcher ─────────────────────────────────────────────────────────────
 
 async function fetchMetrics() {
-  const [insSnap, fallerosSnap] = await Promise.all([
+  const [insSnap, fallerosSnap, pushSnap] = await Promise.all([
     getDocs(collection(db, 'inscripciones')),
     getDocs(collection(db, 'falleros')),
+    // Historial de push (lo escribe /api/sendPush). Si las reglas aún no están desplegadas, no rompe el resto.
+    getDocs(query(collection(db, 'push_logs'), orderBy('createdAt', 'desc'), limit(25))).catch(() => null),
   ])
+  const pushLogs = pushSnap ? pushSnap.docs.map(d => ({ id: d.id, ...d.data() })) : []
 
   const inscriptions = insSnap.docs.map(d => ({ id: d.id, ...d.data() }))
   const fallerosList = fallerosSnap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -168,7 +171,7 @@ async function fetchMetrics() {
     pct:        activos.length ? (conFamilia.size / activos.length) * 100 : null,
   }
 
-  return { topFalleros, eventVolume, demographics: { totalAdultos, totalNinos, totalPersonas }, edad, familia, yearStart }
+  return { topFalleros, eventVolume, demographics: { totalAdultos, totalNinos, totalPersonas }, edad, familia, pushLogs, yearStart }
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -447,12 +450,64 @@ function FamiliaStat({ data }) {
   )
 }
 
+// ─── Section: Historial de notificaciones push ────────────────────────────────
+
+const fmtDateTime = ts => {
+  const d = tsToDate(ts)
+  return d
+    ? d.toLocaleString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : 'Enviando…'
+}
+
+function PushLogs({ data }) {
+  if (!data.length) return (
+    <p style={{ fontSize: 13, color: MUTED, margin: 0, textAlign: 'center', padding: '12px 0' }}>
+      Todavía no se ha enviado ninguna notificación.
+    </p>
+  )
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+      {data.map((log, i) => {
+        const ok = (log.sent ?? 0) > 0
+        const who = log.adminNombre || log.adminEmail || log.adminUid || '—'
+        return (
+          <div key={log.id} style={{ padding: '11px 0', borderBottom: i < data.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: TEXT, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                  {log.title}
+                </div>
+                {log.body && (
+                  <div style={{ fontSize: 12, color: TEXT2, marginTop: 2, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {log.body}
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 5 }}>
+                  🕒 {fmtDateTime(log.createdAt)} · 👤 {who}
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                <StatPill value={`✓ ${log.sent ?? 0}`} color={ok ? GREEN : MUTED} />
+                {(log.failed ?? 0) > 0 && <StatPill value={`✗ ${log.failed}`} color="#DC2626" />}
+                {(log.staleRemoved ?? 0) > 0 && (
+                  <span style={{ fontSize: 10, color: MUTED }}>{log.staleRemoved} token{log.staleRemoved === 1 ? '' : 's'} caducado{log.staleRemoved === 1 ? '' : 's'}</span>
+                )}
+                {log.error && <span style={{ fontSize: 10, color: '#DC2626', maxWidth: 140, textAlign: 'right' }}>{log.error}</span>}
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Skeleton loaders ─────────────────────────────────────────────────────────
 
 function LoadingSkeleton() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {[120, 280, 180, 200, 150].map((h, i) => (
+      {[120, 280, 180, 200, 150, 220].map((h, i) => (
         <div key={i} style={{
           background: WHITE, borderRadius: 20, border: `1.5px solid ${BORDER}`,
           height: h, animation: 'falla-pulse 1.6s ease-in-out infinite',
@@ -627,6 +682,19 @@ export default function AdminMetrics({ onClose }) {
               title="Falleros con Familia en la Falla"
             >
               <FamiliaStat data={data.familia} />
+            </SectionCard>
+
+            {/* Section 6: Historial de notificaciones push */}
+            <SectionCard
+              icon={<Bell size={16} color={GOLD} />}
+              title="Historial de Notificaciones Push"
+            >
+              {data.pushLogs.length > 0 && (
+                <p style={{ fontSize: 11, color: MUTED, margin: '0 0 6px', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 600 }}>
+                  Últimos {data.pushLogs.length} envíos · dispositivos alcanzados / fallidos
+                </p>
+              )}
+              <PushLogs data={data.pushLogs} />
             </SectionCard>
 
           </div>

@@ -241,6 +241,19 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Historial de notificaciones push (lo escribe sólo /api/sendPush con Admin SDK)
+    match /push_logs/{logId} {
+      allow read: if isPrivileged();
+      allow write: if false;
+    }
+
+    // Censo oficial volcado desde el Excel (scripts/syncCenso.js --upload-censo): nombre, apellidos,
+    // nº de censo, distintivo y año de alta. Sólo staff lo consulta (vinculación manual de usuarios).
+    match /censo/{numeroCenso} {
+      allow read: if isPrivileged();
+      allow write: if false;
+    }
+
     // Cobros que requieren revisión manual (los escribe sólo el webhook con Admin SDK)
     match /pagosPendientesRevision/{piId} {
       allow read: if isPrivileged();

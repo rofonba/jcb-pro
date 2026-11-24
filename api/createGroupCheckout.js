@@ -88,16 +88,22 @@ export default async function handler(req, res) {
   const adultCount = lineas.filter(l => l.categoria === 'adulto').length
   const childCount = lineas.length - adultCount
 
+  // Reservas pendientes MÍAS anteriores en este evento (pago abandonado): se reemplazan, nunca bloquean.
+  const ownPendingSnap = await insCol
+    .where('eventId', '==', eventId).where('pagadorUid', '==', uid).where('estadoPago', '==', 'pendiente').get()
+  const ownPendingIds = ownPendingSnap.docs.filter(d => d.data().pagado !== true).map(d => d.id)
+
   try {
     await db.runTransaction(async (tx) => {
       const now = Date.now()
+      const esMiaPendiente = x => x.modelo === 2 && x.pagadorUid === uid && x.pagado !== true && x.estadoPago === 'pendiente'
       // Aforo: todo lo que ocupa plaza en el evento (v1: totalPersonas; v2: 1 por doc)
       if (ev.plazasTotal != null && ev.plazasTotal > 0) {
         const all = await tx.get(insCol.where('eventId', '==', eventId))
         let ocupadas = 0
         for (const d of all.docs) {
           const x = d.data()
-          if (!ocupaPlaza(x, now) || ids.includes(d.id)) continue   // caducadas o las que vamos a sobrescribir
+          if (!ocupaPlaza(x, now) || ids.includes(d.id) || esMiaPendiente(x)) continue   // caducadas, sobrescritas o mis reservas abandonadas
           ocupadas += x.modelo === 2 ? 1 : (x.totalPersonas ?? 1)
         }
         if (ocupadas + lineas.length > ev.plazasTotal) {
@@ -110,11 +116,14 @@ export default async function handler(req, res) {
       existing.forEach((s, i) => {
         if (!s.exists) return
         const x = s.data()
+        if (esMiaPendiente(x)) return   // mi propia reserva sin pagar: se sobrescribe
         if (ocupaPlaza(x, now)) conflictos.push({ nombre: lineas[i].asistenteNombre, por: x.pagadorNombre ?? 'otra persona', pendiente: x.pagado !== true })
       })
       if (conflictos.length) {
         throw new ConflictError(conflictos.map(c => `${c.nombre}: ${c.pendiente ? 'reserva en curso' : 'ya inscrito/a'} por ${c.por}`).join(' · '), { conflictos })
       }
+      // Mis reservas pendientes anteriores que no forman parte del nuevo grupo: se liberan
+      for (const id of ownPendingIds) if (!ids.includes(id)) tx.delete(insCol.doc(id))
       lineas.forEach((l, i) => tx.set(insCol.doc(ids[i]), buildInscripcion({ eventId, pedidoId, pagadorUid: uid, pagadorNombre, linea: l, cobraOnline: true })))
       tx.set(pedidoRef, {
         eventId, pagadorUid: uid, pagadorNombre, estado: 'pendiente', stripePaymentId: null,

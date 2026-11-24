@@ -5,7 +5,7 @@ import {
 } from 'firebase/firestore'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage } from '../firebase'
-import { isPendingPayment } from '../utils/inscripciones'
+import { isPendingPayment, isStalePending } from '../utils/inscripciones'
 import { getDirectImageUrl } from '../utils/imageUtils'
 import { enviarNotificacionFCM } from '../services/fcmService'
 import { useAuth } from '../contexts/AuthContext'
@@ -1112,7 +1112,8 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
       } else {
         await addDoc(collection(db, 'anuncios'), { ...payload, createdAt: serverTimestamp() })
         if (esUrgente) {
-          enviarNotificacionFCM(`⚡ ${titulo.trim()}`, cuerpo.trim() || 'Nuevo aviso urgente de la Falla.').catch(() => {})
+          enviarNotificacionFCM(`⚡ ${titulo.trim()}`, cuerpo.trim() || 'Nuevo aviso urgente de la Falla.')
+            .catch(err => console.warn('[push] el aviso se guardó pero la notificación no se envió:', err?.message))
         }
       }
       resetForm(); setShowForm(false)
@@ -1300,6 +1301,27 @@ export default function Dashboard() {
       setRegisteredIds(confirmed)
       setPendingIds(pending)
     }, () => {})
+  }, [user?.uid])
+
+  // Reservas de pago ABANDONADAS (app cerrada a mitad del cobro de Stripe): pasados 15 min ya no
+  // ocupan plaza y se borran solas al volver a entrar, para que el usuario no arrastre "pendientes"
+  // eternos ni quede bloqueado. Cubre el modelo clásico (uid) y el checkout de grupo (pagadorUid).
+  useEffect(() => {
+    if (!user?.uid) return
+    const col = collection(db, 'inscripciones')
+    const qs = [
+      query(col, where('uid',        '==', user.uid), where('estadoPago', '==', 'pendiente')),
+      query(col, where('pagadorUid', '==', user.uid), where('estadoPago', '==', 'pendiente')),
+    ]
+    let cancelled = false
+    ;(async () => {
+      for (const q of qs) {
+        const snap = await getDocs(q).catch(() => null)
+        if (!snap || cancelled) continue
+        for (const d of snap.docs) if (isStalePending(d.data())) await deleteDoc(d.ref).catch(() => {})
+      }
+    })()
+    return () => { cancelled = true }
   }, [user?.uid])
 
   // Real-time inscription counts for all events (capacity / isFull logic)

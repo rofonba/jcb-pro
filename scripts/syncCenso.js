@@ -8,6 +8,9 @@
 //   node scripts/syncCenso.js --apply --partial     → escribe también los cruces PARCIALES (revísalos antes)
 //   node scripts/syncCenso.js --parse-only          → sólo lee el Excel (no necesita credenciales)
 //   node scripts/syncCenso.js --file "ruta.xlsx"    → otro fichero (por defecto docs/261111 CENSO JCB.xlsx)
+//   node scripts/syncCenso.js --test "Ferran|Romero Iglesias"  → prueba el cruce de UN nombre (sin credenciales)
+//   node scripts/syncCenso.js --upload-censo        → sube el Excel a Firestore (censo/{nº}) para la vinculación
+//                                                      manual desde el panel de admin (sólo lo lee el staff)
 //
 // Credenciales (cualquiera de las dos):
 //   · Las mismas variables que Vercel: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY
@@ -55,6 +58,7 @@ const args     = process.argv.slice(2)
 const APPLY    = args.includes('--apply')
 const PARTIAL  = args.includes('--partial')
 const PARSE    = args.includes('--parse-only')
+const UPLOAD   = args.includes('--upload-censo')
 const fileIdx  = args.indexOf('--file')
 const FILE     = fileIdx >= 0 ? args[fileIdx + 1] : 'docs/261111 CENSO JCB.xlsx'
 
@@ -84,6 +88,16 @@ const APODOS = {
   ximo: ['joaquin'], quim: ['joaquin'], joaquim: ['joaquin'], vicent: ['vicente'], vicen: ['vicente'],
   joan: ['juan'], jaume: ['jaime'], pere: ['pedro'], jordi: ['jorge'], miquel: ['miguel'],
   pau: ['pablo'], bernat: ['bernardo'], albert: ['alberto'], lluis: ['luis'], pascual: ['pasqual'],
+  // Valenciano ↔ castellano (en los DOS sentidos: la app puede ir en valenciano y el censo en castellano, o al revés)
+  ferran: ['fernando'], fernando: ['ferran'], carles: ['carlos'], carlos: ['carles'], vicente: ['vicent'],
+  juan: ['joan'], jaime: ['jaume'], pedro: ['pere'], jorge: ['jordi'], miguel: ['miquel'], pablo: ['pau'],
+  andreu: ['andres'], esteve: ['esteban'], francesc: ['francisco'], cesc: ['francisco'], enric: ['enrique'],
+  rafel: ['rafael'], tomeu: ['bartolome'], mateu: ['mateo'], marc: ['marcos'], lluc: ['lucas'], agusti: ['agustin'],
+  domenec: ['domingo'], ramon: ['ramon'], manel: ['manuel'], gonçal: ['gonzalo'], gonzal: ['gonzalo'], ignasi: ['ignacio'],
+  // femeninos
+  carme: ['carmen'], dolors: ['dolores'], merce: ['mercedes'], roser: ['rosario'], empar: ['amparo'],
+  assumpta: ['asuncion'], caterina: ['catalina'], llucia: ['lucia'], remei: ['remedios'], consol: ['consuelo'],
+  elisabet: ['isabel'], joana: ['juana'], josepa: ['josefa'], francesca: ['francisca'],
   // María …
   mari: ['maria'], marita: ['maria'], maribel: ['maria isabel'], marisa: ['maria luisa'],
   maite: ['maria teresa'], marisol: ['maria soledad'], mayte: ['maria teresa'],
@@ -368,11 +382,42 @@ if (PARSE) {
   process.exit(0)
 }
 
+// Prueba de cruce de un solo nombre, sin credenciales: --test "Nombre|Apellidos"
+const testIdx = args.indexOf('--test')
+if (testIdx >= 0) {
+  const [nombre = '', apellidos = ''] = String(args[testIdx + 1] ?? '').split('|')
+  const { ok, ambiguous } = match([{ id: 'test', nombre: nombre.trim(), apellidos: apellidos.trim() }], censo)
+  if (ok.length) {
+    const { kind, c } = ok[0]
+    console.log(`🔎 "${nombre.trim()}|${apellidos.trim()}" → [${kind}] nº ${c.numeroCenso} "${c.nombre} ${c.apellidos}"${c.distintivo ? ' · ' + c.distintivo : ''}${kind !== 'exacto' ? '  (se escribe con --apply --partial)' : ''}`)
+  } else if (ambiguous.length) console.log(`🔎 "${nombre.trim()}|${apellidos.trim()}" → AMBIGUO: ${ambiguous[0].motivo}`)
+  else console.log(`🔎 "${nombre.trim()}|${apellidos.trim()}" → sin cruce (vincúlalo a mano desde el panel de admin)`)
+  process.exit(0)
+}
+
 const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } = process.env
 initializeApp(FIREBASE_PRIVATE_KEY
   ? { credential: cert({ projectId: FIREBASE_PROJECT_ID, clientEmail: FIREBASE_CLIENT_EMAIL, privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') }) }
   : { credential: applicationDefault() })
 const db = getFirestore()
+
+// --upload-censo: copia del Excel en Firestore (censo/{numeroCenso}) para que el admin pueda buscar
+// y vincular a mano a quien el cruce automático no resuelva. Sólo el staff puede leerla (reglas).
+if (UPLOAD) {
+  for (let i = 0; i < censo.length; i += 400) {
+    const batch = db.batch()
+    for (const c of censo.slice(i, i + 400)) {
+      batch.set(db.collection('censo').doc(String(c.numeroCenso)), {
+        numeroCenso: c.numeroCenso, nombre: c.nombre, apellidos: c.apellidos, distintivo: c.distintivo,
+        ...(c.altaYear !== undefined && { altaYear: c.altaYear }),
+        nombreNorm: c.fullNameExcel, updatedAt: new Date(),
+      })
+    }
+    await batch.commit()
+  }
+  console.log(`📤 Censo subido a Firestore: ${censo.length} registros en censo/{numeroCenso}`)
+  if (!APPLY) process.exit(0)
+}
 
 const snap = await db.collection('falleros').get()
 const falleros = snap.docs.map(d => ({ id: d.id, ...d.data() }))

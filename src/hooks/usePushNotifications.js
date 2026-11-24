@@ -1,4 +1,4 @@
-import { getToken } from 'firebase/messaging'
+import { getToken, onMessage } from 'firebase/messaging'
 import {
   doc, updateDoc, serverTimestamp,
   collection, query, where, getDocs,
@@ -105,6 +105,37 @@ async function persistToken(userId) {
   return token
 }
 
+// ─── Push en PRIMER PLANO ─────────────────────────────────────────────────────
+// Cuando la app está abierta y visible, el SDK de FCM del Service Worker NO muestra la
+// notificación: se la pasa a la página (onMessage) y, si nadie la escucha, se pierde en
+// silencio. Es justo el caso de un admin que envía y mira su propio móvil con la app abierta.
+// Aquí la mostramos nosotros a través del SW (misma apariencia que en segundo plano).
+let foregroundBound = false
+function bindForegroundHandler() {
+  if (foregroundBound || !messaging) return
+  foregroundBound = true
+  try {
+    onMessage(messaging, async (payload) => {
+      const n = payload?.notification ?? {}
+      const title = n.title || payload?.data?.title || 'JCB Falla'
+      const opts = {
+        body:  n.body || payload?.data?.body || '',
+        icon:  n.icon || '/logo-falla.png',
+        badge: '/logo-falla.png',
+        tag:   payload?.fcmOptions?.tag || payload?.messageId || `jcb_fg_${Date.now()}`,
+        data:  payload?.data ?? {},
+      }
+      try {
+        const reg = await navigator.serviceWorker.getRegistration('/')
+        if (reg) { await reg.showNotification(title, opts); return }
+      } catch { /* sin SW: caemos a Notification */ }
+      try { new Notification(title, opts) } catch { /* iOS sin soporte: nada que hacer */ }
+    })
+  } catch (err) {
+    console.warn('[FCM] onMessage no disponible:', err?.message)
+  }
+}
+
 export function usePushNotifications(userId) {
   const [permission, setPermission] = useState(() => {
     if (typeof Notification === 'undefined') return 'unsupported'
@@ -126,6 +157,7 @@ export function usePushNotifications(userId) {
   // sólo evitamos efectos colaterales en estado React.
   useEffect(() => {
     if (!messaging || !userId || Notification.permission !== 'granted') return
+    bindForegroundHandler()
     let aborted = false
     persistToken(userId)
       .then(() => { if (!aborted) setTokenSaved(true) })
@@ -145,6 +177,7 @@ export function usePushNotifications(userId) {
       setPermission(result)
       if (result !== 'granted') return
       await persistToken(userId)
+      bindForegroundHandler()
       setTokenSaved(true)
     } catch (err) {
       console.error('[usePushNotifications]', err)

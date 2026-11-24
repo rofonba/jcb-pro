@@ -50,15 +50,19 @@ const catHijo  = dob => { const a = ageFrom(dob); return a == null || a < CHILD_
 const newPedidoId = () => 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
 
 // ─── Inscripciones del evento en vivo → quién está ya inscrito (v2 y v1) ─────
-function useTaken(eventId) {
-  const [taken, setTaken] = useState({ byKey: new Map(), byName: new Map() })
+function useTaken(eventId, uid) {
+  const [taken, setTaken] = useState({ byKey: new Map(), byName: new Map(), mine: [] })
   useEffect(() => {
     const q = query(collection(db, 'inscripciones'), where('eventId', '==', eventId))
     return onSnapshot(q, snap => {
-      const byKey = new Map(), byName = new Map(), now = Date.now()
+      const byKey = new Map(), byName = new Map(), mine = [], now = Date.now()
       for (const d of snap.docs) {
         const x = d.data()
         const pendiente = x.pagado !== true && x.estadoPago === 'pendiente'
+        // MI reserva sin pagar (pago abandonado): nunca me bloquea; se ofrece reemplazarla o cancelarla
+        if (pendiente && (x.modelo === 2 ? x.pagadorUid === uid : x.uid === uid)) {
+          mine.push({ id: d.id, n: x.modelo === 2 ? 1 : (x.totalPersonas ?? 1) }); continue
+        }
         if (pendiente) { const t = x.createdAt?.toMillis?.(); if (t != null && now - t > PENDING_TTL_MS) continue }
         if (x.modelo === 2) {
           const info = { por: (x.pagadorNombre ?? 'otra persona').split(' ')[0], pendiente }
@@ -74,9 +78,9 @@ function useTaken(eventId) {
           }
         }
       }
-      setTaken({ byKey, byName })
+      setTaken({ byKey, byName, mine })
     }, () => {})
-  }, [eventId])
+  }, [eventId, uid])
   return taken
 }
 
@@ -93,7 +97,11 @@ function Content({ event, onClose, onSuccess }) {
   const { user, fallero } = useAuth()
   const uid = user?.uid
   const { members: familia } = useFamilia(uid, fallero?.familiaUids ?? [])
-  const taken = useTaken(event.id)
+  const taken = useTaken(event.id, uid)
+  const [cancelling, setCancelling] = useState(false)
+  // Borra mis reservas pendientes (las reglas lo permiten al pagador/dueño mientras no estén pagadas)
+  const deleteMyPending = () => Promise.allSettled(taken.mine.map(m => deleteDoc(doc(db, 'inscripciones', m.id))))
+  const cancelMyPending = async () => { setCancelling(true); await deleteMyPending(); setCancelling(false) }
 
   const paid        = event.precio != null && event.precio > 0
   const cobraOnline = paid && event.pagoApp === true
@@ -140,6 +148,7 @@ function Content({ event, onClose, onSuccess }) {
       : { tipo: l.tipo, uid: null, nombre: l.nombreLibre, apellidos: l.apellidosLibre, categoria: l.categoria })
     try {
       if (cobraOnline) {
+        if (taken.mine.length) await deleteMyPending()   // reserva anterior abandonada: se reemplaza
         const idToken = await user.getIdToken()
         const res  = await fetch('/api/createGroupCheckout', {
           method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
@@ -200,6 +209,20 @@ function Content({ event, onClose, onSuccess }) {
 
         {step === 'select' && (
           <>
+            {taken.mine.length > 0 && (
+              <div style={{ padding: '0.75rem 0.9rem', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: 12, marginBottom: '1rem' }}>
+                <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: '#fbbf24' }}>
+                  ⏳ Tienes una reserva pendiente de pago ({taken.mine.reduce((s, m) => s + m.n, 0)} {taken.mine.reduce((s, m) => s + m.n, 0) === 1 ? 'persona' : 'personas'})
+                </p>
+                <p style={{ margin: '0.3rem 0 0.6rem', fontSize: '0.72rem', color: 'rgba(255,255,255,0.55)', lineHeight: 1.45 }}>
+                  El pago no llegó a completarse. Elige de nuevo los asistentes y paga (la reserva anterior se reemplaza), o cancélala.
+                </p>
+                <button type="button" onClick={cancelMyPending} disabled={cancelling}
+                  style={{ minHeight: 36, padding: '0 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 9, color: 'rgba(255,255,255,0.8)', fontSize: '0.75rem', fontWeight: 700, cursor: cancelling ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
+                  {cancelling ? 'Cancelando…' : 'Cancelar reserva pendiente'}
+                </button>
+              </div>
+            )}
             <Block1 rows={block1} taken={taken} inCart={inCart} onToggle={toggle} />
             <BlockFalleros uid={uid} exclude={block1Keys} cart={cart} taken={taken} onAdd={addLine} />
             <BlockInvitados onAdd={addLine} taken={taken} />
