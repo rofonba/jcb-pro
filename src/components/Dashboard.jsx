@@ -23,6 +23,7 @@ import { Bell, Flame, Shield, Clock, ChevronLeft, ChevronRight, X, Loader2, Tras
 import logoFalla from '../assets/logo-falla.png'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { useAnuncios } from '../hooks/useAnuncios'
+import { useMisInscripciones } from '../hooks/useMisInscripciones'
 
 const LAST_READ_KEY  = 'jcb_last_read_avisos'
 const getLastRead    = () => parseInt(localStorage.getItem(LAST_READ_KEY) || '0', 10)
@@ -261,103 +262,116 @@ function ActionButton({ icon, label, onClick, active = false, badge = 0 }) {
 
 // ─── Mis citas (collapsible reveal) ──────────────────────────────────────────
 
-function MisCitas({ events, registeredIds, pendingIds, paidIds, onCancelPress, onDetailPress }) {
-  const mine = useMemo(() => {
-    const now = Date.now()
-    return events
-      .filter(ev => {
-        if (!registeredIds.has(ev.id) || !ev.fecha) return false
-        const d = ev.fecha?.toDate ? ev.fecha.toDate() : new Date(ev.fecha)
-        return d.getTime() > now
-      })
-      .sort((a, b) => {
-        const da = a.fecha?.toDate ? a.fecha.toDate() : new Date(a.fecha)
-        const db = b.fecha?.toDate ? b.fecha.toDate() : new Date(b.fecha)
-        return da - db
-      })
-  }, [events, registeredIds])
+function MisCitas({ events, inscripciones, myUid, loading = false, onCancelPress, onDetailPress }) {
+  const [showPast, setShowPast] = useState(false)
+  const eventsById = useMemo(() => new Map(events.map(e => [e.id, e])), [events])
+  const [startOfToday] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime() })
 
-  // Pagos sin confirmar (p. ej. se salió a mitad de pago): se muestran aparte con «Anular»
-  const pending = useMemo(
-    () => events.filter(ev => pendingIds?.has(ev.id)),
-    [events, pendingIds],
-  )
+  // Una fila por EVENTO, agregando todas mis inscripciones en él (propias, pagadas por otro, pagadas para otros)
+  const rows = useMemo(() => {
+    const byEvent = new Map()
+    for (const ins of inscripciones) {
+      if (!ins.eventId || ins.esManual) continue
+      const r = byEvent.get(ins.eventId) ?? { eventId: ins.eventId, titulo: ins.eventoTitulo ?? null, mine: null, pendiente: false, pagado: false, pagadoPor: null, paraOtros: [], v2: false, insMine: null }
+      const isV2 = ins.modelo === 2
+      const soyPersona = isV2 ? ins.asistenteUid === myUid : (ins.uid === myUid || (Array.isArray(ins.beneficiariosUids) && ins.beneficiariosUids.includes(myUid)))
+      const soyPagador = isV2 ? ins.pagadorUid === myUid : ins.uid === myUid
+      const pend = isPendingPayment(ins)
+      if (soyPersona) {
+        r.mine = true; r.insMine = r.insMine ?? ins; r.v2 = r.v2 || isV2
+        if (pend) r.pendiente = true
+        if (ins.pagado === true) r.pagado = true
+        if (!soyPagador && ins.pagado === true) r.pagadoPor = ins.pagadorNombre ?? ins.nombre ?? null
+      } else if (soyPagador && isV2 && !pend) {
+        r.paraOtros.push(ins.asistenteNombre ?? 'invitado/a')   // plaza que pagué para otra persona
+      } else if (soyPagador && !isV2) {
+        r.mine = true; r.insMine = r.insMine ?? ins; if (pend) r.pendiente = true; if (ins.pagado === true) r.pagado = true
+      }
+      byEvent.set(ins.eventId, r)
+    }
+    const list = [...byEvent.values()].filter(r => r.mine || r.paraOtros.length).map(r => {
+      const ev = eventsById.get(r.eventId)
+      const d = ev?.fecha?.toDate ? ev.fecha.toDate() : ev?.fecha ? new Date(ev.fecha) : null
+      return { ...r, ev, titulo: ev?.titulo ?? r.titulo ?? 'Evento', fechaMs: d && !isNaN(d) ? d.getTime() : null }
+    })
+    return list.sort((a, b) => (a.fechaMs ?? Infinity) - (b.fechaMs ?? Infinity))
+  }, [inscripciones, eventsById, myUid])
 
-  const pendingBlock = pending.length > 0 && (
-    <div style={{ background: '#FFFBEB', border: '1.5px solid #FCD34D', borderRadius: 20, padding: '14px 16px', marginBottom: 12 }}>
-      <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 700, color: '#92400E' }}>⏳ Pago pendiente de confirmar</p>
-      <p style={{ margin: '0 0 10px', fontSize: 11, color: '#92400E' }}>
-        No cuenta como inscripción confirmada. Si ya has pagado, se confirmará sola en unos instantes; si no, anula la reserva para liberar la plaza.
-      </p>
-      {pending.map(ev => (
-        <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: '1px solid #FDE68A' }}>
-          <p style={{ flex: 1, margin: 0, fontSize: 13, fontWeight: 600, color: TEXT, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{ev.titulo}</p>
-          <button
-            onClick={() => onCancelPress(ev)}
-            style={{ padding: '6px 11px', background: 'transparent', border: '1px solid rgba(206,17,38,0.4)', borderRadius: 8, fontSize: 11, fontWeight: 700, color: RED, cursor: 'pointer', minHeight: 'auto', flexShrink: 0 }}
-          >
-            Anular
-          </button>
-        </div>
-      ))}
-    </div>
-  )
+  const upcoming = rows.filter(r => r.fechaMs == null || r.fechaMs >= startOfToday)
+  const past     = rows.filter(r => r.fechaMs != null && r.fechaMs < startOfToday).reverse()
 
-  if (mine.length === 0) {
+  const estado = (r) => {
+    if (r.pendiente && !r.pagado) return { txt: '⏳ Pendiente de pago', color: '#92400E', bg: '#FFFBEB', border: '#FCD34D' }
+    if (r.pagado) return { txt: r.pagadoPor ? `✓ Pagado por ${r.pagadoPor.split(' ')[0]}` : '✓ Pagado', color: GREEN, bg: 'rgba(16,185,129,0.05)', border: 'rgba(16,185,129,0.25)' }
+    if (!r.mine) return { txt: `✓ Pagaste ${r.paraOtros.length} ${r.paraOtros.length === 1 ? 'plaza' : 'plazas'}`, color: GREEN, bg: 'rgba(16,185,129,0.05)', border: 'rgba(16,185,129,0.25)' }
+    return { txt: '✓ Inscrito', color: GREEN, bg: 'rgba(16,185,129,0.05)', border: 'rgba(16,185,129,0.25)' }
+  }
+
+  const renderRow = (r, dim = false) => {
+    const t = EVENT_TYPES[r.ev?.tipo] ?? EVENT_TYPES.acto
+    const st = estado(r)
+    const canCancel = r.ev && r.mine && !r.pagado && !r.v2 && !dim   // clásico sin pagar: «Anular»
     return (
-      <>
-        {pendingBlock}
-        <div style={{ textAlign: 'center', padding: '28px 16px', background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 20 }}>
-          <div style={{ fontSize: 32, marginBottom: 10 }}>📭</div>
-          <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Aún no te has apuntado a ningún evento</p>
-          <p style={{ margin: '4px 0 0', fontSize: 12, color: MUTED, opacity: 0.7 }}>Pulsa «Apuntarme» para empezar</p>
+      <div key={r.eventId} onClick={() => r.ev && onDetailPress?.(r.eventId)}
+        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: st.bg, border: `1px solid ${st.border}`, borderRadius: 14, cursor: r.ev ? 'pointer' : 'default', opacity: dim ? 0.75 : 1 }}>
+        <div style={{ width: 36, height: 36, flexShrink: 0, background: `${t.color}14`, border: `1px solid ${t.color}25`, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>
+          {t.emoji}
         </div>
-      </>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: TEXT, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{r.titulo}</p>
+          <p style={{ margin: '2px 0 0', fontSize: 11, color: TEXT2 }}>
+            {r.ev ? <>{fmtDate(r.ev.fecha)}{fmtTime(r.ev.fecha) && ` · ${fmtTime(r.ev.fecha)}`}</> : 'Fecha por confirmar'}
+            {r.mine && r.paraOtros.length > 0 && ` · +${r.paraOtros.length} ${r.paraOtros.length === 1 ? 'plaza pagada' : 'plazas pagadas'} para ${r.paraOtros.join(', ')}`}
+            {!r.mine && r.paraOtros.length > 0 && ` · para ${r.paraOtros.join(', ')}`}
+          </p>
+        </div>
+        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, color: st.color, whiteSpace: 'nowrap' }}>{st.txt}</span>
+          {canCancel && (
+            <button onClick={e => { e.stopPropagation(); onCancelPress(r.ev) }}
+              style={{ padding: '4px 9px', background: 'transparent', border: '1px solid rgba(206,17,38,0.28)', borderRadius: 8, fontSize: 10, fontWeight: 700, color: 'rgba(206,17,38,0.75)', cursor: 'pointer', minHeight: 'auto' }}>
+              Anular
+            </button>
+          )}
+        </div>
+      </div>
     )
   }
 
+  if (loading && rows.length === 0) {
+    return <div style={{ textAlign: 'center', padding: '20px', color: MUTED, fontSize: 13 }}>Cargando tus inscripciones…</div>
+  }
+  if (rows.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '28px 16px', background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 20 }}>
+        <div style={{ fontSize: 32, marginBottom: 10 }}>📭</div>
+        <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Aún no te has apuntado a ningún evento</p>
+        <p style={{ margin: '4px 0 0', fontSize: 12, color: MUTED, opacity: 0.7 }}>Pulsa «Apuntarme» para empezar</p>
+      </div>
+    )
+  }
+
+  const nPend = upcoming.filter(r => r.pendiente && !r.pagado).length
   return (
-    <>
-    {pendingBlock}
     <div style={{ background: WHITE, border: `1.5px solid ${BORDER}`, borderRadius: 20, padding: '16px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
       <div style={{ marginBottom: 12 }}>
         <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: TEXT }}>Mis inscripciones</p>
         <p style={{ margin: '2px 0 0', fontSize: 12, fontWeight: 600, color: GREEN }}>
-          ✅ {mine.length} {mine.length === 1 ? 'evento confirmado' : 'eventos confirmados'}
+          ✅ {upcoming.length - nPend} {upcoming.length - nPend === 1 ? 'evento próximo' : 'eventos próximos'}{nPend ? ` · ⏳ ${nPend} pendiente${nPend === 1 ? '' : 's'} de pago` : ''}
         </p>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {mine.map(ev => {
-          const t = EVENT_TYPES[ev.tipo] ?? EVENT_TYPES.acto
-          return (
-            <div key={ev.id} onClick={() => onDetailPress?.(ev.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.18)', borderRadius: 14, cursor: 'pointer' }}>
-              <div style={{ width: 36, height: 36, flexShrink: 0, background: `${t.color}14`, border: `1px solid ${t.color}25`, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>
-                {t.emoji}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: TEXT, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-                  {ev.titulo}
-                </p>
-                <p style={{ margin: '2px 0 0', fontSize: 11, color: TEXT2 }}>
-                  {fmtDate(ev.fecha)}{fmtTime(ev.fecha) && ` · ${fmtTime(ev.fecha)}`}
-                </p>
-              </div>
-              {paidIds?.has(ev.id) ? (
-                <div style={{ flexShrink: 0 }}><PaidNotice compact /></div>
-              ) : (
-              <button
-                onClick={e => { e.stopPropagation(); onCancelPress(ev) }}
-                style={{ padding: '5px 9px', background: 'transparent', border: '1px solid rgba(206,17,38,0.28)', borderRadius: 8, fontSize: 10, fontWeight: 700, color: 'rgba(206,17,38,0.75)', cursor: 'pointer', minHeight: 'auto', flexShrink: 0 }}
-              >
-                Anular
-              </button>
-              )}
-            </div>
-          )
-        })}
-      </div>
+      {upcoming.length === 0 && <p style={{ margin: '0 0 8px', fontSize: 12, color: MUTED }}>Sin eventos próximos.</p>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{upcoming.map(r => renderRow(r))}</div>
+      {past.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <button onClick={() => setShowPast(v => !v)}
+            style={{ width: '100%', padding: '9px 12px', background: 'transparent', border: `1.5px dashed ${BORDER}`, borderRadius: 12, color: MUTED, fontSize: 12, fontWeight: 700, cursor: 'pointer', minHeight: 'auto' }}>
+            {showPast ? '▾' : '▸'} Eventos anteriores · {past.length}
+          </button>
+          {showPast && <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>{past.map(r => renderRow(r, true))}</div>}
+        </div>
+      )}
     </div>
-    </>
   )
 }
 
@@ -836,7 +850,8 @@ const ROLE_BADGE = {
 function HomeTab({
   nombre, rol, numeroCenso, isAdmin,
   announcements, loadingAnns,
-  events, registeredIds, pendingIds, paidIds, inscCountMap,
+  events, registeredIds, paidIds, inscCountMap,
+  misInscripciones, loadingMisIns, myUid,
   onNavigate, onMetrics, onCreateAviso, onOpenWallet, onOpenPanel,
   onEventPress, onCancelPress, onDetailPress,
   unreadCount,
@@ -974,7 +989,7 @@ function HomeTab({
       {/* ── Collapsible: Mis inscripciones ───────────────────────── */}
       {showMyCitas && (
         <div style={{ padding: '16px 20px 0' }}>
-          <MisCitas events={events} registeredIds={registeredIds} pendingIds={pendingIds} paidIds={paidIds} onCancelPress={onCancelPress} onDetailPress={onDetailPress} />
+          <MisCitas events={events} inscripciones={misInscripciones} myUid={myUid} loading={loadingMisIns} onCancelPress={onCancelPress} onDetailPress={onDetailPress} />
         </div>
       )}
 
@@ -1262,6 +1277,8 @@ function AvisosTab({ announcements, loading, isAdmin, initialShowForm = false })
 export default function Dashboard() {
   const { user, fallero } = useAuth()
   // Avisos: últimos 30 días + fijados (siempre), fijados arriba. Ver hooks/useAnuncios.js
+  // «¿A qué me he apuntado?»: todas mis inscripciones (clásicas y de grupo), ver hooks/useMisInscripciones.js
+  const { inscripciones: misInscripciones, loading: loadingMisIns } = useMisInscripciones(user?.uid)
   const { anuncios: announcements, loading: loadingAnns } = useAnuncios()
   const [activeTab, setActiveTab]         = useState('home')
   const [lastReadTs, setLastReadTs]       = useState(getLastRead)
@@ -1436,6 +1453,7 @@ export default function Dashboard() {
             nombre={nombre} rol={fallero?.rol ?? 'fallero'} numeroCenso={fallero?.numeroCenso ?? null} isAdmin={isAdmin}
             announcements={announcements} loadingAnns={loadingAnns}
             events={events} registeredIds={registeredIds} pendingIds={pendingIds} paidIds={paidIds} inscCountMap={inscCountMap}
+            misInscripciones={misInscripciones} loadingMisIns={loadingMisIns} myUid={user?.uid}
             onNavigate={handleTabChange}
             onMetrics={() => setShowMetrics(true)}
             onCreateAviso={handleCreateAviso}
