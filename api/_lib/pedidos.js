@@ -1,5 +1,5 @@
 // Checkout de GRUPO (modelo v2): un documento de `inscripciones` por asistente, agrupados por
-// `pedidoId`, con un único cobro en Stripe (una sola comisión fija de 0,25 €).
+// `pedidoId`, con un único cobro en Stripe.
 //
 // Lo comparten /api/createGroupCheckout (crea pedido + inscripciones pendientes + PaymentIntent)
 // y /api/stripe-webhook (verifica y marca pagados). El navegador sólo dice QUIÉN va; el servidor
@@ -19,8 +19,6 @@ import { ageYears, madridToday, CHILD_MAX_AGE, PricingError } from './pricing.js
 
 export const MAX_ASISTENTES   = 30
 export const PENDING_TTL_MS   = 15 * 60 * 1000   // igual que src/utils/inscripciones.js
-export const STRIPE_VARIABLE_FEE  = 0.015
-export const STRIPE_FIXED_FEE_CENT = 25
 
 const TIPOS = new Set(['titular', 'familiar', 'fallero', 'hijo', 'invitado'])
 const HIJO_RE = /^(.+)\|h(\d+)$/
@@ -28,9 +26,13 @@ const HIJO_RE = /^(.+)\|h(\d+)$/
 const cleanName = s => String(s ?? '').trim().replace(/\s+/g, ' ').slice(0, 80)
 const fullName  = f => `${f?.nombre ?? ''} ${f?.apellidos ?? ''}`.trim()
 
+// Importe que se cobra en Stripe = precio base del evento, SIN recargo: la comisión de la pasarela
+// la asume la Falla (decisión de tesorería, nov-2026; antes se repercutía al usuario con tarifa inversa).
+// Única fuente de verdad del importe para ambos checkouts (individual y de grupo) y para el webhook.
+// Se mantienen los nombres de campo (totalConComision = lo cobrado, gastosGestion = 0) por compatibilidad
+// con las inscripciones ya guardadas y con la UI.
 export function tarifaInversa(totalNetoCent) {
-  const totalConComisionCent = Math.ceil((totalNetoCent + STRIPE_FIXED_FEE_CENT) / (1 - STRIPE_VARIABLE_FEE))
-  return { totalConComisionCent, gastosGestionCent: totalConComisionCent - totalNetoCent }
+  return { totalConComisionCent: totalNetoCent, gastosGestionCent: 0 }
 }
 
 // Id determinista por persona (bloqueo de duplicados en Firestore, no sólo en pantalla).

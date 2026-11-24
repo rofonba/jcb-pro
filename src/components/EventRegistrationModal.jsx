@@ -471,7 +471,7 @@ function PayStep({ event, user, fallero, checkout, onBack, onPaid }) {
     const req = stripe.paymentRequest({
       country: 'ES', currency: 'eur',
       total: { label: event.titulo || 'Inscripción', amount: totalConComision },
-      displayItems: [{ label: 'Subtotal inscripción', amount: totalNeto }, { label: 'Gastos de gestión', amount: gastosGestion }],
+      displayItems: [{ label: 'Inscripción', amount: totalNeto }, ...(gastosGestion > 0 ? [{ label: 'Gastos de gestión', amount: gastosGestion }] : [])],
       requestPayerName: true, requestPayerEmail: false,
     })
     req.canMakePayment().then(r => { if (!cancelled) setPr(r ? req : null) })
@@ -512,9 +512,11 @@ function PayStep({ event, user, fallero, checkout, onBack, onPaid }) {
             <span>{fmtEur(l.precioNetoCent)}</span>
           </div>
         ))}
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)', marginTop: '0.4rem' }}>
-          <span>Gastos de gestión (Stripe)</span><span>{fmtEur(gastosGestion)}</span>
-        </div>
+        {gastosGestion > 0 && (   /* sin recargo: la comisión de Stripe la asume la Falla */
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)', marginTop: '0.4rem' }}>
+            <span>Gastos de gestión</span><span>{fmtEur(gastosGestion)}</span>
+          </div>
+        )}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.4rem', borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '0.3rem' }}>
           <span style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.55)' }}>Total a pagar (un solo cobro)</span>
           <span style={{ fontSize: '1.15rem', fontWeight: 800, color: GOLD }}>{fmtEur(totalConComision)}</span>

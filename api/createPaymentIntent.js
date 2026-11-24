@@ -7,13 +7,8 @@
 //   - NUNCA confía en el desglose adultos/niños del navegador: éste sólo envía QUIÉN
 //     va (type + uid de cada acompañante) y el servidor deduce adulto/niño por edad
 //     (fechaNacimiento en Firestore, ≤14 años = niño). Ver api/_lib/pricing.js.
-//   - Aplica la fórmula de tarifa inversa con Math.ceil para que la falla
-//     reciba el importe íntegro y el usuario cubra el 100% de la comisión.
-//
-// Modelo de comisión (Stripe Europa, tarjetas estándar):
-//   variable: 1,5 %
-//   fija:     0,25 €
-//   totalConComision = ceil( (neto + 25c) / (1 - 0.015) )  ← Math.ceil para no perder céntimos
+//   - Se cobra EXACTAMENTE el precio base (sin recargo): la comisión de Stripe la asume la Falla.
+//     El importe sale de tarifaInversa() en api/_lib/pedidos.js (única fuente para ambos checkouts).
 //
 // Devuelve al cliente: clientSecret + desglose en céntimos.
 
@@ -22,9 +17,7 @@ import { initializeApp, cert, getApps, getApp } from 'firebase-admin/app'
 import { getAuth }                              from 'firebase-admin/auth'
 import { getFirestore }                         from 'firebase-admin/firestore'
 import { computeBreakdown, netCents, PricingError } from './_lib/pricing.js'
-
-const STRIPE_VARIABLE_FEE = 0.015 // 1,5 %
-const STRIPE_FIXED_FEE_CENT = 25  // 0,25 €
+import { tarifaInversa } from './_lib/pedidos.js'
 
 function adminApp() {
   if (getApps().length) return getApp()
@@ -111,15 +104,12 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Error leyendo el evento: ' + err.message })
   }
 
-  // ── 4. Tarifa inversa (Math.ceil — falla recibe importe íntegro) ──────────
+  // ── 4. Importe a cobrar = precio base, sin recargo ────────────────────────
   const totalNetoCent = netCents(aCount, cCount, precio, precioNino)
   if (totalNetoCent <= 0) {
     return res.status(400).json({ error: 'El importe neto debe ser mayor que cero' })
   }
-  const totalConComisionCent = Math.ceil(
-    (totalNetoCent + STRIPE_FIXED_FEE_CENT) / (1 - STRIPE_VARIABLE_FEE),
-  )
-  const gastosGestionCent = totalConComisionCent - totalNetoCent
+  const { totalConComisionCent, gastosGestionCent } = tarifaInversa(totalNetoCent)
 
   // Stripe rechaza importes < 50 céntimos en EUR
   if (totalConComisionCent < 50) {

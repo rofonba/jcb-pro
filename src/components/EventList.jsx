@@ -725,8 +725,8 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, com
       currency: 'eur',
       total: { label: event.titulo || 'Inscripción', amount: intentTotals.total },
       displayItems: [
-        { label: 'Subtotal inscripción',    amount: intentTotals.neto },
-        { label: 'Gastos de gestión',       amount: intentTotals.gastos },
+        { label: 'Inscripción', amount: intentTotals.neto },
+        ...(intentTotals.gastos > 0 ? [{ label: 'Gastos de gestión', amount: intentTotals.gastos }] : []),
       ],
       requestPayerName:  true,
       requestPayerEmail: false,
@@ -858,13 +858,16 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, com
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.32rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'rgba(255,255,255,0.6)' }}>
-              <span>Subtotal inscripción</span>
+              <span>Inscripción ({adultCount + childCount} {adultCount + childCount === 1 ? 'persona' : 'personas'})</span>
               <span style={{ fontWeight: 600 }}>{fmtEur(intentTotals.neto)}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)' }}>
-              <span>Gastos de gestión (Stripe)</span>
-              <span style={{ fontWeight: 600 }}>{fmtEur(intentTotals.gastos)}</span>
-            </div>
+            {/* Sin recargo: la comisión de Stripe la asume la Falla. La línea sólo aparece si el servidor devolviera gastos > 0 */}
+            {intentTotals.gastos > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)' }}>
+                <span>Gastos de gestión</span>
+                <span style={{ fontWeight: 600 }}>{fmtEur(intentTotals.gastos)}</span>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.4rem', borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '0.15rem' }}>
               <span style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.55)' }}>Total a pagar</span>
               <span style={{ fontSize: '1.15rem', fontWeight: 800, color: GOLD }}>{fmtEur(intentTotals.total)}</span>
