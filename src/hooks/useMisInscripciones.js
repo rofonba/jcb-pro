@@ -32,5 +32,8 @@ export function useMisInscripciones(uid) {
     return [...byId.values()]
   }, [parts])
 
-  return { inscripciones, loading: loaded < 4 }
+  // Diagnóstico: cuántos documentos devuelve cada consulta (se muestra en el estado vacío)
+  const counts = useMemo(() => Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, v.length])), [parts])
+
+  return { inscripciones, loading: loaded < 4, counts }
 }

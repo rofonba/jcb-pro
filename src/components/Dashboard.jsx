@@ -262,7 +262,8 @@ function ActionButton({ icon, label, onClick, active = false, badge = 0 }) {
 
 // ─── Mis citas (collapsible reveal) ──────────────────────────────────────────
 
-function MisCitas({ events, inscripciones, myUid, loading = false, onCancelPress, onDetailPress }) {
+/* global __BUILD_ID__ */
+function MisCitas({ events, inscripciones, myUid, loading = false, counts = {}, onCancelPress, onDetailPress }) {
   const [showPast, setShowPast] = useState(false)
   const eventsById = useMemo(() => new Map(events.map(e => [e.id, e])), [events])
   const [startOfToday] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime() })
@@ -347,6 +348,10 @@ function MisCitas({ events, inscripciones, myUid, loading = false, onCancelPress
         <div style={{ fontSize: 32, marginBottom: 10 }}>📭</div>
         <p style={{ margin: 0, fontSize: 14, color: MUTED }}>Aún no te has apuntado a ningún evento</p>
         <p style={{ margin: '4px 0 0', fontSize: 12, color: MUTED, opacity: 0.7 }}>Pulsa «Apuntarme» para empezar</p>
+        {/* Diagnóstico: versión que corre y documentos por consulta (uid · asistente · pagador · beneficiario) */}
+        <p style={{ margin: '10px 0 0', fontSize: 9, color: MUTED, opacity: 0.55, fontFamily: 'monospace' }}>
+          build {typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : '?'} · uid {counts.uid ?? '…'} · asist {counts.asistente ?? '…'} · pag {counts.pagador ?? '…'} · benef {counts.benef ?? '…'}
+        </p>
       </div>
     )
   }
@@ -851,7 +856,7 @@ function HomeTab({
   nombre, rol, numeroCenso, isAdmin,
   announcements, loadingAnns,
   events, registeredIds, paidIds, inscCountMap,
-  misInscripciones, loadingMisIns, myUid,
+  misInscripciones, loadingMisIns, myUid, misInsCounts,
   onNavigate, onMetrics, onCreateAviso, onOpenWallet, onOpenPanel,
   onEventPress, onCancelPress, onDetailPress,
   unreadCount,
@@ -989,7 +994,7 @@ function HomeTab({
       {/* ── Collapsible: Mis inscripciones ───────────────────────── */}
       {showMyCitas && (
         <div style={{ padding: '16px 20px 0' }}>
-          <MisCitas events={events} inscripciones={misInscripciones} myUid={myUid} loading={loadingMisIns} onCancelPress={onCancelPress} onDetailPress={onDetailPress} />
+          <MisCitas events={events} inscripciones={misInscripciones} myUid={myUid} loading={loadingMisIns} counts={misInsCounts} onCancelPress={onCancelPress} onDetailPress={onDetailPress} />
         </div>
       )}
 
@@ -1278,7 +1283,7 @@ export default function Dashboard() {
   const { user, fallero } = useAuth()
   // Avisos: últimos 30 días + fijados (siempre), fijados arriba. Ver hooks/useAnuncios.js
   // «¿A qué me he apuntado?»: todas mis inscripciones (clásicas y de grupo), ver hooks/useMisInscripciones.js
-  const { inscripciones: misInscripciones, loading: loadingMisIns } = useMisInscripciones(user?.uid)
+  const { inscripciones: misInscripciones, loading: loadingMisIns, counts: misInsCounts } = useMisInscripciones(user?.uid)
   const { anuncios: announcements, loading: loadingAnns } = useAnuncios()
   const [activeTab, setActiveTab]         = useState('home')
   const [lastReadTs, setLastReadTs]       = useState(getLastRead)
@@ -1453,7 +1458,7 @@ export default function Dashboard() {
             nombre={nombre} rol={fallero?.rol ?? 'fallero'} numeroCenso={fallero?.numeroCenso ?? null} isAdmin={isAdmin}
             announcements={announcements} loadingAnns={loadingAnns}
             events={events} registeredIds={registeredIds} pendingIds={pendingIds} paidIds={paidIds} inscCountMap={inscCountMap}
-            misInscripciones={misInscripciones} loadingMisIns={loadingMisIns} myUid={user?.uid}
+            misInscripciones={misInscripciones} loadingMisIns={loadingMisIns} myUid={user?.uid} misInsCounts={misInsCounts}
             onNavigate={handleTabChange}
             onMetrics={() => setShowMetrics(true)}
             onCreateAviso={handleCreateAviso}
