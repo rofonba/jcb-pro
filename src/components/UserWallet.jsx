@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { ChevronLeft, MapPin } from 'lucide-react'
+import { ChevronLeft, MapPin, QrCode } from 'lucide-react'
+import QrPass from './QrPass'
 import { getPersons, getCheckInState, markCheckInGroup, markCheckInDocs, getDelegatedPersons } from '../utils/checkIn'
 
 const GOLD   = '#D4AF37'
@@ -58,21 +59,25 @@ function Ticket({ ins, event, isPayer, holderName, myUid }) {
   const names   = includedNames(ins)
   const total   = ins.totalConComision != null ? Number(ins.totalConComision).toFixed(2).replace('.', ',') : null
   const accent  = entered ? MUTED : isPayer ? GOLD : BLUE
+  // Persona de la entrada: en el modelo de grupo cada doc es una persona (puede ser un invitado mío)
+  const personName = ins.modelo === 2 ? (ins.asistenteNombre || holderName) : holderName
+  const isGuestDoc = ins.modelo === 2 && !ins.asistenteUid
+  const enteredAt  = toDate(mine.at)
 
   return (
-    <div style={{ background: WHITE, borderRadius: 22, overflow: 'hidden', border: `1.5px solid ${BORDER}`, boxShadow: '0 6px 24px rgba(0,0,0,0.07)', opacity: entered ? 0.92 : 1 }}>
-      {/* Banda superior */}
+    <div style={{ background: WHITE, borderRadius: 22, overflow: 'hidden', border: `1.5px solid ${entered ? `${GREEN}66` : BORDER}`, boxShadow: '0 6px 24px rgba(0,0,0,0.07)' }}>
+      {/* Banda superior: EVENTO en grande */}
       <div style={{ background: `linear-gradient(135deg, ${accent}, ${accent}cc)`, padding: '14px 18px', color: WHITE }}>
         <p style={{ margin: 0, fontSize: 10, fontWeight: 800, letterSpacing: '0.16em', textTransform: 'uppercase', opacity: 0.85 }}>
           Entrada · Falla Joaquín Costa
         </p>
-        <p style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 800, lineHeight: 1.2 }}>{event?.titulo ?? ins.eventoTitulo}</p>
-        <p style={{ margin: '4px 0 0', fontSize: 12, opacity: 0.9, textTransform: 'capitalize' }}>
+        <p style={{ margin: '4px 0 0', fontSize: 24, fontWeight: 900, lineHeight: 1.15, letterSpacing: '-0.01em' }}>{event?.titulo ?? ins.eventoTitulo}</p>
+        <p style={{ margin: '5px 0 0', fontSize: 12, opacity: 0.92, textTransform: 'capitalize' }}>
           {fmtLong(date)}{fmtHour(date) !== '00:00' && date ? ` · ${fmtHour(date)}` : ''}
         </p>
       </div>
 
-      {/* Cuerpo */}
+      {/* Cuerpo: PERSONA en grande + estado */}
       <div style={{ padding: '16px 18px' }}>
         {event?.lugar && (
           <p style={{ margin: '0 0 12px', fontSize: 12, color: TEXT2, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -80,8 +85,16 @@ function Ticket({ ins, event, isPayer, holderName, myUid }) {
           </p>
         )}
 
-        <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: MUTED, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Titular</p>
-        <p style={{ margin: '2px 0 12px', fontSize: 22, fontWeight: 800, color: TEXT, letterSpacing: '-0.01em' }}>{holderName}</p>
+        <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: MUTED, letterSpacing: '0.12em', textTransform: 'uppercase' }}>{isGuestDoc ? 'Invitado/a a mi cargo' : 'Asistente'}</p>
+        <p style={{ margin: '2px 0 10px', fontSize: 28, fontWeight: 900, color: TEXT, letterSpacing: '-0.02em', lineHeight: 1.1 }}>{personName}</p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+          {ins.pagado === true && (
+            <span style={{ padding: '6px 12px', borderRadius: 20, fontSize: 13, fontWeight: 900, letterSpacing: '0.04em', color: WHITE, background: GREEN, boxShadow: `0 3px 10px ${GREEN}55` }}>✓ PAGADO</span>
+          )}
+          {entered && (
+            <span style={{ padding: '6px 12px', borderRadius: 20, fontSize: 13, fontWeight: 900, letterSpacing: '0.04em', color: WHITE, background: '#111827' }}>✓ DENTRO{enteredAt ? ` · ${fmtHour(enteredAt)}` : ''}</span>
+          )}
+        </div>
 
         {isPayer ? (
           <>
@@ -335,6 +348,17 @@ export default function UserWallet({ events, onClose }) {
   const tickets = useMemo(() => allTickets.filter(t => !(toDate(t.event.fecha)?.getTime() < startOfToday)), [allTickets, startOfToday])
   const pastTickets = useMemo(() => allTickets.filter(t => toDate(t.event.fecha)?.getTime() < startOfToday).reverse(), [allTickets, startOfToday])
   const [showPast, setShowPast] = useState(false)
+  const [showQr,   setShowQr]   = useState(false)
+  // Entradas en las que YO soy la persona que entra (propias o pagadas por otro): las vincula el QR
+  const myQrEvents = useMemo(() => tickets
+    .filter(({ ins }) => ins.modelo === 2
+      ? ins.asistenteUid === user.uid
+      : (ins.uid === user.uid || (Array.isArray(ins.beneficiariosUids) && ins.beneficiariosUids.includes(user.uid))))
+    .map(({ ins, event, isPayer }) => ({
+      id: ins.id, titulo: event?.titulo ?? ins.eventoTitulo ?? 'Evento', fecha: event?.fecha ?? null,
+      entered: getCheckInState(ins, user.uid).entered,
+      pagadoPor: isPayer ? null : (ins.pagadorNombre ?? ins.nombre ?? null),
+    })), [tickets, user.uid])
 
   // Fast Track: eventos pagados cuya fecha es HOY. En el modelo de grupo sólo cuentan MIS entradas
   // (asistenteUid = yo); las de mis invitados sin app se gestionan desde la mía (grupo).
@@ -430,6 +454,13 @@ export default function UserWallet({ events, onClose }) {
       </header>
 
       <div style={{ padding: '20px 20px 40px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {/* Pase único permanente: QR del fallero */}
+        {!loading && (
+          <button onClick={() => setShowQr(true)}
+            style={{ width: '100%', minHeight: 60, background: `linear-gradient(135deg, #111827, #1f2937)`, border: `1.5px solid ${GOLD}66`, borderRadius: 18, color: WHITE, fontSize: 17, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: '0 6px 20px rgba(0,0,0,0.18)' }}>
+            <QrCode size={22} color={GOLD} /> 🪪 Mostrar mi QR
+          </button>
+        )}
         {loading ? (
           <p style={{ textAlign: 'center', color: MUTED, fontSize: 14, padding: '40px 0' }}>Cargando…</p>
         ) : !showAll && current ? (
@@ -449,6 +480,11 @@ export default function UserWallet({ events, onClose }) {
         ) : tickets.map(({ ins, event, isPayer }) => (
           <Ticket key={ins.id} ins={ins} event={event} isPayer={isPayer} holderName={myName} myUid={user.uid} />
         ))}
+
+        {showQr && (
+          <QrPass uid={user.uid} nombre={myName} rol={fallero?.rol ?? 'fallero'} numeroCenso={fallero?.numeroCenso ?? null}
+            events={myQrEvents} onClose={() => setShowQr(false)} />
+        )}
 
         {!loading && pastTickets.length > 0 && (
           <div>

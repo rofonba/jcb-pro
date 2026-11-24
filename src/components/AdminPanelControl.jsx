@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { collection, getDocs, onSnapshot, writeBatch, doc } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { ChevronLeft, Search, Loader2, DoorOpen, CalendarDays, ChevronRight } from 'lucide-react'
+import { ChevronLeft, Search, Loader2, DoorOpen, CalendarDays, ChevronRight, ScanLine } from 'lucide-react'
+import QrScanner from './QrScanner'
 import { getPersons, getCheckInState, markCheckIn, undoCheckIn, isExternalPerson } from '../utils/checkIn'
 import { isPendingPayment } from '../utils/inscripciones'
 import { buildDirectorioEntry } from '../utils/directorio'
@@ -49,7 +50,8 @@ function Metric({ label, value, color }) {
 }
 
 // ─── Detalle de un evento: métricas en vivo + lista de asistentes ──────────────────────────
-function EventDetail({ event, inscriptions }) {
+function EventDetail({ event, inscriptions, autoScan = false }) {
+  const [showScanner, setShowScanner] = useState(autoScan)
   const [search, setSearch] = useState('')
   const [busyKey, setBusyKey] = useState(null)
   const [error, setError] = useState('')
@@ -131,6 +133,11 @@ function EventDetail({ event, inscriptions }) {
 
   return (
     <div style={{ padding: '16px 20px 40px' }}>
+      {showScanner && <QrScanner event={event} inscriptions={inscriptions} onClose={() => setShowScanner(false)} />}
+      <button onClick={() => setShowScanner(true)}
+        style={{ width: '100%', minHeight: 60, marginBottom: 14, background: 'linear-gradient(135deg, #111827, #1f2937)', border: `1.5px solid ${GOLD}66`, borderRadius: 18, color: WHITE, fontSize: 17, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: '0 6px 20px rgba(0,0,0,0.18)' }}>
+        <ScanLine size={22} color={GOLD} /> 📷 Escanear QR
+      </button>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
         <Metric label="Inscritos" value={total} color={BLUE} />
         <Metric label="Check-in" value={entered} color={GREEN} />
@@ -170,6 +177,7 @@ export default function AdminPanelControl({ events, onClose }) {
   const [all,       setAll]       = useState([])      // todas las inscripciones, en vivo
   const [loading,   setLoading]   = useState(true)
   const [eventId,   setEventId]   = useState(null)
+  const [autoScan,  setAutoScan]  = useState(false)   // abrir el escáner nada más entrar al evento
   const [migrating, setMigrating] = useState(false)
   const [migrateMsg, setMigrateMsg] = useState('')
   const [error,     setError]     = useState('')
@@ -227,7 +235,7 @@ export default function AdminPanelControl({ events, onClose }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 85, background: BG, overflowY: 'auto', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
       <header style={{ position: 'sticky', top: 0, zIndex: 2, background: 'rgba(249,250,251,0.96)', backdropFilter: 'blur(20px)', borderBottom: `1px solid ${BORDER}`, padding: 'calc(12px + env(safe-area-inset-top)) 20px 12px', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <button onClick={selected ? () => setEventId(null) : onClose}
+        <button onClick={selected ? () => { setEventId(null); setAutoScan(false) } : onClose}
           style={{ display: 'flex', alignItems: 'center', gap: 4, background: `${GOLD}14`, border: `1px solid ${GOLD}40`, borderRadius: 10, padding: '8px 12px 8px 8px', color: GOLD, fontSize: 13, fontWeight: 700, cursor: 'pointer', minHeight: 'auto' }}>
           <ChevronLeft size={17} /> {selected ? 'Eventos' : 'Volver'}
         </button>
@@ -242,11 +250,21 @@ export default function AdminPanelControl({ events, onClose }) {
       </header>
 
       {selected ? (
-        <EventDetail event={selected} inscriptions={insByEvent.get(selected.id) ?? []} />
+        <EventDetail key={selected.id} event={selected} inscriptions={insByEvent.get(selected.id) ?? []} autoScan={autoScan} />
       ) : (
         <div style={{ padding: '18px 20px 40px' }}>
           {error && <div style={{ padding: '10px 14px', marginBottom: 14, background: 'rgba(206,17,38,0.08)', border: '1px solid rgba(206,17,38,0.25)', borderRadius: 12, color: '#B91C1C', fontSize: 13 }}>{error}</div>}
 
+          {/* Acceso directo: escanear en el evento de HOY (si hay exactamente uno) */}
+          {!loading && (() => {
+            const today = upcoming.filter(ev => { const d = toDate(ev.fecha); return d && d.getTime() < startOfToday + 86400000 })
+            return today.length === 1 ? (
+              <button onClick={() => { setEventId(today[0].id); setAutoScan(true) }}
+                style={{ width: '100%', minHeight: 60, marginBottom: 14, background: 'linear-gradient(135deg, #111827, #1f2937)', border: `1.5px solid ${GOLD}66`, borderRadius: 18, color: WHITE, fontSize: 16, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                <ScanLine size={22} color={GOLD} /> 📷 Escanear QR · {today[0].titulo}
+              </button>
+            ) : null
+          })()}
           {loading ? (
             <p style={{ textAlign: 'center', color: MUTED, padding: '40px 0' }}><Loader2 size={20} style={{ animation: 'falla-spin 0.8s linear infinite' }} /></p>
           ) : upcoming.length === 0 ? (
