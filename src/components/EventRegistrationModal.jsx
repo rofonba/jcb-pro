@@ -22,6 +22,7 @@ import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { useFamilia } from '../hooks/useFamilia'
 import { PENDING_TTL_MS } from '../utils/inscripciones'
+import { checkStripeMode } from '../utils/stripeMode'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
@@ -156,6 +157,8 @@ function Content({ event, onClose, onSuccess }) {
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+        const modeErr = checkStripeMode(data.livemode)
+        if (modeErr) throw new Error(modeErr)
         setCheckout(data); setStep('pay')
       } else {
         // Evento gratuito / pago en el casal: las inscripciones se escriben desde la app

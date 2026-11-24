@@ -138,6 +138,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       clientSecret:     intent.client_secret,
       paymentIntentId:  intent.id,
+      livemode:         intent.livemode,   // el cliente comprueba que su pk_ es del MISMO modo (test/live)
       totalConComision: totalConComisionCent,
       totalNeto:        totalNetoCent,
       gastosGestion:    gastosGestionCent,

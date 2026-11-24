@@ -154,6 +154,7 @@ export default async function handler(req, res) {
     await pedidoRef.update({ stripePaymentId: intent.id })
     return res.status(200).json({
       pedidoId, clientSecret: intent.client_secret, paymentIntentId: intent.id,
+      livemode: intent.livemode,   // el cliente comprueba que su pk_ es del MISMO modo (test/live)
       inscripcionIds: ids,
       lineas: lineas.map((l, i) => ({ inscripcionId: ids[i], tipo: l.tipo, asistenteNombre: l.asistenteNombre, categoria: l.categoria, precioNetoCent: l.precioNetoCent })),
       totalNeto: totalNetoCent, totalConComision: totalConComisionCent, gastosGestion: gastosGestionCent,

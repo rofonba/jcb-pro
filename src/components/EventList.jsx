@@ -20,6 +20,7 @@ import {
   CardElement, PaymentRequestButtonElement,
 } from '@stripe/react-stripe-js'
 import { useFamilia } from '../hooks/useFamilia'
+import { checkStripeMode } from '../utils/stripeMode'
 import EventRegistrationModal from './EventRegistrationModal'
 
 // Singleton Stripe — se carga una sola vez fuera de cualquier render.
@@ -697,6 +698,8 @@ function EventPaymentSection({ event, user, fallero, adultCount, childCount, com
         const data = await res.json()
         if (cancelled) return
         if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+        const modeErr = checkStripeMode(data.livemode)
+        if (modeErr) throw new Error(modeErr)
         setClientSecret(data.clientSecret)
         setIntentTotals({
           total:  data.totalConComision,
