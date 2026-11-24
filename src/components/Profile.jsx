@@ -182,15 +182,9 @@ function ContactSection({ fallero, userId, onUpdate }) {
   )
 }
 
-// ─── Pase de Fallero: QR permanente fijo en el perfil ─────────────────────────
-// El mismo QR que en Check-in (`JCB-USER:<uid>`): identifica a la persona, no a una entrada.
-// Blanco puro y alto contraste para poder escanearlo directamente desde aquí.
-function PaseQrCard({ uid, nombre, rol, numeroCenso }) {
-  const [open,   setOpen]   = useState(false)
+// ─── Entradas vinculadas al QR (para el modal ampliado): mías o pagadas por otro, de hoy en adelante
+function useMyQrEvents(uid, open) {
   const [events, setEvents] = useState([])
-  const value = `JCB-USER:${uid}`
-  const ROLE = { admin: '👑 Admin', directiva: '⭐ Directiva', fallero: '🔥 Fallero' }
-
   // Entradas vinculadas (para el modal ampliado): mías o pagadas por otro, de hoy en adelante
   useEffect(() => {
     if (!open || !uid) return
@@ -221,30 +215,15 @@ function PaseQrCard({ uid, nombre, rol, numeroCenso }) {
     })()
     return () => { alive = false }
   }, [open, uid])
-
-  return (
-    <div style={{ background: '#ffffff', border: '2px solid #111', borderRadius: 20, padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
-      <p style={{ margin: '0 0 12px', fontSize: 11, fontWeight: 900, letterSpacing: '0.16em', textTransform: 'uppercase', color: '#B8860B' }}>🪪 Pase de fallero · QR permanente</p>
-      <div style={{ padding: 10, background: '#fff', border: '2px solid #000', borderRadius: 16 }}>
-        <QRCodeSVG value={value} size={210} level="M" bgColor="#ffffff" fgColor="#000000" />
-      </div>
-      <p style={{ margin: '12px 0 0', fontSize: 20, fontWeight: 900, color: '#000', textAlign: 'center', lineHeight: 1.15 }}>{nombre}</p>
-      <p style={{ margin: '3px 0 0', fontSize: 13, fontWeight: 700, color: '#374151' }}>
-        {ROLE[rol] ?? ROLE.fallero}{Number.isInteger(numeroCenso) ? ` · Nº ${String(numeroCenso).padStart(3, '0')}` : ''}
-      </p>
-      <p style={{ margin: '6px 0 12px', fontSize: 11, color: '#6B7280', textAlign: 'center' }}>Enséñalo en la puerta: vale para todos tus eventos pagados.</p>
-      <button onClick={() => setOpen(true)}
-        style={{ width: '100%', minHeight: 46, background: '#111827', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>
-        🔍 Ampliar QR
-      </button>
-      {open && <QrPass uid={uid} nombre={nombre} rol={rol} numeroCenso={numeroCenso} events={events} onClose={() => setOpen(false)} />}
-    </div>
-  )
+  return events
 }
 
 // ─── Carnet Digital (dark — es un carnet físico) ──────────────────────────────
-function CarnetDigital({ nombre, numeroCenso, distintivo, altaYear, rol, isLoading }) {
+function CarnetDigital({ uid, nombre, numeroCenso, distintivo, altaYear, rol, isLoading }) {
   const isAdmin   = rol === 'admin'
+  // Mini-tarjeta QR (pase permanente JCB-USER:<uid>) integrada en el carnet; al tocar, modal ampliado
+  const [qrOpen, setQrOpen] = useState(false)
+  const qrEvents = useMyQrEvents(uid, qrOpen)
   // Nº del censo oficial de la falla (volcado desde el Excel). Sin número todavía → '---'
   const numDisplay = numeroCenso != null ? String(numeroCenso).padStart(3, '0') : '---'
   const dist = formatDistintivo(distintivo)
@@ -290,8 +269,9 @@ function CarnetDigital({ nombre, numeroCenso, distintivo, altaYear, rol, isLoadi
         )}
       </div>
 
-      {/* Body */}
-      <div style={{ padding: '1.5rem 1.25rem' }}>
+      {/* Body: datos a la izquierda · mini-tarjeta QR a la derecha (baja de línea si no cabe) */}
+      <div style={{ padding: '1.5rem 1.25rem', display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: '1rem 1.25rem' }}>
+      <div style={{ flex: '1 1 180px', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', marginBottom: '1.25rem' }}>
           <div style={{
             width: 64, height: 64, flexShrink: 0,
@@ -381,6 +361,21 @@ function CarnetDigital({ nombre, numeroCenso, distintivo, altaYear, rol, isLoadi
           )}
         </div>
       </div>
+
+        {/* Mini-tarjeta QR: blanco puro con margen para lectura rápida por cámara */}
+        {uid && !isLoading && (
+          <button type="button" onClick={() => setQrOpen(true)} aria-label="Ampliar pase QR"
+            className="bg-white p-2.5 rounded-xl shadow-md"
+            style={{ flex: '0 0 auto', alignSelf: 'center', margin: '0 auto', border: 'none', cursor: 'pointer', minHeight: 'auto', minWidth: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+            <QRCodeSVG value={`JCB-USER:${uid}`} size={124} level="M" bgColor="#ffffff" fgColor="#000000" includeMargin={false} />
+            <span style={{ fontSize: '0.55rem', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#374151', whiteSpace: 'nowrap' }}>Pase QR · Toca para ampliar</span>
+          </button>
+        )}
+      </div>
+
+      {qrOpen && uid && (
+        <QrPass uid={uid} nombre={nombre} rol={rol} numeroCenso={numeroCenso} events={qrEvents} onClose={() => setQrOpen(false)} />
+      )}
 
       {/* Bottom strip */}
       <div style={{ height: '4px', background: 'linear-gradient(90deg, #CE1126, #D4AF37, #F5D06A, #D4AF37, #CE1126)' }} />
@@ -1317,10 +1312,8 @@ export default function Profile() {
         <p style={{ fontSize: 13, color: TEXT2, margin: 0 }}>Tu carnet digital de fallero</p>
       </div>
 
-      <CarnetDigital nombre={nombre} numeroCenso={fallero?.numeroCenso ?? null} distintivo={fallero?.distintivo ?? null} altaYear={fallero?.altaYear ?? null} rol={rol} isLoading={loading} />
+      <CarnetDigital uid={user?.uid ?? null} nombre={nombre} numeroCenso={fallero?.numeroCenso ?? null} distintivo={fallero?.distintivo ?? null} altaYear={fallero?.altaYear ?? null} rol={rol} isLoading={loading} />
 
-      {/* Pase de fallero: QR permanente, siempre visible */}
-      {user && <PaseQrCard uid={user.uid} nombre={nombre} rol={rol} numeroCenso={fallero?.numeroCenso ?? null} />}
 
       {/* Info */}
       <Card>

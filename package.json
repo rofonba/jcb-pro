@@ -16,6 +16,8 @@
     "firebase-admin": "^13.4.0",
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^1.8.0",
+    "node-forge": "^1.4.4",
+    "passkit-generator": "^3.3.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
